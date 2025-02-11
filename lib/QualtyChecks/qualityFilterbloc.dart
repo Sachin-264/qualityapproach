@@ -29,7 +29,14 @@ class Branch {
 
 abstract class BranchEvent {}
 
-class FetchBranches extends BranchEvent {}
+class FetchBranches extends BranchEvent {
+  final String ucode;
+  final String ccode;
+  final String val1;
+  final String str;
+
+  FetchBranches(this.ucode, this.ccode, this.val1, this.str);
+}
 
 // Bloc States
 
@@ -61,7 +68,7 @@ class BranchBloc extends Bloc<BranchEvent, BranchState> {
     emit(BranchLoading());
     try {
       final response = await http.get(Uri.parse(
-          "https://www.aquare.co.in/mobileAPI/ERP_getValues.php?type=sp_GetBranchName&ucode=157.0&ccode=0.0&val1=157.0&val2=&val3=&val4=&val5=&val6=&val8=eTFKdGFqMG5ibWN0NGJ4ekIxUG8zbzRrNXZFbGQxaW96dHpteFFQdEdWQ2kzcnNBQlk1b1BpYW0wNy80Q3FXNlFwVnF6Zkl4ZzU1dU9ZS1lwWWxqUWc9PQ=="));
+          "https://www.aquare.co.in/mobileAPI/ERP_getValues.php?type=sp_GetBranchName&ucode=${event.ucode}&ccode=${event.ccode}&val1=${event.val1}&val2=&val3=&val4=&val5=&val6=&val8=${event.str}"));
 
       if (response.statusCode == 200) {
         List<dynamic> data = json.decode(response.body);

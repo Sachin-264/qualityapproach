@@ -1,12 +1,13 @@
-import 'dart:convert';
+import 'dart:developer';
+
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:http/http.dart' as http;
 import 'package:equatable/equatable.dart';
+import 'package:qualityapproach/QUALITY_API.DART';
+// Import API file
 
 // Events
 abstract class MRNReportEvent extends Equatable {
   const MRNReportEvent();
-
   @override
   List<Object> get props => [];
 }
@@ -16,22 +17,23 @@ class FetchMRNReport extends MRNReportEvent {
   final String fromDate;
   final String toDate;
   final String pending;
+  final String str;
 
   FetchMRNReport({
     required this.branchCode,
     required this.fromDate,
     required this.toDate,
     required this.pending,
+    required this.str,
   });
 
   @override
-  List<Object> get props => [branchCode, fromDate, toDate, pending];
+  List<Object> get props => [branchCode, fromDate, toDate, pending, str];
 }
 
 // States
 abstract class MRNReportState extends Equatable {
   const MRNReportState();
-
   @override
   List<Object> get props => [];
 }
@@ -42,57 +44,42 @@ class MRNReportLoading extends MRNReportState {}
 
 class MRNReportLoaded extends MRNReportState {
   final List<Map<String, dynamic>> reports;
-
   const MRNReportLoaded({required this.reports});
-
   @override
   List<Object> get props => [reports];
 }
 
 class MRNReportError extends MRNReportState {
-  final String errorMessage;
+  final String message;
 
-  const MRNReportError(this.errorMessage);
+  MRNReportError(this.message);
 
   @override
-  List<Object> get props => [errorMessage];
-
-  String get message => errorMessage;
+  List<Object> get props => [message];
 }
 
-// BLoC
+// Bloc
 class MRNReportBloc extends Bloc<MRNReportEvent, MRNReportState> {
   MRNReportBloc() : super(MRNReportInitial()) {
     on<FetchMRNReport>((event, emit) async {
       print(
-          'FetchMRNReport received with branchCode: ${event.branchCode}, fromDate: ${event.fromDate}, toDate: ${event.toDate}, pending: ${event.pending}');
+          'Fetching MRNReport with branchCode: ${event.branchCode}, fromDate: ${event.fromDate}, toDate: ${event.toDate}, pending: ${event.pending}');
+
       emit(MRNReportLoading());
 
       try {
-        // Construct the API URL with filter parameters
-        final url = Uri.parse(
-            'http://192.168.172.119/AquavivaAPI/get_mrn_qc_details.php?BranchCode=${event.branchCode}&FromDate=${event.fromDate}&ToDate=${event.toDate}&Level1=&UserCode=0&Company_QC_SingleLevel=&Branch_QC_Level=0&Pending= ${event.pending}');
+        final reports = await QualityAPI.getMRNReport(
+          branchCode: event.branchCode,
+          fromDate: event.fromDate,
+          toDate: event.toDate,
+          pending: event.pending,
+          str: event.str,
+        );
 
-        print('API URL: $url');
+        log('MRNReport loaded: $reports');
 
-        // Make the API request
-        final response = await http.get(url);
-
-        print('API Response Status Code: ${response.statusCode}');
-        print('API Response Body: ${response.body}');
-
-        if (response.statusCode == 200) {
-          final List<dynamic> jsonList = json.decode(response.body);
-          final reports = jsonList.cast<Map<String, dynamic>>();
-
-          emit(MRNReportLoaded(reports: reports));
-        } else {
-          emit(
-              MRNReportError('Failed to load reports: ${response.statusCode}'));
-        }
+        emit(MRNReportLoaded(reports: reports));
       } catch (e) {
-        print('Error: $e');
-        // print('Stack Trace: ${e.stackTrace}');
         emit(MRNReportError('An error occurred: $e'));
       }
     });

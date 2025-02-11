@@ -12,13 +12,11 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
-import 'package:qualityapproach/Warranty/BlocWarranty.dart';
-import 'package:qualityapproach/Warranty/Warranty.dart';
 // ignore: depend_on_referenced_packages
 import 'package:universal_html/html.dart' as html;
 
 class ComplaintPage extends StatelessWidget {
-  const ComplaintPage({super.key});
+  ComplaintPage();
 
   ListTile _createDrawerItem(
       {required IconData icon,

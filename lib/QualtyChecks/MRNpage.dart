@@ -1,5 +1,6 @@
 import 'dart:developer'; // For logging
-
+import 'dart:io'; // For file operations
+import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pluto_grid/pluto_grid.dart';
@@ -8,8 +9,6 @@ import 'package:pdf/pdf.dart'; // For PDF export
 import 'package:pdf/widgets.dart' as pw; // For PDF export
 import 'package:path_provider/path_provider.dart'; // For file storage
 import 'package:qualityapproach/QualtyChecks/MRNDetail.dart';
-import 'dart:io'; // For file operations
-import 'dart:io' as io;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:universal_html/html.dart' as html;
 
@@ -20,12 +19,18 @@ class MRNReportPage extends StatelessWidget {
   final String fromDate;
   final String toDate;
   final String pending;
+  final String str;
+  final double UserCode;
+  final int UserGroupCode;
 
   const MRNReportPage({
     required this.branchCode,
     required this.fromDate,
     required this.toDate,
     required this.pending,
+    required this.str,
+    required this.UserCode,
+    required this.UserGroupCode,
   });
 
   @override
@@ -37,6 +42,7 @@ class MRNReportPage extends StatelessWidget {
           fromDate: fromDate,
           toDate: toDate,
           pending: pending,
+          str: str,
         )),
       child: Scaffold(
         appBar: AppBar(
@@ -123,7 +129,11 @@ class MRNReportPage extends StatelessWidget {
             ),
             Expanded(
               child: MRNReportGrid(
-                  branchCode: branchCode), // This will take the remaining space
+                branchCode: branchCode,
+                str: str,
+                UserCode: UserCode,
+                UserGroupCode: UserGroupCode,
+              ), // This will take the remaining space
             ),
           ],
         ),
@@ -259,8 +269,16 @@ class MRNReportPage extends StatelessWidget {
 
 class MRNReportGrid extends StatelessWidget {
   final String branchCode;
+  final String str;
+  final double UserCode;
+  final int UserGroupCode;
 
-  const MRNReportGrid({required this.branchCode, super.key});
+  const MRNReportGrid(
+      {required this.branchCode,
+      super.key,
+      required this.str,
+      required this.UserCode,
+      required this.UserGroupCode});
 
   @override
   Widget build(BuildContext context) {
@@ -338,6 +356,7 @@ class MRNReportGrid extends StatelessWidget {
             onTap: () {
               _navigateToMRNDetails(
                 context,
+                str,
                 branchCode,
                 rendererContext.row.cells['MRN No']?.value.toString() ?? 'N/A',
                 rendererContext.row.cells['MRN Date']?.value.toString() ??
@@ -347,6 +366,11 @@ class MRNReportGrid extends StatelessWidget {
                 rendererContext.row.cells['Item Name']?.value.toString() ??
                     'N/A',
                 rendererContext.row.cells['ItemNo']?.value.toString() ?? 'N/A',
+                rendererContext.row.cells['Quantity']?.value.toString() ??
+                    'N/A',
+                rendererContext.row.cells['RecNo']?.value.toString() ?? 'N/A',
+                UserCode,
+                UserGroupCode,
               );
             },
             child: Container(
@@ -383,6 +407,7 @@ class MRNReportGrid extends StatelessWidget {
           'Item Name': PlutoCell(value: report['ItemName'] ?? 'N/A'),
           'Quantity': PlutoCell(value: report['SNo'] ?? 'N/A'),
           'ItemNo': PlutoCell(value: report['ItemNo'] ?? 'N/A'),
+          'RecNo': PlutoCell(value: report['RecNo'] ?? 'N/A'),
           'status': PlutoCell(value: 'Select'),
         },
       );
@@ -391,23 +416,46 @@ class MRNReportGrid extends StatelessWidget {
 
   void _navigateToMRNDetails(
     BuildContext context,
+    String str,
     String branchCode,
     String mrnNo,
     String mrnDate,
     String vendorName,
     String itemName,
     String itemNo,
+    String itemSno,
+    String RecNo,
+    double UserCode,
+    int UserGroupCode,
   ) {
+    print('Navigating with the following parameters:');
+    print('str: $str');
+    print('branchCode: $branchCode');
+    print('mrnNo: $mrnNo');
+    print('mrnDate: $mrnDate');
+    print('vendorName: $vendorName');
+    print('itemName: $itemName');
+    print('itemNo: $itemNo');
+    print('itemSNo: $itemSno');
+    print('RecNo: $RecNo');
+    print('UserCode: $UserCode');
+    print('UserGroupCode: $UserGroupCode');
+
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MRNDetailsPage(
+          str: str,
           branchCode: branchCode,
           mrnNo: mrnNo,
           mrnDate: mrnDate,
           vendorName: vendorName,
           itemName: itemName,
           itemNo: itemNo,
+          itemSno: itemSno,
+          RecNo: RecNo,
+          UserCode: UserCode,
+          UserGroupCode: UserGroupCode,
         ),
       ),
     );

@@ -1,12 +1,21 @@
 import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:qualityapproach/QualtyChecks/MRNpage.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/main.dart';
 
 class QualityFilterPage extends StatefulWidget {
+  final String str =
+      'aHNMelI1dHcyQlJWSk14OGhYZkFTRWI1SlRIMitDd3Y2K0pjWHBCLzlxd0FNMW8zSmpDR08zb2ZmOGptVERyYg==';
+  final String ucode = '1';
+  final String ccode = '0.0';
+  final String val1 = '157.0';
+  final double UserCode = 1.0;
+  final int UserGroupCode = 1;
+
+  const QualityFilterPage();
   @override
   _QualityFilterPageState createState() => _QualityFilterPageState();
 }
@@ -21,7 +30,12 @@ class _QualityFilterPageState extends State<QualityFilterPage> {
   @override
   void initState() {
     super.initState();
-    BlocProvider.of<BranchBloc>(context).add(FetchBranches());
+    BlocProvider.of<BranchBloc>(context).add(FetchBranches(
+      widget.ucode,
+      widget.ccode,
+      widget.val1,
+      widget.str,
+    ));
   }
 
   Future<void> _selectDate(BuildContext context, bool isFromDate) async {
@@ -250,6 +264,9 @@ class _QualityFilterPageState extends State<QualityFilterPage> {
                                   toDate:
                                       DateFormat('dd-MM-yyyy').format(toDate),
                                   pending: status,
+                                  str: widget.str,
+                                  UserCode: widget.UserCode,
+                                  UserGroupCode: widget.UserGroupCode,
                                 )));
                   },
                   child: Row(
