@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class QualityAPI {
-  static const String baseUrl = "http://10.0.2.2/AquavivaAPI";
+  static const String baseUrl = "http://localhost/AquavivaAPI";
 
   /// Fetches item quality parameters
   static Future<List<Map<String, dynamic>>> getItemQualityParameters({
@@ -80,6 +80,7 @@ class QualityAPI {
 
     try {
       final Map<String, dynamic> requestBody = {
+        // 'str':str,
         'UserCode': UserCode,
         'UserGroupCode': UserGroupCode,
         'RecNo': RecNo,
@@ -97,7 +98,7 @@ class QualityAPI {
         body: json.encode(requestBody),
       );
 
-      _logResponse(url, response);
+      // _logResponse(url, response);
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
@@ -120,9 +121,9 @@ class QualityAPI {
   }
 
   /// Logs the response for debugging purposes
-  static void _logResponse(Uri url, http.Response response) {
-    print('API URL: $url');
-    print('Response Status Code: ${response.statusCode}');
-    print('Response Body: ${response.body}');
-  }
+  // static void _logResponse(Uri url, http.Response response) {
+  //   print('API URL: $url');
+  //   print('Response Status Code: ${response.statusCode}');
+  //   print('Response Body: ${response.body}');
+  // }
 }

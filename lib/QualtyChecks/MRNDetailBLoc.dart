@@ -26,13 +26,15 @@ class FetchMRNDetailEvent extends MRNDetailEvent {
 
 class SubmitMRNDetailEvent extends MRNDetailEvent {
   final String signature;
-
   final List<Map<String, dynamic>> qualityParameters;
 
   SubmitMRNDetailEvent({
     required this.signature,
     required this.qualityParameters,
   });
+
+  @override
+  List<Object> get props => [signature, qualityParameters];
 }
 
 class ResetObservedValueEvent extends MRNDetailEvent {}
@@ -104,8 +106,8 @@ class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
     on<SubmitMRNDetailEvent>(_onSubmitMRNDetail);
   }
 
-  Future<void> _onFetchMRNDetail(
-      FetchMRNDetailEvent event, Emitter<MRNDetailState> emit) async {
+  Future<void> _onFetchMRNDetail(FetchMRNDetailEvent event,
+      Emitter<MRNDetailState> emit) async {
     emit(MRNDetailLoading());
     try {
       final data = await QualityAPI.getItemQualityParameters(
@@ -121,82 +123,53 @@ class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
     }
   }
 
-  void _onResetObservedValue(
-      ResetObservedValueEvent event, Emitter<MRNDetailState> emit) {
+  void _onResetObservedValue(ResetObservedValueEvent event,
+      Emitter<MRNDetailState> emit) {
     if (_initialQualityParameters != null) {
       emit(MRNDetailLoaded(qualityParameters: _initialQualityParameters!));
     }
   }
 
-  Future<void> _onSubmitMRNDetail(
-      SubmitMRNDetailEvent event, Emitter<MRNDetailState> emit) async {
+  Future<void> _onSubmitMRNDetail(SubmitMRNDetailEvent event,
+      Emitter<MRNDetailState> emit) async {
     if (state is MRNDetailLoaded) {
-      final currentState = state as MRNDetailLoaded;
       emit(MRNDetailSubmitting());
 
-      print('Submitting MRN Detail...');
-      print('Current State: $currentState');
-
-      // Validate and parse RecNo
-      int recNoInt;
-      try {
-        recNoInt = double.parse(RecNo).toInt(); // Convert "1.0" to 1
-      } catch (e) {
-        print('Error parsing RecNo: $e');
-        emit(const MRNDetailSubmitError(message: 'Invalid RecNo format'));
-        return;
-      }
-
-      // Prepare FileDetail with correct SNo as int
-      final List<Map<String, dynamic>> fileDetail =
-          event.qualityParameters.asMap().entries.map((entry) {
-        final int index = entry.key;
-        final Map<String, dynamic> param = entry.value;
-
+      final List<Map<String, dynamic>> fileDetail = event.qualityParameters
+          .map((param) {
         return {
-          'SNo': index + 1, // Ensure SNo is an integer starting from 1
+          'SNo': param['SNo'] ?? '',
           'QualityParameter': param['QualityParameter'].toString(),
           'StdRange': param['StdRange'].toString(),
           'StdOptions': param['StdOptions'].toString(),
-          'Remarks': param['Remarks'].toString(),
+          'ObservedValue': param['ObservedValue']?.toString() ?? '',
+          'Remarks': param['Remarks']?.toString() ?? '',
+          'Pass(Yes/No)': param['Pass(Yes/No)']?.toString() ?? '',
         };
       }).toList();
 
       try {
-        final qualityAPI = QualityAPI();
-        print('Calling submitMRNQualityParameters API...');
-        print('Parameters:');
-        print('str: $str');
-        print('UserCode: $UserCode');
-        print('UserGroupCode: $UserGroupCode');
-        print('RecNo: $recNoInt');
-        print('itemSno: $itemSno');
-        print('itemNo: $itemNo');
-        print('signature: ${event.signature}');
-        print('qualityParameters: $fileDetail');
-
+        final int parsedRecNo = int.tryParse(RecNo) ?? 1;
+        final int parsedItemSno = int.tryParse(itemSno) ?? 0;
         final success = await QualityAPI.submitMRNQualityParameters(
           str: str,
           UserCode: UserCode,
           UserGroupCode: UserGroupCode,
-          RecNo: recNoInt, // Use the parsed integer value
-          ItemSno: int.parse(itemSno),
+          RecNo: parsedRecNo,
+          ItemSno: parsedItemSno,
           ItemNo: itemNo,
           signature: event.signature,
-          FileDetail: fileDetail, // Use the formatted FileDetail
+          FileDetail: fileDetail,
         );
+        print('RecNo: $RecNo, str:$str, itemSno: $itemSno');
 
-        print('API Response: $success');
 
         if (success) {
-          print('MRN Detail submitted successfully.');
           emit(MRNDetailSubmitSuccess());
         } else {
-          print('Failed to submit MRN Detail.');
           emit(const MRNDetailSubmitError(message: 'Failed to submit data'));
         }
       } catch (e) {
-        print('Error submitting MRN Detail: $e');
         emit(MRNDetailSubmitError(message: e.toString()));
       }
     }

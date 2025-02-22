@@ -18,14 +18,6 @@ class MRNConstants {
   );
 
   static const valueStyle = TextStyle(fontSize: 16);
-
-  // Grid Configurations
-  static const gridColumns = [
-    'QUALITY STANDARD NAME',
-    'STANDARD RANGE',
-    'STANDARD OPTIONS',
-    'OBSERVED VALUE',
-  ];
 }
 
 class MRNDetailsPage extends StatelessWidget {
@@ -58,6 +50,7 @@ class MRNDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    print('STR: $str');
     return BlocProvider(
       create: (context) => MRNDetailBloc(
         str: str,
@@ -66,13 +59,15 @@ class MRNDetailsPage extends StatelessWidget {
         itemSno: itemSno,
         itemNo: itemNo,
         RecNo: RecNo,
-      )..add(FetchMRNDetailEvent(
-          branchCode: branchCode, itemNo: itemNo, str: str)),
+      )..add(FetchMRNDetailEvent(branchCode: branchCode, itemNo: itemNo, str: str)),
       child: MRNDetailsView(
         mrnNo: mrnNo,
         mrnDate: mrnDate,
         vendorName: vendorName,
         itemName: itemName,
+        branchCode: branchCode,
+        itemNo: itemNo,
+        str: str,
       ),
     );
   }
@@ -83,6 +78,9 @@ class MRNDetailsView extends StatefulWidget {
   final String mrnDate;
   final String vendorName;
   final String itemName;
+  final String branchCode;
+  final String itemNo;
+  final String str;
 
   const MRNDetailsView({
     Key? key,
@@ -90,6 +88,9 @@ class MRNDetailsView extends StatefulWidget {
     required this.mrnDate,
     required this.vendorName,
     required this.itemName,
+    required this.branchCode,
+    required this.itemNo,
+    required this.str,
   }) : super(key: key);
 
   @override
@@ -99,6 +100,7 @@ class MRNDetailsView extends StatefulWidget {
 class _MRNDetailsViewState extends State<MRNDetailsView> {
   late final SignatureController _signatureController;
   final ScrollController _scrollController = ScrollController();
+  List<Map<String, dynamic>> _latestParameters = [];
 
   @override
   void initState() {
@@ -108,6 +110,12 @@ class _MRNDetailsViewState extends State<MRNDetailsView> {
       penColor: Colors.black,
       exportBackgroundColor: Colors.white,
     );
+  }
+
+  void updateLatestParameters(List<Map<String, dynamic>> parameters) {
+    setState(() {
+      _latestParameters = parameters;
+    });
   }
 
   @override
@@ -136,12 +144,18 @@ class _MRNDetailsViewState extends State<MRNDetailsView> {
                     itemName: widget.itemName,
                   ),
                   const SizedBox(height: MRNConstants.spacing),
-                  const QualityParametersGrid(),
+                  QualityParametersTable(
+                    branchCode: widget.branchCode,
+                    itemNo: widget.itemNo,
+                    str: widget.str,
+                    onParametersUpdated: updateLatestParameters,
+                  ),
                   const SizedBox(height: MRNConstants.spacing),
                   SignatureSection(controller: _signatureController),
                   const SizedBox(height: MRNConstants.spacing),
                   ActionButtonsSection(
                     signatureController: _signatureController,
+                    latestParameters: _latestParameters,
                   ),
                 ]),
               ),
@@ -235,8 +249,46 @@ class DetailRow extends StatelessWidget {
   }
 }
 
-class QualityParametersGrid extends StatelessWidget {
-  const QualityParametersGrid({Key? key}) : super(key: key);
+class QualityParametersTable extends StatefulWidget {
+  final String branchCode;
+  final String itemNo;
+  final String str;
+  final Function(List<Map<String, dynamic>>) onParametersUpdated;
+
+  const QualityParametersTable({
+    Key? key,
+    required this.branchCode,
+    required this.itemNo,
+    required this.str,
+    required this.onParametersUpdated,
+  }) : super(key: key);
+
+  @override
+  _QualityParametersTableState createState() => _QualityParametersTableState();
+}
+
+class _QualityParametersTableState extends State<QualityParametersTable> {
+  final Map<int, Map<String, TextEditingController>> _controllers = {};
+  final Map<int, String?> _passDropdownValues = {}; // Store dropdown values
+  List<Map<String, dynamic>> _latestParameters = [];
+
+  void _onValueChanged(int index, String field, String value) {
+    setState(() {
+      _latestParameters[index][field] = value;
+    });
+
+    widget.onParametersUpdated(_latestParameters);
+  }
+
+  @override
+  void dispose() {
+    _controllers.forEach((_, rowControllers) {
+      rowControllers.forEach((_, controller) {
+        controller.dispose();
+      });
+    });
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -246,99 +298,110 @@ class QualityParametersGrid extends StatelessWidget {
         if (state is MRNDetailLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-
         if (state is MRNDetailError) {
           return Center(child: Text(state.message));
         }
-
         if (state is MRNDetailLoaded) {
-          return SizedBox(
-            height: MRNConstants.gridHeight,
-            child: PlutoGrid(
-              columns: _buildColumns(),
-              rows: _buildRows(state.qualityParameters),
-              onLoaded: (PlutoGridOnLoadedEvent event) {
-                event.stateManager.setShowColumnFilter(true);
-              },
-              configuration: const PlutoGridConfiguration(
-                columnSize: PlutoGridColumnSizeConfig(
-                  autoSizeMode: PlutoAutoSizeMode.scale,
-                ),
-                style: PlutoGridStyleConfig(
-                  cellTextStyle: TextStyle(fontSize: 14),
-                  columnTextStyle: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
+          _latestParameters = state.qualityParameters;
+          _initializeControllers(state.qualityParameters);
+          return Card(
+            color: Colors.white,
+            elevation: 4,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(10.0),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minWidth: MediaQuery.of(context).size.width),
+                  child: DataTable(
+                    columnSpacing: 20,
+                    border: TableBorder.all(color: Colors.grey.shade300),
+                    columns: _buildColumns(),
+                    rows: _buildRows(context),
                   ),
                 ),
               ),
             ),
           );
         }
-
         return const SizedBox.shrink();
       },
     );
   }
 
-  List<PlutoColumn> _buildColumns() {
+  void _initializeControllers(List<Map<String, dynamic>> parameters) {
+    for (int i = 0; i < parameters.length; i++) {
+      _controllers[i] ??= {
+        'ObservedValue': TextEditingController(text: parameters[i]['ObservedValue']?.toString() ?? ''),
+        'Remarks': TextEditingController(text: parameters[i]['Remarks']?.toString() ?? ''),
+        'Pass(Yes/No)': TextEditingController(text: parameters[i]['Pass(Yes/No)']?.toString() ?? ''),
+      };
+      // Initialize dropdown value
+      _passDropdownValues[i] = parameters[i]['Pass(Yes/No)']?.toString();
+    }
+  }
+
+  List<DataColumn> _buildColumns() {
     return [
-      PlutoColumn(
-        title: 'QUALITY STANDARD NAME',
-        field: 'QualityParameter',
-        type: PlutoColumnType.text(),
-        enableEditingMode: false,
-      ),
-      PlutoColumn(
-        title: 'STANDARD RANGE',
-        field: 'StdRange',
-        type: PlutoColumnType.text(),
-        enableEditingMode: false,
-      ),
-      PlutoColumn(
-        title: 'STANDARD OPTIONS',
-        field: 'StdOptions',
-        type: PlutoColumnType.text(),
-        enableEditingMode: false,
-      ),
-      PlutoColumn(
-        title: 'Observed Value',
-        field: 'ObservedValue',
-        type: PlutoColumnType.text(),
-        enableEditingMode: true,
-        renderer: _buildObservedValueRenderer,
-      ),
+      DataColumn(label: Text('Quality Standard Name', style: TextStyle(fontWeight: FontWeight.bold))),
+      DataColumn(label: Text('Standard Range', style: TextStyle(fontWeight: FontWeight.bold))),
+      DataColumn(label: Text('Standard Options', style: TextStyle(fontWeight: FontWeight.bold))),
+      DataColumn(label: Text('Observed Value', style: TextStyle(fontWeight: FontWeight.bold))),
+      DataColumn(label: Text('Remarks', style: TextStyle(fontWeight: FontWeight.bold))),
+      DataColumn(label: Text('Pass(Yes/No)', style: TextStyle(fontWeight: FontWeight.bold))),
     ];
   }
 
-  Widget _buildObservedValueRenderer(PlutoColumnRendererContext context) {
-    final value = context.cell.value?.toString() ?? '';
-    final parsedValue = double.tryParse(value);
+  List<DataRow> _buildRows(BuildContext parentContext) {
+    return List.generate(_latestParameters.length, (index) {
+      final param = _latestParameters[index];
+      return DataRow(cells: [
+        DataCell(Text(param['QualityParameter']?.toString() ?? '')),
+        DataCell(Text(param['StdRange']?.toString() ?? '')),
+        DataCell(Text(param['StdOptions']?.toString() ?? '')),
+        DataCell(_editableCell(index, 'ObservedValue', parentContext)),
+        DataCell(_editableCell(index, 'Remarks', parentContext)),
+        DataCell(_dropdownCell(index, parentContext)), // Use dropdown for Pass(Yes/No)
+      ]);
+    });
+  }
 
-    return Text(
-      parsedValue != null ? parsedValue.toString() : 'Enter observed value',
-      style: TextStyle(
-        fontSize: 14,
-        color: parsedValue == null ? Colors.grey : Colors.black,
+  Widget _editableCell(int index, String field, BuildContext parentContext) {
+    return TextField(
+      controller: _controllers[index]![field],
+      decoration: InputDecoration(
+        border: InputBorder.none,
+        isDense: true,
+        hintText: 'Enter',
+        hintStyle: TextStyle(color: Colors.grey.shade400),
       ),
+      onChanged: (value) {
+        _onValueChanged(index, field, value);
+      },
     );
   }
 
-  List<PlutoRow> _buildRows(List<Map<String, dynamic>> parameters) {
-    print(parameters); // Debugging line
-    return parameters.map((parameter) {
-      return PlutoRow(
-        cells: {
-          'QualityParameter':
-              PlutoCell(value: parameter['QualityParameter']?.toString() ?? ''),
-          'StdRange': PlutoCell(value: parameter['StdRange']?.toString() ?? ''),
-          'StdOptions':
-              PlutoCell(value: parameter['StdOptions']?.toString() ?? ''),
-          'ObservedValue':
-              PlutoCell(value: parameter['ObservedValue']?.toString() ?? ''),
-        },
-      );
-    }).toList();
+  Widget _dropdownCell(int index, BuildContext parentContext) {
+    return DropdownButton<String>(
+      value: _passDropdownValues[index],
+      items: ['Yes', 'No'].map((String value) {
+        return DropdownMenuItem<String>(
+          value: value,
+          child: Text(value),
+        );
+      }).toList(),
+      onChanged: (String? newValue) {
+        setState(() {
+          _passDropdownValues[index] = newValue;
+          _onValueChanged(index, 'Pass(Yes/No)', newValue ?? '');
+        });
+      },
+      underline: Container(), // Remove the default underline
+      isExpanded: true, // Ensure dropdown takes full width
+    );
   }
 }
 
@@ -353,37 +416,34 @@ class SignatureSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 8,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 4,
-            offset: Offset(2, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 10),
-            child: Text(
-              "Signature:",
-              style: MRNConstants.headerStyle,
-            ),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-            child: SignaturePad(controller: controller),
-          ),
-        ],
-      ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(10),
+    boxShadow: const [
+    BoxShadow(
+    color: Colors.black12,
+    blurRadius: 4,
+    offset: Offset(2, 2),
+    ),
+    ],
+    ),
+    child: Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+    Padding(
+    padding: const EdgeInsets.only(top: 10),
+    child: Text(
+    "Signature:",
+    style: MRNConstants.headerStyle,
+    ),
+    ),
+    const SizedBox(width: 15),
+    Expanded(
+    child: SignaturePad(controller: controller),
+    ),
+    ],
+    ),
     );
   }
 }
@@ -421,17 +481,11 @@ class SignaturePad extends StatelessWidget {
             onPressed: controller.clear,
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 5,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             ),
             child: const Text(
               "Clear",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 12,
-              ),
+              style: TextStyle(color: Colors.white, fontSize: 12),
             ),
           ),
         ),
@@ -442,11 +496,22 @@ class SignaturePad extends StatelessWidget {
 
 class ActionButtonsSection extends StatelessWidget {
   final SignatureController signatureController;
+  final List<Map<String, dynamic>> latestParameters;
 
   const ActionButtonsSection({
     Key? key,
     required this.signatureController,
+    required this.latestParameters,
   }) : super(key: key);
+
+  bool _areAllObservedValuesFilled() {
+    for (var param in latestParameters) {
+      if (param['ObservedValue'] == null || param['ObservedValue'].toString().isEmpty) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -471,13 +536,9 @@ class ActionButtonsSection extends StatelessWidget {
               onPressed: state is MRNDetailSubmitting
                   ? null
                   : () {
-                      context
-                          .read<MRNDetailBloc>()
-                          .add(ResetObservedValueEvent());
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-              ),
+                context.read<MRNDetailBloc>().add(ResetObservedValueEvent());
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
               child: const Text(
                 'Reset',
                 style: TextStyle(color: Colors.white),
@@ -488,55 +549,47 @@ class ActionButtonsSection extends StatelessWidget {
               onPressed: state is MRNDetailSubmitting
                   ? null
                   : () async {
-                      if (signatureController.isEmpty) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Please provide a signature'),
-                          ),
-                        );
-                        return;
-                      }
+                if (signatureController.isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please provide a signature')),
+                  );
+                  return;
+                }
 
-                      if (state is MRNDetailLoaded) {
-                        final signature =
-                            await signatureController.toPngBytes();
-                        if (signature != null) {
-                          final base64Signature = base64Encode(signature);
+                if (!_areAllObservedValuesFilled()) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please fill all observed values')),
+                  );
+                  return;
+                }
 
-                          // Get the quality parameters with observed values
-                          final qualityParameters =
-                              state.qualityParameters.map((param) {
-                            return {
-                              'QualityParameter':
-                                  param['QualityParameter'] ?? '',
-                              'StdRange': param['StdRange'] ?? '',
-                              'StdOptions': param['StdOptions'] ?? '',
-                              'Remarks': param['ObservedValue'] ?? '',
-                            };
-                          }).toList();
+                if (state is MRNDetailLoaded) {
+                  final signature = await signatureController.toPngBytes();
+                  print("Latest Parameters before submission: $latestParameters");
 
-                          context.read<MRNDetailBloc>().add(
-                                SubmitMRNDetailEvent(
-                                  signature: base64Signature,
-                                  qualityParameters: qualityParameters,
-                                ),
-                              );
-                        }
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green,
-              ),
+                  if (signature != null) {
+                    final base64Signature = base64Encode(signature);
+
+                    context.read<MRNDetailBloc>().add(
+                      SubmitMRNDetailEvent(
+                        signature: base64Signature,
+                        qualityParameters: latestParameters,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
               child: state is MRNDetailSubmitting
                   ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: Colors.white),
-                    )
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(color: Colors.white),
+              )
                   : const Text(
-                      'Submit',
-                      style: TextStyle(color: Colors.white),
-                    ),
+                'Submit',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         );
