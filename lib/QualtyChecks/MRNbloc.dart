@@ -76,7 +76,7 @@ class MRNReportBloc extends Bloc<MRNReportEvent, MRNReportState> {
           str: event.str,
         );
 
-        log('MRNReport loaded: $reports');
+
 
         emit(MRNReportLoaded(reports: reports));
       } catch (e) {

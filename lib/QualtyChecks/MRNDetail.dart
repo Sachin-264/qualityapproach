@@ -32,6 +32,7 @@ class MRNDetailsPage extends StatelessWidget {
   final double UserCode;
   final int UserGroupCode;
   final String RecNo;
+  final String pending;
 
   const MRNDetailsPage({
     Key? key,
@@ -46,6 +47,7 @@ class MRNDetailsPage extends StatelessWidget {
     required this.UserCode,
     required this.UserGroupCode,
     required this.RecNo,
+    required this.pending,
   }) : super(key: key);
 
   @override
@@ -59,6 +61,7 @@ class MRNDetailsPage extends StatelessWidget {
         itemSno: itemSno,
         itemNo: itemNo,
         RecNo: RecNo,
+        pending: pending,
       )..add(FetchMRNDetailEvent(branchCode: branchCode, itemNo: itemNo, str: str)),
       child: MRNDetailsView(
         mrnNo: mrnNo,

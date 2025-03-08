@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer; // Import for logging
 import 'package:http/http.dart' as http;
 
 class QualityAPI {
@@ -14,8 +15,8 @@ class QualityAPI {
         '$baseUrl/get_item_quality_parameter.php?BranchCode=$branchCode&itemNo=$itemNo&str=$str');
 
     try {
+      developer.log('Fetching item quality parameters from: $url', name: 'QualityAPI');
       final response = await http.get(url);
-      print('API URL: $url');
 
       if (response.statusCode == 200) {
         if (response.body.isNotEmpty) {
@@ -25,8 +26,7 @@ class QualityAPI {
           throw Exception('Received empty response');
         }
       } else {
-        throw Exception(
-            'Failed to load quality parameters: ${response.statusCode}');
+        throw Exception('Failed to load quality parameters: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error fetching quality parameters: $e');
@@ -46,7 +46,7 @@ class QualityAPI {
 
     try {
       final response = await http.get(url);
-      print('API URL: $url');
+      // print('API URL: $url');
 
       if (response.statusCode == 200) {
         if (response.body.isNotEmpty) {
@@ -74,13 +74,11 @@ class QualityAPI {
     required String signature,
     required List<Map<String, dynamic>> FileDetail,
   }) async {
-    final url =
-        Uri.parse('$baseUrl/post_add_mrn_quality_parameters.php?str=$str');
+    final url = Uri.parse('http://localhost/post_add_mrn_quality_parameters.php?str=$str');
     print('API URL: $url');
 
     try {
       final Map<String, dynamic> requestBody = {
-        // 'str':str,
         'UserCode': UserCode,
         'UserGroupCode': UserGroupCode,
         'RecNo': RecNo,
@@ -90,26 +88,45 @@ class QualityAPI {
         'FileDetail': FileDetail,
       };
 
-      print('Request Body: $requestBody');
-
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: json.encode(requestBody),
       );
 
-      // _logResponse(url, response);
-
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
         print('Response Data: $responseData');
 
-        // Check for the 'message' field in the response
-        if (responseData['message'] ==
-            'MRN and Quality Parameters inserted successfully') {
-          return true; // Submission successful
+        // Extract the 'message' field
+        dynamic message = responseData['message'];
+
+        if (message is String) {
+          try {
+            message = json.decode(message);
+          } catch (e) {
+            print('Failed to parse message string: $e');
+            return false;
+          }
+        }
+
+        if (message is Map<String, dynamic>) {
+          print('ResultStatus: ${message['ResultStatus']}');
+          print('ResultMsg: ${message['ResultMsg']}');
+
+          final resultStatus = message['ResultStatus']?.toString().trim();
+          final resultMsg = message['ResultMsg']?.toString().trim();
+
+          if (resultStatus == 'Success') {
+            print('Submission successful');
+            return true; // Submission successful
+          } else {
+            print('Submission failed: ResultStatus = $resultStatus, ResultMsg = $resultMsg');
+            return false; // Submission failed
+          }
         } else {
-          return false; // Submission failed
+          print('Message is still not a Map after parsing: $message');
+          return false; // Unexpected format
         }
       } else {
         throw Exception('Failed to submit: ${response.statusCode}');
@@ -120,10 +137,32 @@ class QualityAPI {
     }
   }
 
-  /// Logs the response for debugging purposes
-  // static void _logResponse(Uri url, http.Response response) {
-  //   print('API URL: $url');
-  //   print('Response Status Code: ${response.statusCode}');
-  //   print('Response Body: ${response.body}');
-  // }
+  /// Loads MRN item quality details
+  static Future<List<Map<String, dynamic>>> loadMRNItemQualityDetails({
+    required int RecNo,
+    required String ItemNo,
+    required int ItemSNo,
+    required String str,
+  }) async {
+    final url = Uri.parse(
+        '$baseUrl/sp_LoadMRNItemQualityDetails.php?RecNo=$RecNo&ItemNo=$ItemNo&ItemSNo=$ItemSNo&str=$str');
+
+    try {
+      developer.log('Fetching MRN item quality details from: $url', name: 'QualityAPI');
+      final response = await http.get(url);
+
+      if (response.statusCode == 200) {
+        if (response.body.isNotEmpty) {
+          final List<dynamic> jsonList = json.decode(response.body);
+          return jsonList.cast<Map<String, dynamic>>();
+        } else {
+          throw Exception('Received empty response');
+        }
+      } else {
+        throw Exception('Failed to load MRN item quality details: ${response.statusCode}');
+      }
+    } catch (e) {
+      throw Exception('Error fetching MRN item quality details: $e');
+    }
+  }
 }

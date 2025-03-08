@@ -133,6 +133,7 @@ class MRNReportPage extends StatelessWidget {
                 str: str,
                 UserCode: UserCode,
                 UserGroupCode: UserGroupCode,
+                pending: pending,
               ), // This will take the remaining space
             ),
           ],
@@ -272,13 +273,18 @@ class MRNReportGrid extends StatelessWidget {
   final String str;
   final double UserCode;
   final int UserGroupCode;
+  final String pending;
 
-  const MRNReportGrid(
-      {required this.branchCode,
-      super.key,
-      required this.str,
-      required this.UserCode,
-      required this.UserGroupCode});
+  const MRNReportGrid({
+    required this.branchCode,
+    required this.pending,
+    required this.str,
+    required this.UserCode,
+    required this.UserGroupCode,
+    super.key,
+  }
+
+    );
 
   @override
   Widget build(BuildContext context) {
@@ -440,12 +446,14 @@ class MRNReportGrid extends StatelessWidget {
     print('RecNo: $RecNo');
     print('UserCode: $UserCode');
     print('UserGroupCode: $UserGroupCode');
+    print('Pending: $pending');
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => MRNDetailsPage(
           str: str,
+          pending:pending,
           branchCode: branchCode,
           mrnNo: mrnNo,
           mrnDate: mrnDate,

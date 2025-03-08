@@ -1,8 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:qualityapproach/QUALITY_API.dart'; // Ensure the file name is correct
+import 'package:qualityapproach/QUALITY_API.dart'; // Ensure correct import
 
-// Events
+// Events (unchanged)
 abstract class MRNDetailEvent extends Equatable {
   const MRNDetailEvent();
   @override
@@ -39,7 +39,7 @@ class SubmitMRNDetailEvent extends MRNDetailEvent {
 
 class ResetObservedValueEvent extends MRNDetailEvent {}
 
-// States
+// States (unchanged)
 abstract class MRNDetailState extends Equatable {
   const MRNDetailState();
   @override
@@ -85,13 +85,14 @@ class MRNDetailSubmitError extends MRNDetailState {
 class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
   List<Map<String, dynamic>>? _initialQualityParameters;
 
-  // Add properties needed for submission
+  // Properties
   final String str;
   final double UserCode;
   final int UserGroupCode;
   final String itemSno;
   final String itemNo;
   final String RecNo;
+  final String pending; // Add pending parameter
 
   MRNDetailBloc({
     required this.str,
@@ -100,21 +101,36 @@ class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
     required this.itemSno,
     required this.itemNo,
     required this.RecNo,
+    required this.pending, // Include pending
   }) : super(MRNDetailInitial()) {
     on<FetchMRNDetailEvent>(_onFetchMRNDetail);
     on<ResetObservedValueEvent>(_onResetObservedValue);
     on<SubmitMRNDetailEvent>(_onSubmitMRNDetail);
   }
 
-  Future<void> _onFetchMRNDetail(FetchMRNDetailEvent event,
-      Emitter<MRNDetailState> emit) async {
+  Future<void> _onFetchMRNDetail(FetchMRNDetailEvent event, Emitter<MRNDetailState> emit) async {
     emit(MRNDetailLoading());
     try {
-      final data = await QualityAPI.getItemQualityParameters(
-        branchCode: event.branchCode,
-        itemNo: event.itemNo,
-        str: event.str,
-      );
+      List<Map<String, dynamic>> data;
+
+      if (pending.toUpperCase() == 'Y') {
+        // Use getItemQualityParameters when pending is 'Y'
+        data = await QualityAPI.getItemQualityParameters(
+          branchCode: event.branchCode,
+          itemNo: event.itemNo,
+          str: event.str,
+        );
+      } else if (pending.toUpperCase() == 'N') {
+        // Use loadMRNItemQualityDetails when pending is 'N'
+        data = await QualityAPI. loadMRNItemQualityDetails(
+          RecNo: int.tryParse(RecNo) ?? 1,
+          ItemNo: itemNo,
+          ItemSNo: int.tryParse(itemSno) ?? 0,
+          str: str,
+        );
+      } else {
+        throw Exception('Invalid pending value: $pending');
+      }
 
       _initialQualityParameters = data;
       emit(MRNDetailLoaded(qualityParameters: data));
@@ -123,22 +139,19 @@ class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
     }
   }
 
-  void _onResetObservedValue(ResetObservedValueEvent event,
-      Emitter<MRNDetailState> emit) {
+  void _onResetObservedValue(ResetObservedValueEvent event, Emitter<MRNDetailState> emit) {
     if (_initialQualityParameters != null) {
       emit(MRNDetailLoaded(qualityParameters: _initialQualityParameters!));
     }
   }
 
-  Future<void> _onSubmitMRNDetail(SubmitMRNDetailEvent event,
-      Emitter<MRNDetailState> emit) async {
+  Future<void> _onSubmitMRNDetail(SubmitMRNDetailEvent event, Emitter<MRNDetailState> emit) async {
     if (state is MRNDetailLoaded) {
       emit(MRNDetailSubmitting());
 
-      final List<Map<String, dynamic>> fileDetail = event.qualityParameters
-          .map((param) {
+      final List<Map<String, dynamic>> fileDetail = event.qualityParameters.map((param) {
         return {
-          'SNo': param['SNo'] ?? '',
+          'SNo': param['SNo'] ?? '1',
           'QualityParameter': param['QualityParameter'].toString(),
           'StdRange': param['StdRange'].toString(),
           'StdOptions': param['StdOptions'].toString(),
@@ -162,7 +175,6 @@ class MRNDetailBloc extends Bloc<MRNDetailEvent, MRNDetailState> {
           FileDetail: fileDetail,
         );
         print('RecNo: $RecNo, str:$str, itemSno: $itemSno');
-
 
         if (success) {
           emit(MRNDetailSubmitSuccess());
