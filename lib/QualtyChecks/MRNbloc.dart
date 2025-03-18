@@ -2,7 +2,7 @@ import 'dart:developer';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:qualityapproach/QUALITY_API.DART';
+import 'package:qualityapproach/QualtyChecks/QUALITY_API.DART';
 // Import API file
 
 // Events

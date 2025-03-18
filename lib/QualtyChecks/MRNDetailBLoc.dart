@@ -1,6 +1,12 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
-import 'package:qualityapproach/QUALITY_API.dart'; // Ensure correct import
+
+import 'QUALITY_API.DART';
+
+
+
+
+
 
 // Events (unchanged)
 abstract class MRNDetailEvent extends Equatable {

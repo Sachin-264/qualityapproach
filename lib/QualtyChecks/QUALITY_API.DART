@@ -145,7 +145,7 @@ class QualityAPI {
     required String str,
   }) async {
     final url = Uri.parse(
-        '$baseUrl/sp_LoadMRNItemQualityDetails.php?RecNo=$RecNo&ItemNo=$ItemNo&ItemSNo=$ItemSNo&str=$str');
+        '$baseUrl/sp_LoadMRNItemQualityDetails.php?RecNo=$RecNo&ItemNo=$ItemNo&ItemSNo=$ItemSNo&str=*$str');
 
     try {
       developer.log('Fetching MRN item quality details from: $url', name: 'QualityAPI');

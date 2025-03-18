@@ -47,6 +47,7 @@ dependencies:
   open_file: ^3.5.10
   syncfusion_flutter_xlsio: ^28.2.4
   signature: ^5.5.0
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:
