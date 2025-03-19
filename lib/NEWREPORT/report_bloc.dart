@@ -30,6 +30,15 @@ class ResetReport extends ReportEvent {
   const ResetReport();
 }
 
+class SubmitReport extends ReportEvent {
+  final String reportName;
+  final String userCode;
+  final String companyCode;
+  final String recNo;
+
+  const SubmitReport(this.reportName, this.userCode, this.companyCode, this.recNo);
+}
+
 // State
 class ReportState extends Equatable {
   final String reportName;
@@ -63,32 +72,50 @@ class ReportState extends Equatable {
 }
 
 class ReportColumn {
+  final String columnName;
   final String columnHeading;
-  final bool isVisible;
+  final String isVisible;
 
-  ReportColumn({required this.columnHeading, required this.isVisible});
+  ReportColumn({
+    required this.columnName,
+    required this.columnHeading,
+    this.isVisible = 'Y',
+  });
 
-  ReportColumn copyWith({String? columnHeading, bool? isVisible}) {
+  ReportColumn copyWith({String? columnName, String? columnHeading, String? isVisible}) {
     return ReportColumn(
+      columnName: columnName ?? this.columnName,
       columnHeading: columnHeading ?? this.columnHeading,
       isVisible: isVisible ?? this.isVisible,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'ColumnName': columnName,
+    'EnterColumnHeading': columnHeading,
+    'IsVisible': isVisible,
+  };
 }
 
 // Bloc
 class ReportBloc extends Bloc<ReportEvent, ReportState> {
   ReportBloc() : super(const ReportState()) {
+    developer.log('ReportBloc created', name: 'ReportBloc');
     on<FetchReportData>(_onFetchReportData);
     on<UpdateColumnVisibility>(_onUpdateColumnVisibility);
     on<ResetReport>(_onResetReport);
+    on<SubmitReport>(_onSubmitReport);
   }
 
-  Future<void> _onFetchReportData(
-      FetchReportData event, Emitter<ReportState> emit) async {
+  @override
+  void onChange(Change<ReportState> change) {
+    super.onChange(change);
+    developer.log('State changed: ${change.nextState.columns.length} columns', name: 'ReportBloc');
+  }
+
+  Future<void> _onFetchReportData(FetchReportData event, Emitter<ReportState> emit) async {
     developer.log('Fetching report data for UserCode: ${event.userCode}, '
-        'CompanyCode: ${event.companyCode}, RecNo: ${event.recNo}',
-        name: 'ReportBloc');
+        'CompanyCode: ${event.companyCode}, RecNo: ${event.recNo}', name: 'ReportBloc');
 
     emit(state.copyWith(isLoading: true));
     try {
@@ -97,69 +124,94 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
             'http://localhost/AquavivaAPI/sp_LoadComplaint.php?UserCode=${event.userCode}&CompanyCode=${event.companyCode}&RecNo=${event.recNo}'),
       );
 
+      developer.log('Fetch response: ${response.statusCode} - ${response.body}', name: 'ReportBloc');
+
       if (response.statusCode == 200) {
         final dynamic decodedData = json.decode(response.body);
-        List<dynamic> dataList;
-        if (decodedData is List) {
-          dataList = decodedData;
-          print('list');
-        } else if (decodedData is Map) {
-          print('map');
-          if (decodedData.containsKey('data')) {
-            dataList = decodedData['data'] as List<dynamic>;
-            print('key');
-          } else {
-            dataList = [decodedData];
-            print('i dont know');
-          }
-        } else {
-          throw Exception('Unexpected data format: ${decodedData.runtimeType}');
-        }
+        List<dynamic> dataList = decodedData is List ? decodedData : [];
 
         final columns = dataList.map((item) {
           final mapItem = item as Map<String, dynamic>;
-          final columnHeading = mapItem['ColumnHeading'] ?? 'Unknown';
+          final isVisible = mapItem['IsVisible']?.toString().trim();
           return ReportColumn(
-            columnHeading: columnHeading,
-            isVisible: true,
+            columnName: mapItem['ColumnName'] ?? 'Unknown',
+            columnHeading: mapItem['ColumnHeading'] ?? 'Unknown',
+            isVisible: (isVisible == null || isVisible.isEmpty || isVisible != 'N') ? 'Y' : 'N',
           );
         }).toList();
 
-        developer.log('Created ${columns.length} columns', name: 'ReportBloc');
+        developer.log('Fetched ${columns.length} columns: ${columns.map((c) => c.toJson()).toList()}', name: 'ReportBloc');
         emit(state.copyWith(columns: columns, isLoading: false, error: null));
       } else {
         throw Exception('API returned status code: ${response.statusCode}');
       }
     } catch (e) {
-      developer.log('Error: $e', name: 'ReportBloc', error: e);
-      emit(state.copyWith(
-        error: 'Failed to load data: ${e.toString()}',
-        isLoading: false,
-      ));
+      developer.log('Error fetching data: $e', name: 'ReportBloc', error: e);
+      emit(state.copyWith(error: 'Failed to load data: $e', isLoading: false));
     }
   }
 
-  void _onUpdateColumnVisibility(
-      UpdateColumnVisibility event, Emitter<ReportState> emit) {
-    developer.log('Updating visibility for index ${event.index} to ${event.isVisible}',
-        name: 'ReportBloc');
-
+  void _onUpdateColumnVisibility(UpdateColumnVisibility event, Emitter<ReportState> emit) {
+    if (event.index >= state.columns.length || event.index < 0) {
+      developer.log('Invalid index ${event.index} for columns length ${state.columns.length}', name: 'ReportBloc');
+      return;
+    }
+    developer.log('Updating visibility for index ${event.index} to ${event.isVisible}', name: 'ReportBloc');
     final updatedColumns = List<ReportColumn>.from(state.columns);
-    updatedColumns[event.index] = updatedColumns[event.index]
-        .copyWith(isVisible: event.isVisible);
+    updatedColumns[event.index] = updatedColumns[event.index].copyWith(isVisible: event.isVisible ? 'Y' : 'N');
     emit(state.copyWith(columns: updatedColumns));
   }
 
   void _onResetReport(ResetReport event, Emitter<ReportState> emit) {
     developer.log('Resetting report', name: 'ReportBloc');
+    final updatedColumns = state.columns.map((column) => column.copyWith(isVisible: 'Y')).toList();
+    emit(state.copyWith(columns: updatedColumns));
+  }
 
-    // Reset all column visibility to true without making an API call
-    final updatedColumns = state.columns.map((column) =>
-        column.copyWith(isVisible: true)
-    ).toList();
+  Future<void> _onSubmitReport(SubmitReport event, Emitter<ReportState> emit) async {
+    developer.log('Submitting report: ${event.reportName}', name: 'ReportBloc');
+    developer.log('Current columns before submit: ${state.columns.length}', name: 'ReportBloc');
 
-    emit(state.copyWith(
-        columns: updatedColumns
-    ));
+    if (state.columns.isEmpty) {
+      developer.log('No columns to submit!', name: 'ReportBloc');
+      emit(state.copyWith(error: 'No report data to submit', isLoading: false));
+      return;
+    }
+
+    emit(state.copyWith(isLoading: true));
+
+    try {
+      final payload = {
+        'UserCode': event.userCode,
+        'CompanyCode': event.companyCode,
+        'RecNo': '1',
+        'ReportName': event.reportName,
+        'ReportDetails': state.columns.map((column) => column.toJson()).toList(),
+      };
+
+      developer.log('Submitting JSON: ${json.encode(payload)}', name: 'ReportBloc');
+
+      final response = await http.post(
+        Uri.parse('http://localhost/AquavivaAPI/postcomplaint.php'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(payload),
+      );
+
+      developer.log('Submit response: ${response.statusCode} - ${response.body}', name: 'ReportBloc');
+
+      if (response.statusCode == 200) {
+        final responseData = json.decode(response.body);
+        if (responseData['status'] == 'success') {
+          emit(state.copyWith(isLoading: false, error: null));
+        } else {
+          throw Exception('API error: ${responseData['error']}');
+        }
+      } else {
+        throw Exception('Submit failed with status: ${response.statusCode}');
+      }
+    } catch (e) {
+      developer.log('Error submitting report: $e', name: 'ReportBloc', error: e);
+      emit(state.copyWith(error: 'Failed to submit: $e', isLoading: false));
+    }
   }
 }
