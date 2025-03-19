@@ -26,6 +26,13 @@ class UpdateColumnVisibility extends ReportEvent {
   const UpdateColumnVisibility(this.index, this.isVisible);
 }
 
+class UpdateColumnName extends ReportEvent {
+  final int index;
+  final String newName;
+
+  const UpdateColumnName(this.index, this.newName);
+}
+
 class ResetReport extends ReportEvent {
   const ResetReport();
 }
@@ -103,6 +110,7 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
     developer.log('ReportBloc created', name: 'ReportBloc');
     on<FetchReportData>(_onFetchReportData);
     on<UpdateColumnVisibility>(_onUpdateColumnVisibility);
+    on<UpdateColumnName>(_onUpdateColumnName);  // New event handler
     on<ResetReport>(_onResetReport);
     on<SubmitReport>(_onSubmitReport);
   }
@@ -159,6 +167,17 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
     developer.log('Updating visibility for index ${event.index} to ${event.isVisible}', name: 'ReportBloc');
     final updatedColumns = List<ReportColumn>.from(state.columns);
     updatedColumns[event.index] = updatedColumns[event.index].copyWith(isVisible: event.isVisible ? 'Y' : 'N');
+    emit(state.copyWith(columns: updatedColumns));
+  }
+
+  void _onUpdateColumnName(UpdateColumnName event, Emitter<ReportState> emit) {
+    if (event.index >= state.columns.length || event.index < 0) {
+      developer.log('Invalid index ${event.index} for columns length ${state.columns.length}', name: 'ReportBloc');
+      return;
+    }
+    developer.log('Updating column name for index ${event.index} to ${event.newName}', name: 'ReportBloc');
+    final updatedColumns = List<ReportColumn>.from(state.columns);
+    updatedColumns[event.index] = updatedColumns[event.index].copyWith(columnHeading: event.newName);
     emit(state.copyWith(columns: updatedColumns));
   }
 
