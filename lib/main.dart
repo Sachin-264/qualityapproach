@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
+import 'package:qualityapproach/NEWREPORT/EDIT/filterreportbloc.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
 
@@ -15,6 +16,7 @@ void main() {
         BlocProvider<BranchBloc>(create: (context) => BranchBloc()),
         BlocProvider<RetailCustomerBloc>(create: (context) => RetailCustomerBloc()),
         BlocProvider<ReportBloc>(create: (context) => ReportBloc()),
+        BlocProvider<FilterBloc>(create: (context) => FilterBloc()),
       ],
       child: MyApp(),
     ),

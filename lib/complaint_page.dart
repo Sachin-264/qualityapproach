@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
+import 'package:qualityapproach/NEWREPORT/EDIT/filterreport.dart';
 import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
@@ -19,6 +20,7 @@ import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
 import 'package:universal_html/html.dart' as html;
 
 import 'CustomerRetail/RetailFilter.dart';
+import 'NEWREPORT/EDIT/filterreportbloc.dart';
 
 class ComplaintPage extends StatelessWidget {
   ComplaintPage();
@@ -129,6 +131,21 @@ class ComplaintPage extends StatelessWidget {
                           child: QualityFilterPage(),
                         ),
                       ),
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.edit,
+                  text: 'Edit Report',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BlocProvider.value(
+                      value: context.read<FilterBloc>(),
+                      child: FilterUI(),
+                    ),
+                      )
                     );
                   },
                 ),

@@ -18,6 +18,7 @@ class _ReportPageState extends State<ReportPage> {
   final TextEditingController _reportNameController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   late List<TextEditingController> _nameControllers;
+  List<String> _originalColumnNames = []; // Added to store original names
 
   @override
   void initState() {
@@ -57,9 +58,9 @@ class _ReportPageState extends State<ReportPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Card(
-              elevation: 4, // Reverted to original elevation
+              elevation: 4,
               color: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), // Reverted to original radius
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
@@ -67,7 +68,7 @@ class _ReportPageState extends State<ReportPage> {
                   children: [
                     Text(
                       'Report Name:',
-                      style: GoogleFonts.roboto(fontSize: 18, fontWeight: FontWeight.w500, color: Colors.black87), // Reverted to original weight
+                      style: GoogleFonts.roboto(fontSize: 18, fontWeight: FontWeight.w500, color: Colors.black87),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -118,6 +119,9 @@ class _ReportPageState extends State<ReportPage> {
                         _nameControllers = state.columns
                             .map((column) => TextEditingController(text: column.columnHeading))
                             .toList();
+                        _originalColumnNames = state.columns
+                            .map((column) => column.columnHeading)
+                            .toList(); // Store original names
                       }
                     },
                     builder: (context, state) {
@@ -142,19 +146,26 @@ class _ReportPageState extends State<ReportPage> {
                                 child: SizedBox(
                                   width: double.infinity,
                                   child: DataTable(
-                                    columnSpacing: 40,
+                                    columnSpacing: 20,
                                     dataRowHeight: 70,
                                     headingRowHeight: 64,
                                     headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
                                     border: TableBorder(horizontalInside: BorderSide(color: Colors.grey.shade200, width: 1)),
                                     columns: [
-                                      DataColumn(label: Text('Name', style: GoogleFonts.roboto(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey))),
-                                      DataColumn(label: Text('Show Menu', style: GoogleFonts.roboto(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey))),
+                                      DataColumn(label: Text('Column Name', style: GoogleFonts.roboto(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey))),
+                                      DataColumn(label: Text('Column Heading', style: GoogleFonts.roboto(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey))),
+                                      DataColumn(label: Text('Select Column', style: GoogleFonts.roboto(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.blueGrey))),
                                     ],
                                     rows: List.generate(
                                       state.columns.length,
                                           (index) => DataRow(
                                         cells: [
+                                          DataCell(
+                                            Text(
+                                              _originalColumnNames.isNotEmpty ? _originalColumnNames[index] : state.columns[index].columnHeading,
+                                              style: GoogleFonts.roboto(fontSize: 14, color: Colors.black54),
+                                            ),
+                                          ),
                                           DataCell(
                                             Container(
                                               decoration: BoxDecoration(
@@ -170,7 +181,7 @@ class _ReportPageState extends State<ReportPage> {
                                               child: TextField(
                                                 controller: _nameControllers[index],
                                                 decoration: InputDecoration(
-                                                  hintText: 'Column Name',
+                                                  hintText: 'Column Heading',
                                                   hintStyle: GoogleFonts.roboto(color: Colors.grey.shade500, fontStyle: FontStyle.italic),
                                                   border: OutlineInputBorder(
                                                     borderRadius: BorderRadius.circular(8),
