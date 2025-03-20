@@ -84,7 +84,7 @@ class MainReportBloc extends Bloc<MainReportEvent, MainReportState> {
               .map((column) {
             final columnName = column['ColumnName'] as String;
             final headerName = columnName.split('.').last; // e.g., "IsComplaintType"
-            final titleName = column['ColumnHeading'] as String; // e.g., "Type of Complaint"
+            final titleName = column['EnterColumnHeading'] as String; // e.g., "Type of Complaint"
 
             developer.log(
               'Column: $columnName -> Header: $headerName -> Title: $titleName',

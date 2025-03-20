@@ -12,6 +12,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
 import 'package:qualityapproach/NEWREPORT/EDIT/filterreport.dart';
+import 'package:qualityapproach/NEWREPORT/ReportEdit/edit_bloc.dart';
+import 'package:qualityapproach/NEWREPORT/ReportEdit/edit_ui.dart';
 import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
@@ -161,6 +163,21 @@ class ComplaintPage extends StatelessWidget {
                           child: ReportPage(),
                         ),
                       ),
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.edit,
+                  text: 'Real Edit Report',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                            value: context.read<EditBloc>(),
+                            child:EditPage(),
+                          ),
+                        )
                     );
                   },
                 ),

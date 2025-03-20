@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:equatable/equatable.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 
-// Events
+// Events (unchanged)
 abstract class ReportEvent extends Equatable {
   const ReportEvent();
   @override
@@ -52,12 +52,16 @@ class ReportState extends Equatable {
   final List<ReportColumn> columns;
   final bool isLoading;
   final String? error;
+  final String? successMessage;
+  final String? resultMessage;
 
   const ReportState({
     this.reportName = '',
     this.columns = const [],
     this.isLoading = false,
     this.error,
+    this.successMessage,
+    this.resultMessage,
   });
 
   ReportState copyWith({
@@ -65,17 +69,21 @@ class ReportState extends Equatable {
     List<ReportColumn>? columns,
     bool? isLoading,
     String? error,
+    String? successMessage,
+    String? resultMessage,
   }) {
     return ReportState(
       reportName: reportName ?? this.reportName,
       columns: columns ?? this.columns,
       isLoading: isLoading ?? this.isLoading,
       error: error ?? this.error,
+      successMessage: successMessage ?? this.successMessage,
+      resultMessage: resultMessage ?? this.resultMessage,
     );
   }
 
   @override
-  List<Object?> get props => [reportName, columns, isLoading, error];
+  List<Object?> get props => [reportName, columns, isLoading, error, successMessage, resultMessage];
 }
 
 class ReportColumn {
@@ -110,7 +118,7 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
     developer.log('ReportBloc created', name: 'ReportBloc');
     on<FetchReportData>(_onFetchReportData);
     on<UpdateColumnVisibility>(_onUpdateColumnVisibility);
-    on<UpdateColumnName>(_onUpdateColumnName);  // New event handler
+    on<UpdateColumnName>(_onUpdateColumnName);
     on<ResetReport>(_onResetReport);
     on<SubmitReport>(_onSubmitReport);
   }
@@ -118,21 +126,27 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
   @override
   void onChange(Change<ReportState> change) {
     super.onChange(change);
-    developer.log('State changed: ${change.nextState.columns.length} columns', name: 'ReportBloc');
+    developer.log('State changed: ${change.nextState.columns.length} columns',
+        name: 'ReportBloc');
   }
 
-  Future<void> _onFetchReportData(FetchReportData event, Emitter<ReportState> emit) async {
+  Future<void> _onFetchReportData(FetchReportData event,
+      Emitter<ReportState> emit) async {
     developer.log('Fetching report data for UserCode: ${event.userCode}, '
-        'CompanyCode: ${event.companyCode}, RecNo: ${event.recNo}', name: 'ReportBloc');
+        'CompanyCode: ${event.companyCode}, RecNo: ${event.recNo}',
+        name: 'ReportBloc');
 
     emit(state.copyWith(isLoading: true));
     try {
       final response = await http.get(
         Uri.parse(
-            'http://localhost/AquavivaAPI/sp_LoadComplaint.php?UserCode=${event.userCode}&CompanyCode=${event.companyCode}&RecNo=${event.recNo}'),
+            'http://localhost/AquavivaAPI/sp_LoadComplaint.php?UserCode=${event
+                .userCode}&CompanyCode=${event.companyCode}&RecNo=${event
+                .recNo}'),
       );
 
-      developer.log('Fetch response: ${response.statusCode} - ${response.body}', name: 'ReportBloc');
+      developer.log('Fetch response: ${response.statusCode} - ${response.body}',
+          name: 'ReportBloc');
 
       if (response.statusCode == 200) {
         final dynamic decodedData = json.decode(response.body);
@@ -144,11 +158,15 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
           return ReportColumn(
             columnName: mapItem['ColumnName'] ?? 'Unknown',
             columnHeading: mapItem['ColumnHeading'] ?? 'Unknown',
-            isVisible: (isVisible == null || isVisible.isEmpty || isVisible != 'N') ? 'Y' : 'N',
+            isVisible: (isVisible == null || isVisible.isEmpty ||
+                isVisible != 'N') ? 'Y' : 'N',
           );
         }).toList();
 
-        developer.log('Fetched ${columns.length} columns: ${columns.map((c) => c.toJson()).toList()}', name: 'ReportBloc');
+        developer.log(
+            'Fetched ${columns.length} columns: ${columns.map((c) => c.toJson())
+                .toList()}',
+            name: 'ReportBloc');
         emit(state.copyWith(columns: columns, isLoading: false, error: null));
       } else {
         throw Exception('API returned status code: ${response.statusCode}');
@@ -159,56 +177,77 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
     }
   }
 
-  void _onUpdateColumnVisibility(UpdateColumnVisibility event, Emitter<ReportState> emit) {
+  void _onUpdateColumnVisibility(UpdateColumnVisibility event,
+      Emitter<ReportState> emit) {
     if (event.index >= state.columns.length || event.index < 0) {
-      developer.log('Invalid index ${event.index} for columns length ${state.columns.length}', name: 'ReportBloc');
+      developer.log(
+          'Invalid index ${event.index} for columns length ${state.columns
+              .length}',
+          name: 'ReportBloc');
       return;
     }
-    developer.log('Updating visibility for index ${event.index} to ${event.isVisible}', name: 'ReportBloc');
+    developer.log(
+        'Updating visibility for index ${event.index} to ${event.isVisible}',
+        name: 'ReportBloc');
     final updatedColumns = List<ReportColumn>.from(state.columns);
-    updatedColumns[event.index] = updatedColumns[event.index].copyWith(isVisible: event.isVisible ? 'Y' : 'N');
+    updatedColumns[event.index] = updatedColumns[event.index].copyWith(
+        isVisible: event.isVisible ? 'Y' : 'N');
     emit(state.copyWith(columns: updatedColumns));
   }
 
   void _onUpdateColumnName(UpdateColumnName event, Emitter<ReportState> emit) {
     if (event.index >= state.columns.length || event.index < 0) {
-      developer.log('Invalid index ${event.index} for columns length ${state.columns.length}', name: 'ReportBloc');
+      developer.log(
+          'Invalid index ${event.index} for columns length ${state.columns
+              .length}',
+          name: 'ReportBloc');
       return;
     }
-    developer.log('Updating column name for index ${event.index} to ${event.newName}', name: 'ReportBloc');
+    developer.log(
+        'Updating column name for index ${event.index} to ${event.newName}',
+        name: 'ReportBloc');
     final updatedColumns = List<ReportColumn>.from(state.columns);
-    updatedColumns[event.index] = updatedColumns[event.index].copyWith(columnHeading: event.newName);
+    updatedColumns[event.index] =
+        updatedColumns[event.index].copyWith(columnHeading: event.newName);
     emit(state.copyWith(columns: updatedColumns));
   }
 
   void _onResetReport(ResetReport event, Emitter<ReportState> emit) {
     developer.log('Resetting report', name: 'ReportBloc');
-    final updatedColumns = state.columns.map((column) => column.copyWith(isVisible: 'Y')).toList();
+    final updatedColumns = state.columns.map((column) =>
+        column.copyWith(isVisible: 'Y')).toList();
     emit(state.copyWith(columns: updatedColumns));
   }
 
-  Future<void> _onSubmitReport(SubmitReport event, Emitter<ReportState> emit) async {
+  Future<void> _onSubmitReport(SubmitReport event,
+      Emitter<ReportState> emit) async {
     developer.log('Submitting report: ${event.reportName}', name: 'ReportBloc');
-    developer.log('Current columns before submit: ${state.columns.length}', name: 'ReportBloc');
+    developer.log('Current columns before submit: ${state.columns.length}',
+        name: 'ReportBloc');
 
     if (state.columns.isEmpty) {
       developer.log('No columns to submit!', name: 'ReportBloc');
-      emit(state.copyWith(error: 'No report data to submit', isLoading: false));
+      emit(state.copyWith(error: 'No report data to submit',
+          isLoading: false,
+          resultMessage: null));
       return;
     }
 
-    emit(state.copyWith(isLoading: true));
+    emit(state.copyWith(isLoading: true,
+        resultMessage: null)); // Ensure resultMessage is cleared
 
     try {
       final payload = {
         'UserCode': event.userCode,
         'CompanyCode': event.companyCode,
-        'RecNo': '1',
+        'RecNo': '0',
         'ReportName': event.reportName,
-        'ReportDetails': state.columns.map((column) => column.toJson()).toList(),
+        'ReportDetails': state.columns.map((column) => column.toJson())
+            .toList(),
       };
 
-      developer.log('Submitting JSON: ${json.encode(payload)}', name: 'ReportBloc');
+      developer.log(
+          'Submitting JSON: ${json.encode(payload)}', name: 'ReportBloc');
 
       final response = await http.post(
         Uri.parse('http://localhost/AquavivaAPI/postcomplaint.php'),
@@ -216,21 +255,44 @@ class ReportBloc extends Bloc<ReportEvent, ReportState> {
         body: json.encode(payload),
       );
 
-      developer.log('Submit response: ${response.statusCode} - ${response.body}', name: 'ReportBloc');
+      final responseString = 'Submit response: ${response
+          .statusCode} - ${response.body}';
+      developer.log(responseString, name: 'ReportBloc');
 
       if (response.statusCode == 200) {
         final responseData = json.decode(response.body);
-        if (responseData['status'] == 'success') {
-          emit(state.copyWith(isLoading: false, error: null));
+        final resultMsg = responseData['data']['ResultMsg'] ??
+            'No message provided';
+        if (responseData['status'] == 'success' &&
+            responseData['data']['ResultStatus'] != 'Error') {
+          emit(state.copyWith(
+            isLoading: false,
+            error: null,
+            successMessage: 'Report submitted successfully',
+            resultMessage: resultMsg,
+          ));
         } else {
-          throw Exception('API error: ${responseData['error']}');
+          emit(state.copyWith(
+            isLoading: false,
+            error: resultMsg,
+            resultMessage: resultMsg,
+          ));
         }
       } else {
-        throw Exception('Submit failed with status: ${response.statusCode}');
+        emit(state.copyWith(
+          isLoading: false,
+          error: 'Submit failed with status: ${response.statusCode}',
+          resultMessage: 'Submit failed with status: ${response.statusCode}',
+        ));
       }
     } catch (e) {
-      developer.log('Error submitting report: $e', name: 'ReportBloc', error: e);
-      emit(state.copyWith(error: 'Failed to submit: $e', isLoading: false));
+      developer.log(
+          'Error submitting report: $e', name: 'ReportBloc', error: e);
+      emit(state.copyWith(
+        error: 'Failed to submit: $e',
+        isLoading: false,
+        resultMessage: 'Failed to submit: $e',
+      ));
     }
   }
 }
