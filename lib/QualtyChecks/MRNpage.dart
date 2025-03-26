@@ -1,18 +1,11 @@
-import 'dart:developer'; // For logging
-import 'dart:io'; // For file operations
-import 'dart:io' as io;
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-import 'package:excel/excel.dart'; // For Excel export
-import 'package:pdf/pdf.dart'; // For PDF export
-import 'package:pdf/widgets.dart' as pw; // For PDF export
-import 'package:path_provider/path_provider.dart'; // For file storage
 import 'package:qualityapproach/QualtyChecks/MRNDetail.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:universal_html/html.dart' as html;
-
-import 'package:qualityapproach/QualtyChecks/MRNbloc.dart'; // For HTML operations
+import 'package:qualityapproach/QualtyChecks/MRNbloc.dart';
+import '../ReportUtils/ExportsButton.dart';
 
 class MRNReportPage extends StatelessWidget {
   final String branchCode;
@@ -46,30 +39,17 @@ class MRNReportPage extends StatelessWidget {
         )),
       child: Scaffold(
         appBar: AppBar(
-          title: const Text(
-            'MRN Report Filter',
-            style: TextStyle(
-              color: Colors.white,
-            ),
-          ),
+          title: const Text('MRN Report Filter', style: TextStyle(color: Colors.white)),
           backgroundColor: Colors.blue,
           automaticallyImplyLeading: false,
           actions: [
             TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-              },
+              onPressed: () => Navigator.pop(context),
               child: const Row(
                 children: [
                   Icon(Icons.arrow_back_ios, color: Colors.white),
                   SizedBox(width: 4),
-                  Text(
-                    'Back',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                    ),
-                  ),
+                  Text('Back', style: TextStyle(color: Colors.white, fontSize: 16)),
                 ],
               ),
             ),
@@ -77,55 +57,38 @@ class MRNReportPage extends StatelessWidget {
         ),
         body: Column(
           children: [
-            // Export buttons
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  BlocBuilder<MRNReportBloc, MRNReportState>(
-                    builder: (context, state) {
-                      return ElevatedButton(
-                        onPressed: state is MRNReportLoaded
-                            ? () => _exportToExcel(context, state.reports)
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: state is MRNReportLoaded
-                              ? Colors.green
-                              : Colors.grey,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
-                        ),
-                        child: const Text(
-                          'Export to Excel',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(width: 20),
-                  BlocBuilder<MRNReportBloc, MRNReportState>(
-                    builder: (context, state) {
-                      return ElevatedButton(
-                        onPressed: state is MRNReportLoaded
-                            ? () => _exportToPDF(context, state.reports)
-                            : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: state is MRNReportLoaded
-                              ? Colors.red
-                              : Colors.grey,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
-                        ),
-                        child: const Text(
-                          'Export to PDF',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
+            BlocBuilder<MRNReportBloc, MRNReportState>(
+              builder: (context, state) {
+                if (state is MRNReportLoaded) {
+                  log('Exporting data: ${state.reports}');
+                  final headerMap = {
+                    'SNo': 'SNo', // Generated field
+                    'MRN No': 'MRNNO',
+                    'MRN Date': 'MRNDATE',
+                    'Vendor Name': 'AccountName',
+                    'Our Item Code': 'OurItemNo',
+                    'Item Name': 'ItemName',
+                    'Quantity': 'SNo', // Note: 'Quantity' uses 'SNo' from data
+                    'Status': 'status',
+                  };
+
+                  // Preprocess data to include SNo as an incrementing number
+                  final exportData = state.reports.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final report = Map<String, dynamic>.from(entry.value); // Create a mutable copy
+                    report['SNo'] = (index + 1).toString(); // Add SNo as string
+                    report['status'] = 'Select'; // Ensure status is included
+                    return report;
+                  }).toList();
+
+                  return ExportButtons(
+                    data: exportData,
+                    fileName: 'MRN_report',
+                    headerMap: headerMap,
+                  );
+                }
+                return const SizedBox.shrink();
+              },
             ),
             Expanded(
               child: MRNReportGrid(
@@ -134,137 +97,12 @@ class MRNReportPage extends StatelessWidget {
                 UserCode: UserCode,
                 UserGroupCode: UserGroupCode,
                 pending: pending,
-              ), // This will take the remaining space
+              ),
             ),
           ],
         ),
       ),
     );
-  }
-
-  // Export to Excel logic
-  Future<void> _exportToExcel(
-      BuildContext context, List<Map<String, dynamic>> reports) async {
-    try {
-      var excel = Excel.createExcel();
-      excel.delete('flutter'); // Remove the default "flutter" sheet
-      var sheet = excel['Sheet1'];
-
-      // Add headers
-      sheet.appendRow([
-        'MRN No',
-        'MRN Date',
-        'Vendor Name',
-        'Our Item Code',
-        'Item Name',
-        'Quantity',
-        'Status',
-      ].map((header) => TextCellValue(header)).toList());
-
-      // Add data rows
-      for (var report in reports) {
-        sheet.appendRow([
-          report['MRN No']?.toString() ?? 'N/A',
-          report['MRN Date']?.toString() ?? 'N/A',
-          report['Vendor Name']?.toString() ?? 'N/A',
-          report['Our Item Code']?.toString() ?? 'N/A',
-          report['Item Name']?.toString() ?? 'N/A',
-          report['Quantity']?.toString() ?? 'N/A',
-          report['status']?.toString() ?? 'N/A',
-        ].map((value) => TextCellValue(value)).toList());
-      }
-
-      // Save the file
-      var fileBytes = excel.save();
-      if (fileBytes != null) {
-        final directory = await getApplicationDocumentsDirectory();
-        final file = File('${directory.path}/MRN_report.xlsx');
-        await file.writeAsBytes(fileBytes);
-
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Exported to Excel successfully!')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to export to Excel: $e')),
-      );
-    }
-  }
-
-  // Export to PDF logic
-  Future<void> _exportToPDF(
-      BuildContext context, List<Map<String, dynamic>> reports) async {
-    try {
-      final pdf = pw.Document();
-
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          build: (pw.Context context) {
-            return pw.Column(
-              children: [
-                pw.Text(
-                  'MRN Report',
-                  style: pw.TextStyle(
-                      fontSize: 24, fontWeight: pw.FontWeight.bold),
-                ),
-                pw.SizedBox(height: 16),
-                pw.Table.fromTextArray(
-                  headers: [
-                    'MRN No',
-                    'MRN Date',
-                    'Vendor Name',
-                    'Our Item Code',
-                    'Item Name',
-                    'Quantity',
-                    'Status',
-                  ],
-                  data: reports.map((report) {
-                    return [
-                      report['MRN No']?.toString() ?? 'N/A',
-                      report['MRN Date']?.toString() ?? 'N/A',
-                      report['Vendor Name']?.toString() ?? 'N/A',
-                      report['Our Item Code']?.toString() ?? 'N/A',
-                      report['Item Name']?.toString() ?? 'N/A',
-                      report['Quantity']?.toString() ?? 'N/A',
-                      report['status']?.toString() ?? 'N/A',
-                    ];
-                  }).toList(),
-                ),
-              ],
-            );
-          },
-        ),
-      );
-
-      final pdfBytes = await pdf.save();
-
-      if (kIsWeb) {
-        final blob = html.Blob([pdfBytes], 'application/pdf');
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        final anchor = html.AnchorElement(href: url)
-          ..setAttribute("download", "MRN_report.pdf")
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        final directory = await getApplicationDocumentsDirectory();
-        final file = io.File('${directory.path}/MRN_report.pdf');
-        await file.writeAsBytes(pdfBytes);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('PDF saved successfully!')),
-        );
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Exported to PDF successfully!')),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to export to PDF: $e')),
-      );
-    }
   }
 }
 
@@ -282,9 +120,7 @@ class MRNReportGrid extends StatelessWidget {
     required this.UserCode,
     required this.UserGroupCode,
     super.key,
-  }
-
-    );
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -318,9 +154,13 @@ class MRNReportGrid extends StatelessWidget {
     );
   }
 
-  // Define columns for PlutoGrid
   List<PlutoColumn> _buildColumns(BuildContext context) {
     return [
+      PlutoColumn(
+        title: 'SNo',
+        field: 'SNo',
+        type: PlutoColumnType.number(),
+      ),
       PlutoColumn(
         title: 'MRN No',
         field: 'MRN No',
@@ -365,15 +205,11 @@ class MRNReportGrid extends StatelessWidget {
                 str,
                 branchCode,
                 rendererContext.row.cells['MRN No']?.value.toString() ?? 'N/A',
-                rendererContext.row.cells['MRN Date']?.value.toString() ??
-                    'N/A',
-                rendererContext.row.cells['Vendor Name']?.value.toString() ??
-                    'N/A',
-                rendererContext.row.cells['Item Name']?.value.toString() ??
-                    'N/A',
+                rendererContext.row.cells['MRN Date']?.value.toString() ?? 'N/A',
+                rendererContext.row.cells['Vendor Name']?.value.toString() ?? 'N/A',
+                rendererContext.row.cells['Item Name']?.value.toString() ?? 'N/A',
                 rendererContext.row.cells['ItemNo']?.value.toString() ?? 'N/A',
-                rendererContext.row.cells['Quantity']?.value.toString() ??
-                    'N/A',
+                rendererContext.row.cells['Quantity']?.value.toString() ?? 'N/A',
                 rendererContext.row.cells['RecNo']?.value.toString() ?? 'N/A',
                 UserCode,
                 UserGroupCode,
@@ -401,11 +237,13 @@ class MRNReportGrid extends StatelessWidget {
     ];
   }
 
-  // Convert API data to PlutoRow format
   List<PlutoRow> _buildRows(List<Map<String, dynamic>> reports) {
-    return reports.map((report) {
+    return reports.asMap().entries.map((entry) {
+      final index = entry.key;
+      final report = entry.value;
       return PlutoRow(
         cells: {
+          'SNo': PlutoCell(value: index + 1), // Generate SNo here
           'MRN No': PlutoCell(value: report['MRNNO'] ?? 'N/A'),
           'MRN Date': PlutoCell(value: report['MRNDATE'] ?? 'N/A'),
           'Vendor Name': PlutoCell(value: report['AccountName'] ?? 'N/A'),
@@ -421,19 +259,19 @@ class MRNReportGrid extends StatelessWidget {
   }
 
   void _navigateToMRNDetails(
-    BuildContext context,
-    String str,
-    String branchCode,
-    String mrnNo,
-    String mrnDate,
-    String vendorName,
-    String itemName,
-    String itemNo,
-    String itemSno,
-    String RecNo,
-    double UserCode,
-    int UserGroupCode,
-  ) {
+      BuildContext context,
+      String str,
+      String branchCode,
+      String mrnNo,
+      String mrnDate,
+      String vendorName,
+      String itemName,
+      String itemNo,
+      String itemSno,
+      String RecNo,
+      double UserCode,
+      int UserGroupCode,
+      ) {
     print('Navigating with the following parameters:');
     print('str: $str');
     print('branchCode: $branchCode');
@@ -453,7 +291,7 @@ class MRNReportGrid extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => MRNDetailsPage(
           str: str,
-          pending:pending,
+          pending: pending,
           branchCode: branchCode,
           mrnNo: mrnNo,
           mrnDate: mrnDate,

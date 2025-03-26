@@ -44,11 +44,9 @@ class _ReportPageState extends State<ReportPage> {
     final reportBloc = context.read<ReportBloc>();
     reportBloc.add(SubmitReport(reportName, widget.userCode, widget.companyCode, widget.recNo));
 
-    // Listen for the state update after submission
     StreamSubscription<ReportState>? subscription;
     subscription = reportBloc.stream.listen((state) {
       if (state.isLoading) {
-        // Skip the initial "loading" state
         return;
       }
       if (state.resultMessage != null) {
@@ -64,7 +62,7 @@ class _ReportPageState extends State<ReportPage> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
         );
-        subscription?.cancel(); // Cancel after showing the SnackBar
+        subscription?.cancel();
       }
     });
   }
@@ -150,6 +148,151 @@ class _ReportPageState extends State<ReportPage> {
                         return Center(
                             child: Text('No data to display', style: GoogleFonts.roboto(fontSize: 16)));
                       }
+
+                      // Prepare rows with section headers
+                      List<DataRow> dataRows = [];
+                      bool hasAddedAllotedToFields = false;
+                      bool hasAddedWorkDoneFields = false;
+                      bool hasAddedFileAttachment = false;
+
+                      for (int index = 0; index < state.columns.length; index++) {
+                        String columnHeading = state.columns[index].columnHeading.toLowerCase().trim();
+
+                        // Add "Alloted To Fields" heading before "Urgent/Routine"
+                        if (!hasAddedAllotedToFields &&
+                            (columnHeading == "urgent/routine" || columnHeading.contains("urgent"))) {
+                          dataRows.add(
+                            DataRow(cells: [
+                              DataCell(
+                                Text(
+                                  'Alloted To Fields',
+                                  style: GoogleFonts.roboto(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.blue.shade900,
+                                  ),
+                                ),
+                              ),
+                              DataCell.empty,
+                              DataCell.empty,
+                            ]),
+                          );
+                          hasAddedAllotedToFields = true;
+                        }
+
+                        // Add "Work Done Fields" heading before "Service Cost"
+                        if (!hasAddedWorkDoneFields && columnHeading.contains("service cost")) {
+                          dataRows.add(
+                            DataRow(cells: [
+                              DataCell(
+                                Text(
+                                  'Work Done Fields',
+                                  style: GoogleFonts.roboto(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.blue.shade900,
+                                  ),
+                                ),
+                              ),
+                              DataCell.empty,
+                              DataCell.empty,
+                            ]),
+                          );
+                          hasAddedWorkDoneFields = true;
+                        }
+
+                        // Add "File Attachment" heading before "File Attachment"
+                        if (!hasAddedFileAttachment && columnHeading.contains("file attachment")) {
+                          dataRows.add(
+                            DataRow(cells: [
+                              DataCell(
+                                Text(
+                                  'File Attachment',
+                                  style: GoogleFonts.roboto(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.blue.shade900,
+                                  ),
+                                ),
+                              ),
+                              DataCell.empty,
+                              DataCell.empty,
+                            ]),
+                          );
+                          hasAddedFileAttachment = true;
+                        }
+
+                        // Add the actual data row
+                        dataRows.add(
+                          DataRow(
+                            cells: [
+                              DataCell(
+                                Text(
+                                  _originalColumnNames.isNotEmpty
+                                      ? _originalColumnNames[index]
+                                      : state.columns[index].columnHeading,
+                                  style: GoogleFonts.roboto(fontSize: 14, color: Colors.black54),
+                                ),
+                              ),
+                              DataCell(
+                                Container(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(8),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.grey.withOpacity(0.15),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
+                                  ),
+                                  child: TextField(
+                                    controller: _nameControllers[index],
+                                    decoration: InputDecoration(
+                                      hintText: 'Column Heading',
+                                      hintStyle: GoogleFonts.roboto(
+                                          color: Colors.grey.shade500, fontStyle: FontStyle.italic),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(color: Colors.blue.shade900, width: 1.5),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.grey.shade100,
+                                      contentPadding:
+                                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    ),
+                                    style: GoogleFonts.roboto(fontSize: 14, color: Colors.black87),
+                                    onChanged: (value) {
+                                      context.read<ReportBloc>().add(UpdateColumnName(index, value));
+                                    },
+                                  ),
+                                ),
+                              ),
+                              DataCell(
+                                Checkbox(
+                                  value: state.columns[index].isVisible == 'Y',
+                                  onChanged: (value) {
+                                    context
+                                        .read<ReportBloc>()
+                                        .add(UpdateColumnVisibility(index, value!));
+                                  },
+                                  activeColor: Colors.blue.shade900,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }
+
                       return Column(
                         children: [
                           Expanded(
@@ -167,7 +310,8 @@ class _ReportPageState extends State<ReportPage> {
                                     headingRowHeight: 64,
                                     headingRowColor: MaterialStateProperty.all(Colors.blue.shade50),
                                     border: TableBorder(
-                                        horizontalInside: BorderSide(color: Colors.grey.shade200, width: 1)),
+                                        horizontalInside:
+                                        BorderSide(color: Colors.grey.shade200, width: 1)),
                                     columns: [
                                       DataColumn(
                                           label: Text('Column Name',
@@ -188,76 +332,7 @@ class _ReportPageState extends State<ReportPage> {
                                                   fontSize: 16,
                                                   color: Colors.blueGrey))),
                                     ],
-                                    rows: List.generate(
-                                      state.columns.length,
-                                          (index) => DataRow(
-                                        cells: [
-                                          DataCell(
-                                            Text(
-                                              _originalColumnNames.isNotEmpty
-                                                  ? _originalColumnNames[index]
-                                                  : state.columns[index].columnHeading,
-                                              style: GoogleFonts.roboto(fontSize: 14, color: Colors.black54),
-                                            ),
-                                          ),
-                                          DataCell(
-                                            Container(
-                                              decoration: BoxDecoration(
-                                                borderRadius: BorderRadius.circular(8),
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.grey.withOpacity(0.15),
-                                                    blurRadius: 8,
-                                                    offset: const Offset(0, 3),
-                                                  ),
-                                                ],
-                                              ),
-                                              child: TextField(
-                                                controller: _nameControllers[index],
-                                                decoration: InputDecoration(
-                                                  hintText: 'Column Heading',
-                                                  hintStyle: GoogleFonts.roboto(
-                                                      color: Colors.grey.shade500, fontStyle: FontStyle.italic),
-                                                  border: OutlineInputBorder(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    borderSide: BorderSide.none,
-                                                  ),
-                                                  enabledBorder: OutlineInputBorder(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    borderSide: BorderSide.none,
-                                                  ),
-                                                  focusedBorder: OutlineInputBorder(
-                                                    borderRadius: BorderRadius.circular(8),
-                                                    borderSide:
-                                                    BorderSide(color: Colors.blue.shade900, width: 1.5),
-                                                  ),
-                                                  filled: true,
-                                                  fillColor: Colors.grey.shade100,
-                                                  contentPadding:
-                                                  const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                                ),
-                                                style: GoogleFonts.roboto(fontSize: 14, color: Colors.black87),
-                                                onChanged: (value) {
-                                                  context.read<ReportBloc>().add(UpdateColumnName(index, value));
-                                                },
-                                              ),
-                                            ),
-                                          ),
-                                          DataCell(
-                                            Checkbox(
-                                              value: state.columns[index].isVisible == 'Y',
-                                              onChanged: (value) {
-                                                context
-                                                    .read<ReportBloc>()
-                                                    .add(UpdateColumnVisibility(index, value!));
-                                              },
-                                              activeColor: Colors.blue.shade900,
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
+                                    rows: dataRows,
                                   ),
                                 ),
                               ),
@@ -283,7 +358,9 @@ class _ReportPageState extends State<ReportPage> {
                                 icon: Icon(Icons.arrow_forward, color: Colors.white, size: 20),
                                 label: Text('Submit',
                                     style: GoogleFonts.roboto(
-                                        color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blue.shade900,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -308,7 +385,9 @@ class _ReportPageState extends State<ReportPage> {
                                 icon: Icon(Icons.refresh, color: Colors.white, size: 20),
                                 label: Text('Reset',
                                     style: GoogleFonts.roboto(
-                                        color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w500)),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.redAccent,
                                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),

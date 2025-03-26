@@ -3,59 +3,9 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:qualityapproach/NEWREPORT/EDIT/Mainreport.dart';
+import '../../ReportUtils/subtleloader.dart';
 import 'filterreportbloc.dart';
 
-// SubtleLoader Widget
-class SubtleLoader extends StatefulWidget {
-  const SubtleLoader({super.key});
-
-  @override
-  State<SubtleLoader> createState() => _SubtleLoaderState();
-}
-
-class _SubtleLoaderState extends State<SubtleLoader>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(seconds: 1),
-      vsync: this,
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: SizedBox(
-        width: 40,
-        height: 40,
-        child: RotationTransition(
-          turns: Tween(begin: 0.0, end: 1.0).animate(_controller),
-          child: Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.blue[800]!.withOpacity(0.6),
-                width: 3,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// FilterUI Widget
 class FilterUI extends StatefulWidget {
   const FilterUI({super.key});
 
@@ -66,16 +16,18 @@ class FilterUI extends StatefulWidget {
 class _FilterUIState extends State<FilterUI> {
   DateTime? fromDate = DateTime(DateTime.now().year, 1, 1);
   DateTime? toDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
-  String? selectedReport;
+  String? selectedReportId;
+  String? selectedReportName;
 
   void _navigateToMainReport(BuildContext context) {
     Navigator.push(
       context,
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => MainReport(
-          fromDate: fromDate.toString(),
-          toDate: toDate.toString(),
-          fieldId: selectedReport.toString(),
+          fromDate: fromDate?.toString() ?? DateTime.now().toString(),
+          toDate: toDate?.toString() ?? DateTime.now().toString(),
+          fieldId: selectedReportId?.toString() ?? '',
+          reportName: selectedReportName?.toString() ?? '', // Added report name
         ),
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
           const begin = Offset(1.0, 0.0);
@@ -107,7 +59,7 @@ class _FilterUIState extends State<FilterUI> {
             onPressed: () => Navigator.pop(context),
           ),
           title: Text(
-            'Filters',
+            'Custom Report',
             style: GoogleFonts.poppins(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -157,7 +109,8 @@ class _FilterUIState extends State<FilterUI> {
                       setState(() {
                         fromDate = DateTime(DateTime.now().year, 1, 1);
                         toDate = DateTime(DateTime.now().year, DateTime.now().month, 1);
-                        selectedReport = null;
+                        selectedReportId = null;
+                        selectedReportName = null;
                       });
                       context.read<FilterBloc>().add(ResetFilterEvent());
                     },
@@ -179,7 +132,7 @@ class _FilterUIState extends State<FilterUI> {
                   const SizedBox(width: 20),
                   ElevatedButton(
                     onPressed: () {
-                      context.read<FilterBloc>().add(SubmitFilterEvent(fromDate, toDate, selectedReport));
+                      context.read<FilterBloc>().add(SubmitFilterEvent(fromDate, toDate, selectedReportId));
                       _navigateToMainReport(context);
                     },
                     style: ElevatedButton.styleFrom(
@@ -259,7 +212,7 @@ class _FilterUIState extends State<FilterUI> {
     return BlocBuilder<FilterBloc, FilterState>(
       builder: (context, state) {
         if (state is FilterLoading) {
-          return const SubtleLoader(); // Replaced CircularProgressIndicator with SubtleLoader
+          return const SubtleLoader();
         } else if (state is FilterLoaded) {
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
@@ -276,7 +229,7 @@ class _FilterUIState extends State<FilterUI> {
               ],
             ),
             child: DropdownButton<String>(
-              value: selectedReport,
+              value: selectedReportId,
               isExpanded: true,
               hint: Text('Select Report', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16)),
               items: state.reports.map((report) {
@@ -288,7 +241,17 @@ class _FilterUIState extends State<FilterUI> {
                   ),
                 );
               }).toList(),
-              onChanged: (value) => setState(() => selectedReport = value),
+              onChanged: (value) {
+                setState(() {
+                  selectedReportId = value;
+                  // Find and set the selected report name
+                  final selectedReport = state.reports.firstWhere(
+                        (report) => report['FieldID'] == value,
+                    orElse: () => {'FieldName': ''},
+                  );
+                  selectedReportName = selectedReport['FieldName'] as String?;
+                });
+              },
               underline: const SizedBox(),
               style: GoogleFonts.poppins(color: Colors.black, fontSize: 16),
               icon: Icon(Icons.arrow_drop_down, color: Colors.blue[800]),
