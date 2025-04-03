@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:excel/excel.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
@@ -33,9 +34,9 @@ class ExportButtons extends StatelessWidget {
               backgroundColor: data.isNotEmpty ? Colors.green : Colors.grey,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
-            child: const Text(
+            child: Text(
               'Export to Excel',
-              style: TextStyle(color: Colors.white),
+              style:  GoogleFonts.poppins(color: Colors.white),
             ),
           ),
           const SizedBox(width: 20),
@@ -45,9 +46,9 @@ class ExportButtons extends StatelessWidget {
               backgroundColor: data.isNotEmpty ? Colors.red : Colors.grey,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
-            child: const Text(
+            child: Text(
               'Export to PDF',
-              style: TextStyle(color: Colors.white),
+              style:  GoogleFonts.poppins(color: Colors.white),
             ),
           ),
         ],

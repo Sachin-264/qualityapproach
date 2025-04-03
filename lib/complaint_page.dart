@@ -18,6 +18,8 @@ import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/SparePart/spare_UI.dart';
+import 'package:qualityapproach/SparePart/spare_bloc.dart';
 // ignore: depend_on_referenced_packages
 import 'package:universal_html/html.dart' as html;
 
@@ -176,6 +178,22 @@ class ComplaintPage extends StatelessWidget {
                           builder: (context) => BlocProvider.value(
                             value: context.read<EditBloc>(),
                             child:EditPage(),
+                          ),
+                        )
+                    );
+                  },
+                ),
+
+                _createDrawerItem(
+                  icon: Icons.edit,
+                  text: 'SparePart',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                            value: context.read<SparePartBloc>(),
+                            child:SparePartScreen(),
                           ),
                         )
                     );
