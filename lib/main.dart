@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
+import 'package:qualityapproach/EditSparePart/editsparebloc.dart';
+import 'package:qualityapproach/EditSparePart/editspareui.dart';
 import 'package:qualityapproach/NEWREPORT/EDIT/filterreportbloc.dart';
 import 'package:qualityapproach/NEWREPORT/ReportEdit/editReport_bloc.dart';
 import 'package:qualityapproach/NEWREPORT/ReportEdit/edit_bloc.dart';
@@ -11,6 +13,8 @@ import 'package:qualityapproach/SparePart/spare_bloc.dart';
 
 import 'package:qualityapproach/complaint_page.dart';
 import 'package:universal_html/js.dart';
+
+import 'EditSparePart/editsparedetailbloc.dart';
 
 void main() {
   runApp(
@@ -22,7 +26,9 @@ void main() {
         BlocProvider<FilterBloc>(create: (context) => FilterBloc()),
         BlocProvider<EditBloc>(create: (context) => EditBloc()),
         BlocProvider<EditReportBloc>(create: (context) => EditReportBloc()),
-        BlocProvider<SparePartBloc>(create:(context)=>SparePartBloc())
+        BlocProvider<SparePartBloc>(create:(context)=>SparePartBloc()),
+        BlocProvider<EditSpareBloc>(create: (context) => EditSpareBloc()),
+        BlocProvider<EditSparePartBloc>(create: (context) => EditSparePartBloc()),
       ],
       child: MyApp(),
     ),

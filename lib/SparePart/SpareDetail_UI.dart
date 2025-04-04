@@ -648,7 +648,7 @@ class _SparePartFormState extends State<SparePartForm> {
               SubmitItem(
                 userCode: "1",
                 companyCode: "101",
-                recNo: 1,
+                recNo: 0,
                 complaintRecNo:
                 (double.tryParse(GlobalData.selectedComplaintNo ?? '0')?.toInt()) ?? 0,
                 date: widget.currentDate,

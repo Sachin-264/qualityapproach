@@ -3,5 +3,5 @@ class GlobalData {
   static String selectedAddress = '';
   static String selectedMobileNo = '';
   static String selectedComplaintNo = '';
-  static String? selectedFieldId;
+  static String selectedRecNo='';
 }
