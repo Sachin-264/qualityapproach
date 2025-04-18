@@ -20,6 +20,8 @@ import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
+import 'package:qualityapproach/SaleVsTarget/sale_targetUI.dart';
 import 'package:qualityapproach/SparePart/spare_UI.dart';
 import 'package:qualityapproach/SparePart/spare_bloc.dart';
 // ignore: depend_on_referenced_packages
@@ -211,6 +213,21 @@ class ComplaintPage extends StatelessWidget {
                           builder: (context) => BlocProvider.value(
                             value: context.read<EditSpareBloc>(),
                             child:EditSpareScreen()
+                          ),
+                        )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.satellite_alt_outlined,
+                  text: 'SaleVsTarget',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                              value: context.read<SaleTargetBloc>(),
+                              child:SaleTargetUI(),
                           ),
                         )
                     );

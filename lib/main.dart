@@ -9,6 +9,7 @@ import 'package:qualityapproach/NEWREPORT/ReportEdit/editReport_bloc.dart';
 import 'package:qualityapproach/NEWREPORT/ReportEdit/edit_bloc.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
 import 'package:qualityapproach/SparePart/spare_bloc.dart';
 
 import 'package:qualityapproach/complaint_page.dart';
@@ -29,6 +30,7 @@ void main() {
         BlocProvider<SparePartBloc>(create:(context)=>SparePartBloc()),
         BlocProvider<EditSpareBloc>(create: (context) => EditSpareBloc()),
         BlocProvider<EditSparePartBloc>(create: (context) => EditSparePartBloc()),
+        BlocProvider<SaleTargetBloc>(create: (context) => SaleTargetBloc()),
       ],
       child: MyApp(),
     ),
