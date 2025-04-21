@@ -11,6 +11,8 @@ import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
+import 'package:qualityapproach/Dashboard/Dashboard.bloc.dart';
+import 'package:qualityapproach/Dashboard/Dashboard.dart';
 import 'package:qualityapproach/EditSparePart/editsparebloc.dart';
 import 'package:qualityapproach/EditSparePart/editspareui.dart';
 import 'package:qualityapproach/NEWREPORT/EDIT/filterreport.dart';
@@ -213,6 +215,21 @@ class ComplaintPage extends StatelessWidget {
                           builder: (context) => BlocProvider.value(
                             value: context.read<EditSpareBloc>(),
                             child:EditSpareScreen()
+                          ),
+                        )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.edit,
+                  text: 'Dashboard',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                              value: context.read<DashboardBloc>(),
+                              child:DashboardPage()
                           ),
                         )
                     );

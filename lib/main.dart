@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
+import 'package:qualityapproach/Dashboard/Dashboard.bloc.dart';
+import 'package:qualityapproach/Dashboard/detailDashBloc.dart';
 import 'package:qualityapproach/EditSparePart/editsparebloc.dart';
 import 'package:qualityapproach/EditSparePart/editspareui.dart';
 import 'package:qualityapproach/NEWREPORT/EDIT/filterreportbloc.dart';
@@ -31,6 +33,8 @@ void main() {
         BlocProvider<EditSpareBloc>(create: (context) => EditSpareBloc()),
         BlocProvider<EditSparePartBloc>(create: (context) => EditSparePartBloc()),
         BlocProvider<SaleTargetBloc>(create: (context) => SaleTargetBloc()),
+        BlocProvider<DashboardBloc>(create: (context) => DashboardBloc()),
+        BlocProvider<DetailDashBloc>(create: (context) => DetailDashBloc()),
       ],
       child: MyApp(),
     ),
