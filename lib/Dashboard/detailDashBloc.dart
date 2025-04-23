@@ -33,7 +33,7 @@ class DetailDashInitial extends DetailDashState {}
 class DetailDashLoading extends DetailDashState {}
 
 class DetailDashLoaded extends DetailDashState {
-  final List<dynamic> data;
+  final List<Map<String, dynamic>> data; // Changed to List<Map<String, dynamic>>
   final Map<String, String> mergedData;
 
   const DetailDashLoaded({required this.data, required this.mergedData});
@@ -104,7 +104,10 @@ class DetailDashBloc extends Bloc<DetailDashEvent, DetailDashState> {
         print('DetailDashBloc: Parsed JSON data: $jsonData');
 
         if (jsonData['status'] == 'success') {
-          final data = jsonData['data'] as List<dynamic>;
+          // Cast API data to List<Map<String, dynamic>>
+          final data = (jsonData['data'] as List<dynamic>)
+              .map((item) => item as Map<String, dynamic>)
+              .toList();
           print('DetailDashBloc: API data length: ${data.length}');
           print('DetailDashBloc: First data item: ${data.isNotEmpty ? data.first : 'No data'}');
           print('DetailDashBloc: Emitting DetailDashLoaded');

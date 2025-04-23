@@ -3,9 +3,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 import '../ReportUtils/Appbar.dart';
+import '../ReportUtils/Export_widget.dart';
 import '../ReportUtils/subtleloader.dart';
 import 'comparison.dart';
 import 'detailDashBloc.dart';
+
 
 class DetailDashPage extends StatefulWidget {
   final Map<String, String> boxData;
@@ -18,24 +20,21 @@ class DetailDashPage extends StatefulWidget {
 
 class _DetailDashPageState extends State<DetailDashPage> {
   late final DetailDashBloc _detailDashBloc;
-  PlutoGridStateManager? _stateManager; // Track grid state manager
+  PlutoGridStateManager? _stateManager;
 
   @override
   void initState() {
     super.initState();
-    // Initialize the bloc once
     _detailDashBloc = DetailDashBloc()..add(FetchDetailDashData(widget.boxData));
-    // Debug print for boxData at initialization
     print('DetailDashPage initState: boxData=${widget.boxData}');
   }
 
   @override
   void dispose() {
-    _detailDashBloc.close(); // Clean up the bloc
+    _detailDashBloc.close();
     super.dispose();
   }
 
-  // Navigate to ComparisonPage using the row data
   void _navigateToComparisonPage(BuildContext context, Map<String, dynamic> item) {
     final bidRecNo = (item['BidRecNo'] ?? '').toString().split('.')[0];
     final indentRecNo = (item['IndentRecNo'] ?? '').toString().split('.')[0];
@@ -54,7 +53,6 @@ class _DetailDashPageState extends State<DetailDashPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Debug print for boxData during build
     print('Building DetailDashPage: boxData=${widget.boxData}');
     return BlocProvider(
       create: (context) => _detailDashBloc,
@@ -80,7 +78,7 @@ class _DetailDashPageState extends State<DetailDashPage> {
                 final indentNo = (item['IndentNo'] ?? '').toString().split('.')[0];
                 return PlutoRow(
                   cells: {
-                    'action': PlutoCell(value: 'View'), // Changed from 'select' to 'action'
+                    'action': PlutoCell(value: 'View'),
                     'indent_no': PlutoCell(value: indentNo),
                     'dept': PlutoCell(value: item['DepartmentName'] ?? ''),
                     'item': PlutoCell(value: item['ItemName'] ?? ''),
@@ -125,6 +123,20 @@ class _DetailDashPageState extends State<DetailDashPage> {
                         ),
                       ],
                     ),
+                  ),
+                  // Use ExportWidget instead of ExportButtons
+                  ExportWidget(
+                    data: state.data,
+                    fileName: 'Field_Details',
+                    headerMap: {
+                      'Indent No': 'IndentNo',
+                      'Dept': 'DepartmentName',
+                      'Item': 'ItemName',
+                      'Qty': 'Qty',
+                      'Vendor Name': 'VendorName',
+                      'Last Date': 'IndentDate',
+                      'Remark': state.mergedData['Level1'] == 'Y' ? 'Action_L1_Remark' : 'Action_L2_Remark',
+                    },
                   ),
                   Expanded(
                     child: Padding(
