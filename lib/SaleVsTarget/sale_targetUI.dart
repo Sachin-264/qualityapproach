@@ -3,11 +3,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-
 import '../ReportUtils/Appbar.dart';
 import '../ReportUtils/ExportsButton.dart';
 import '../ReportUtils/subtleloader.dart';
+import 'SaleDetailUI.dart';
 import 'sale_TargetBloc.dart';
+
 
 class SaleTargetUI extends StatelessWidget {
   const SaleTargetUI({super.key});
@@ -107,6 +108,41 @@ class SaleTargetUI extends StatelessWidget {
 
                 // Define PlutoGrid columns
                 final columns = [
+                  PlutoColumn(
+                    title: 'Action',
+                    field: 'action',
+                    type: PlutoColumnType.text(),
+                    width: 100,
+                    enableSorting: false,
+                    enableFilterMenuItem: false,
+                    renderer: (rendererContext) {
+                      final salesManRecNo =
+                          rendererContext.row.cells['SalesManRecNo']?.value ?? '';
+                      return TextButton(
+                        onPressed: () {
+                          final now = DateTime.now();
+                          final firstDay = DateFormat('dd-MMM-yyyy')
+                              .format(DateTime(now.year, now.month, 1));
+                          final lastDay = DateFormat('dd-MMM-yyyy').format(
+                              DateTime(now.year, now.month + 1, 0));
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SaleDetailUI(
+                                salesManRecNo: salesManRecNo,
+                                fromDate: firstDay,
+                                toDate: lastDay,
+                              ),
+                            ),
+                          );
+                        },
+                        child: const Text(
+                          'View',
+                          style: TextStyle(color: Colors.blue),
+                        ),
+                      );
+                    },
+                  ),
                   PlutoColumn(
                     title: 'S.NO',
                     field: 'serialNo',
@@ -226,8 +262,10 @@ class SaleTargetUI extends StatelessWidget {
 
                   return PlutoRow(
                     cells: {
+                      'action': PlutoCell(value: ''),
                       'serialNo': PlutoCell(value: (index + 1).toString()),
                       'SalesManName': PlutoCell(value: displayName),
+                      'SalesManRecNo': PlutoCell(value: item['SalesManRecNo'] ?? ''),
                       'ViewLevel': PlutoCell(value: viewLevel.toString()),
                       for (int i = 1; i <= daysInMonth; i++) ...{
                         'SaleValue$i': PlutoCell(
@@ -258,8 +296,10 @@ class SaleTargetUI extends StatelessWidget {
                 // Add totals row
                 rows.add(PlutoRow(
                   cells: {
+                    'action': PlutoCell(value: ''),
                     'serialNo': PlutoCell(value: ''),
                     'SalesManName': PlutoCell(value: 'Total'),
+                    'SalesManRecNo': PlutoCell(value: ''),
                     'ViewLevel': PlutoCell(value: '-1'),
                     for (int i = 1; i <= daysInMonth; i++) ...{
                       'SaleValue$i': PlutoCell(

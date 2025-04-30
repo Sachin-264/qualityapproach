@@ -41,6 +41,8 @@ class SaleTargetBloc extends Bloc<SaleTargetEvent, SaleTargetState> {
       final url =
           'http://localhost/Bestapi/getsaleTarget.php?UserCode=1&FromDate=$firstDay&ToDate=$lastDay';
 
+      print('Fetching data from URL: $url'); // Debugging line
+
       final response = await http.get(Uri.parse(url));
 
       if (response.statusCode == 200) {
