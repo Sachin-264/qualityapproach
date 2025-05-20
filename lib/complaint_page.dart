@@ -22,15 +22,19 @@ import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/ReportDynamic/Report_Make.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_targetUI.dart';
 import 'package:qualityapproach/SparePart/spare_UI.dart';
 import 'package:qualityapproach/SparePart/spare_bloc.dart';
+import 'package:qualityapproach/dynamic/dynamic_all.dart';
 // ignore: depend_on_referenced_packages
 import 'package:universal_html/html.dart' as html;
 
 import 'CustomerRetail/RetailFilter.dart';
 import 'NEWREPORT/EDIT/filterreportbloc.dart';
+import 'ReportDynamic/Report_MakeBLoc.dart';
+import 'dynamic/dynamic_all_bloc.dart';
 
 class ComplaintPage extends StatelessWidget {
   ComplaintPage();
@@ -245,6 +249,36 @@ class ComplaintPage extends StatelessWidget {
                           builder: (context) => BlocProvider.value(
                               value: context.read<SaleTargetBloc>(),
                               child:SaleTargetUI(),
+                          ),
+                        )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.satellite_alt_outlined,
+                  text: 'dynamic',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                            value: context.read<DynamicAllBloc>(),
+                            child:DynamicAll(),
+                          ),
+                        )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.satellite_alt_outlined,
+                  text: 'dynamic Report generator ',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                            value: context.read< ReportMakerBloc>(),
+                            child:ReportMakerUI(),
                           ),
                         )
                     );

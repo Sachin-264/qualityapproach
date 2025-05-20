@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
 import 'package:qualityapproach/Dashboard/Dashboard.bloc.dart';
@@ -13,11 +12,14 @@ import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
 import 'package:qualityapproach/SparePart/spare_bloc.dart';
-
 import 'package:qualityapproach/complaint_page.dart';
+import 'package:qualityapproach/dynamic/dynamic_all_bloc.dart';
 import 'package:universal_html/js.dart';
-
 import 'EditSparePart/editsparedetailbloc.dart';
+import 'ReportDynamic/Report_MakeBLoc.dart';
+import 'ReportDynamic/ReportAPIService.dart';
+import 'dynamic/dynamic_detail.dart';
+import 'dynamic/dynamic_detail_bloc.dart';
 
 void main() {
   runApp(
@@ -29,12 +31,17 @@ void main() {
         BlocProvider<FilterBloc>(create: (context) => FilterBloc()),
         BlocProvider<EditBloc>(create: (context) => EditBloc()),
         BlocProvider<EditReportBloc>(create: (context) => EditReportBloc()),
-        BlocProvider<SparePartBloc>(create:(context)=>SparePartBloc()),
+        BlocProvider<SparePartBloc>(create: (context) => SparePartBloc()),
         BlocProvider<EditSpareBloc>(create: (context) => EditSpareBloc()),
         BlocProvider<EditSparePartBloc>(create: (context) => EditSparePartBloc()),
         BlocProvider<SaleTargetBloc>(create: (context) => SaleTargetBloc()),
         BlocProvider<DashboardBloc>(create: (context) => DashboardBloc()),
         BlocProvider<DetailDashBloc>(create: (context) => DetailDashBloc()),
+        BlocProvider<DynamicAllBloc>(create: (context) => DynamicAllBloc()),
+        BlocProvider<DynamicDetailBloc>(create: (context) => DynamicDetailBloc()),
+        BlocProvider<ReportMakerBloc>(
+          create: (context) => ReportMakerBloc(ReportAPIService()),
+        ),
       ],
       child: MyApp(),
     ),

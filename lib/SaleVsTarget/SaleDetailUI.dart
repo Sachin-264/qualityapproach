@@ -319,10 +319,6 @@ class SaleDetailUI extends StatelessWidget {
                 );
               } else if (state is SaleDetailError) {
                 return Center(
-                  // child: Text(
-                  //   state.errorMessage,
-                  //   style: const TextStyle(fontSize: 18, color: Colors.red),
-                  // ),
                 );
               } else {
                 return const Center(
