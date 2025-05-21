@@ -22,6 +22,10 @@ import 'package:qualityapproach/NEWREPORT/report.dart';
 import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilter.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
+import 'package:qualityapproach/ReportDynamic/ReportAdmin/ReportAdminBloc.dart';
+import 'package:qualityapproach/ReportDynamic/ReportAdmin/ReportAdminUI.dart';
+import 'package:qualityapproach/ReportDynamic/ReportGenerator/ReportUI.dart';
+import 'package:qualityapproach/ReportDynamic/ReportGenerator/Reportbloc.dart';
 import 'package:qualityapproach/ReportDynamic/Report_Make.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_targetUI.dart';
@@ -255,7 +259,7 @@ class ComplaintPage extends StatelessWidget {
                   },
                 ),
                 _createDrawerItem(
-                  icon: Icons.satellite_alt_outlined,
+                  icon: Icons.dynamic_feed,
                   text: 'dynamic',
                   onTap: () {
                     Navigator.push(
@@ -271,7 +275,7 @@ class ComplaintPage extends StatelessWidget {
                 ),
                 _createDrawerItem(
                   icon: Icons.satellite_alt_outlined,
-                  text: 'dynamic Report generator ',
+                  text: 'dynamic Report Builder ',
                   onTap: () {
                     Navigator.push(
                         context,
@@ -281,6 +285,36 @@ class ComplaintPage extends StatelessWidget {
                             child:ReportMakerUI(),
                           ),
                         )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.access_time,
+                  text: 'dynamic Report generator ',
+                  onTap: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => BlocProvider.value(
+                            value: context.read< ReportBlocGenerate>(),
+                            child:ReportUI(),
+                          ),
+                        )
+                    );
+                  },
+                ),
+                _createDrawerItem(
+                  icon: Icons.search,
+                  text: 'Report Admin',
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => BlocProvider.value(
+                          value: context.read<ReportAdminBloc>(),
+                          child: ReportAdminUI(),
+                        ),
+                      ),
                     );
                   },
                 ),

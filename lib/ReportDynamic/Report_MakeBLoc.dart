@@ -36,6 +36,19 @@ class UpdateReportType extends ReportMakerEvent {
   UpdateReportType(this.reportType);
 }
 
+class SaveReport extends ReportMakerEvent {
+  final String reportName;
+  final String reportLabel;
+  final String apiName;
+  final String parameter;
+  SaveReport({
+    required this.reportName,
+    required this.reportLabel,
+    required this.apiName,
+    required this.parameter,
+  });
+}
+
 class ResetFields extends ReportMakerEvent {}
 
 class ReportMakerState {
@@ -46,6 +59,7 @@ class ReportMakerState {
   final bool isLoading;
   final String? error;
   final String reportType;
+  final bool saveSuccess;
 
   ReportMakerState({
     this.apis = const [],
@@ -55,6 +69,7 @@ class ReportMakerState {
     this.isLoading = false,
     this.error,
     this.reportType = 'Detailed',
+    this.saveSuccess = false,
   });
 
   ReportMakerState copyWith({
@@ -65,6 +80,7 @@ class ReportMakerState {
     bool? isLoading,
     String? error,
     String? reportType,
+    bool? saveSuccess,
   }) {
     return ReportMakerState(
       apis: apis ?? this.apis,
@@ -74,6 +90,7 @@ class ReportMakerState {
       isLoading: isLoading ?? this.isLoading,
       error: error ?? this.error,
       reportType: reportType ?? this.reportType,
+      saveSuccess: saveSuccess ?? this.saveSuccess,
     );
   }
 }
@@ -89,6 +106,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
     on<UpdateFieldConfig>(_onUpdateFieldConfig);
     on<UpdateCurrentField>(_onUpdateCurrentField);
     on<UpdateReportType>(_onUpdateReportType);
+    on<SaveReport>(_onSaveReport);
     on<ResetFields>(_onResetFields);
   }
 
@@ -97,7 +115,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
       final List<String> apis = await apiService.getAvailableApis();
       emit(state.copyWith(apis: apis));
     } catch (e) {
-      emit(state.copyWith(error: e.toString()));
+      emit(state.copyWith(error: 'Failed to load APIs: $e'));
     }
   }
 
@@ -106,9 +124,9 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
     try {
       final data = await apiService.fetchApiData(event.apiName);
       final fields = data.isNotEmpty ? data[0].keys.toList().cast<String>() : <String>[];
-      emit(state.copyWith(fields: fields, isLoading: false));
+      emit(state.copyWith(fields: fields, isLoading: false, error: null));
     } catch (e) {
-      emit(state.copyWith(isLoading: false, error: e.toString()));
+      emit(state.copyWith(isLoading: false, error: 'Failed to fetch API data: $e'));
     }
   }
 
@@ -132,6 +150,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
       'decimal_points': 0,
     };
     final updatedFields = [...state.selectedFields, newField];
+    print('Selected field: ${event.field}, Updated selectedFields: $updatedFields');
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newField,
@@ -154,6 +173,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
         : state.currentField?['Field_name'] == event.field
         ? null
         : state.currentField;
+    print('Deselected field: ${event.field}, Updated selectedFields: $updatedFields');
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newCurrentField,
@@ -165,11 +185,27 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
     if (event.key == 'Group_by' && state.reportType == 'Detailed') {
       return; // Prevent Group_by changes when reportType is Detailed
     }
-    final updatedField = {...state.currentField!, event.key: event.value};
+    dynamic value = event.value;
+    if (event.key == 'Sequence_no') {
+      final parsed = value is int ? value : int.tryParse(value.toString());
+      if (parsed == null || parsed <= 0) {
+        return; // Ignore invalid Sequence_no
+      }
+      value = parsed;
+    }
+    final updatedField = {...state.currentField!, event.key: value};
     final updatedFields = state.selectedFields.map((field) {
       return field['Field_name'] == state.currentField!['Field_name'] ? updatedField : field;
-    }).toList();
-    emit(state.copyWith(selectedFields: updatedFields, currentField: updatedField));
+    }).toList()
+      ..sort((a, b) {
+        final aSeq = a['Sequence_no'] as int? ?? 9999;
+        final bSeq = b['Sequence_no'] as int? ?? 9999;
+        return aSeq.compareTo(bSeq);
+      });
+    emit(state.copyWith(
+      selectedFields: updatedFields,
+      currentField: updatedField,
+    ));
   }
 
   void _onUpdateCurrentField(UpdateCurrentField event, Emitter<ReportMakerState> emit) {
@@ -178,7 +214,6 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
 
   void _onUpdateReportType(UpdateReportType event, Emitter<ReportMakerState> emit) {
     if (event.reportType == 'Detailed') {
-      // Reset Group_by and groupjson for all selected fields
       final updatedFields = state.selectedFields.map((field) {
         return {
           ...field,
@@ -196,6 +231,37 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
       ));
     } else {
       emit(state.copyWith(reportType: event.reportType));
+    }
+  }
+
+  Future<void> _onSaveReport(SaveReport event, Emitter<ReportMakerState> emit) async {
+    if (state.selectedFields.isEmpty) {
+      emit(state.copyWith(
+        isLoading: false,
+        error: 'No fields selected to save.',
+        saveSuccess: false,
+      ));
+      return;
+    }
+
+    emit(state.copyWith(isLoading: true, error: null, saveSuccess: false));
+    try {
+      print('Saving report metadata: {Report_name: ${event.reportName}, Report_label: ${event.reportLabel}, API_name: ${event.apiName}, Parameter: ${event.parameter}}');
+      final recNo = await apiService.saveReport(
+        reportName: event.reportName,
+        reportLabel: event.reportLabel,
+        apiName: event.apiName,
+        parameter: event.parameter,
+        fields: state.selectedFields,
+      );
+      print('Received RecNo: $recNo');
+
+      await apiService.saveFieldConfigs(state.selectedFields, recNo);
+
+      emit(state.copyWith(isLoading: false, error: null, saveSuccess: true));
+    } catch (e) {
+      print('Save error: $e');
+      emit(state.copyWith(isLoading: false, error: 'Failed to save report: $e', saveSuccess: false));
     }
   }
 
