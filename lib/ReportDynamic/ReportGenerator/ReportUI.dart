@@ -64,7 +64,7 @@ class _ReportUIState extends State<ReportUI> {
   }
 
   Widget _buildDateField({
-    required String paramName,
+    required String label,
     required TextEditingController controller,
     required VoidCallback onTap,
   }) {
@@ -74,7 +74,7 @@ class _ReportUIState extends State<ReportUI> {
       onTap: onTap,
       style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
       decoration: InputDecoration(
-        labelText: paramName,
+        labelText: label,
         labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
         prefixIcon: const Icon(Icons.calendar_today, color: Colors.blueAccent, size: 22),
         filled: true,
@@ -146,8 +146,15 @@ class _ReportUIState extends State<ReportUI> {
             if (state.error != null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(state.error!),
+                  content: Text(
+                    state.error!,
+                    style: GoogleFonts.poppins(color: Colors.white),
+                  ),
                   backgroundColor: Colors.redAccent,
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  duration: const Duration(seconds: 5),
                 ),
               );
             }
@@ -249,12 +256,13 @@ class _ReportUIState extends State<ReportUI> {
                               const SizedBox(height: 10),
                               ...state.selectedApiParameters.where((param) => param['show'] == true).map((param) {
                                 final paramName = param['name'];
-                                final isDateField = paramName.toLowerCase().contains('date');
+                                final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
+                                final isDateField = paramName.toLowerCase().contains('date') || param['value'].toString().contains('-');
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 16.0),
                                   child: isDateField
                                       ? _buildDateField(
-                                    paramName: paramName,
+                                    label: paramLabel,
                                     controller: _paramControllers[paramName]!,
                                     onTap: () async {
                                       final initialDate = DateTime.tryParse(
@@ -266,6 +274,26 @@ class _ReportUIState extends State<ReportUI> {
                                         initialDate: initialDate,
                                         firstDate: DateTime(2000),
                                         lastDate: DateTime(2100),
+                                        builder: (context, child) {
+                                          return Theme(
+                                            data: ThemeData.light().copyWith(
+                                              colorScheme: const ColorScheme.light(
+                                                primary: Colors.blueAccent,
+                                                onPrimary: Colors.white,
+                                                surface: Colors.white,
+                                                onSurface: Colors.black87,
+                                              ),
+                                              dialogBackgroundColor: Colors.white,
+                                              textButtonTheme: TextButtonThemeData(
+                                                style: TextButton.styleFrom(
+                                                  foregroundColor: Colors.blueAccent,
+                                                  textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                                                ),
+                                              ),
+                                            ),
+                                            child: child!,
+                                          );
+                                        },
                                       );
                                       if (pickedDate != null) {
                                         final formattedDate = DateFormat('dd-MMM-yyyy').format(pickedDate);
@@ -278,7 +306,7 @@ class _ReportUIState extends State<ReportUI> {
                                   )
                                       : _buildTextField(
                                     controller: _paramControllers[paramName]!,
-                                    label: paramName,
+                                    label: paramLabel,
                                     icon: Icons.text_fields,
                                     onChanged: (value) {
                                       context.read<ReportBlocGenerate>().add(

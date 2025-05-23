@@ -12,6 +12,7 @@ import 'package:qualityapproach/NEWREPORT/report_bloc.dart';
 import 'package:qualityapproach/QualtyChecks/qualityFilterbloc.dart';
 import 'package:qualityapproach/ReportDynamic/ReportAdmin/ReportAdminBloc.dart';
 import 'package:qualityapproach/ReportDynamic/ReportGenerator/Reportbloc.dart';
+import 'package:qualityapproach/ReportDynamic/ReportMakeEdit/EditDetailMakerBloc.dart';
 import 'package:qualityapproach/SaleVsTarget/sale_TargetBloc.dart';
 import 'package:qualityapproach/SparePart/spare_bloc.dart';
 import 'package:qualityapproach/complaint_page.dart';
@@ -46,6 +47,8 @@ void main() {
         ),
         BlocProvider<ReportBlocGenerate>(create: (context) => ReportBlocGenerate(ReportAPIService())),
         BlocProvider<ReportAdminBloc>(create: (context) => ReportAdminBloc(ReportAPIService())),
+        BlocProvider<ReportAdminBloc>(create: (context) => ReportAdminBloc(ReportAPIService())),
+        BlocProvider<EditDetailMakerBloc>(create: (context) => EditDetailMakerBloc(ReportAPIService())),
       ],
       child: MyApp(),
     ),

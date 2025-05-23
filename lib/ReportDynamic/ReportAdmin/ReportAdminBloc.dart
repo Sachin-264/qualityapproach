@@ -51,6 +51,12 @@ class UpdateParameterShow extends ReportAdminEvent {
   const UpdateParameterShow(this.index, this.show);
 }
 
+class UpdateParameterFieldLabel extends ReportAdminEvent {
+  final int index;
+  final String fieldLabel;
+  const UpdateParameterFieldLabel(this.index, this.fieldLabel);
+}
+
 class SaveDatabaseServer extends ReportAdminEvent {
   const SaveDatabaseServer();
 }
@@ -222,6 +228,17 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
       }
     });
 
+    on<UpdateParameterFieldLabel>((event, emit) {
+      final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
+      if (event.index >= 0 && event.index < updatedParameters.length) {
+        updatedParameters[event.index] = {
+          ...updatedParameters[event.index],
+          'field_label': event.fieldLabel,
+        };
+        emit(state.copyWith(parameters: List.from(updatedParameters)));
+      }
+    });
+
     on<SaveDatabaseServer>((event, emit) async {
       print('SaveDatabaseServer State: serverIP=${state.serverIP}, '
           'userName=${state.userName}, password=${state.password}, '
@@ -273,6 +290,7 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
             'name': key,
             'value': value ?? '',
             'show': false,
+            'field_label': '', // Initialize field_label as empty
           };
         });
       }).toList();
@@ -296,6 +314,7 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
           'name': name,
           'value': existingMap[name]!['value'],
           'show': existingMap[name]!['show'] ?? false,
+          'field_label': existingMap[name]!['field_label'] ?? '', // Preserve field_label
         });
       } else {
         merged.add(newParam);

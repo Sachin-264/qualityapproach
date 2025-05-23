@@ -9,7 +9,6 @@ import 'ReportAdminBloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 
-
 class ReportAdminUI extends StatefulWidget {
   const ReportAdminUI({super.key});
 
@@ -90,6 +89,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     bool obscureText = false,
     bool isDateField = false,
     VoidCallback? onTap,
+    bool isSmall = false,
   }) {
     return TextField(
       controller: controller,
@@ -97,12 +97,16 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
       obscureText: obscureText,
       readOnly: isDateField,
       onTap: onTap,
-      style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
+      style: GoogleFonts.poppins(fontSize: isSmall ? 14 : 16, color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
-        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22.0) : null,
-        suffixIcon: isDateField ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: 20) : null,
+        labelStyle: GoogleFonts.poppins(
+          color: Colors.grey[700],
+          fontSize: isSmall ? 13 : 15,
+          fontWeight: FontWeight.w600,
+        ),
+        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: isSmall ? 20 : 22) : null,
+        suffixIcon: isDateField ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20) : null,
         filled: true,
         fillColor: Colors.white.withOpacity(0.9),
         border: OutlineInputBorder(
@@ -117,7 +121,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        contentPadding: EdgeInsets.symmetric(vertical: isSmall ? 12 : 16, horizontal: isSmall ? 12 : 16),
         floatingLabelBehavior: FloatingLabelBehavior.auto,
       ),
     );
@@ -257,6 +261,67 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
       controller.text = formattedDate;
       _bloc.add(UpdateParameterValue(index, formattedDate));
     }
+  }
+
+  Future<String?> _showFieldLabelDialog(BuildContext context, String paramName, String? currentLabel) async {
+    final TextEditingController labelController = TextEditingController(text: currentLabel ?? '');
+    String? fieldLabel;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: Colors.white,
+        title: Text(
+          'Enter Field Label for $paramName',
+          style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        content: _buildTextField(
+          controller: labelController,
+          label: 'Field Label',
+          icon: Icons.label,
+          isSmall: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              if (labelController.text.trim().isNotEmpty) {
+                fieldLabel = labelController.text.trim();
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Field label cannot be empty',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    backgroundColor: Colors.redAccent,
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            child: Text(
+              'OK',
+              style: GoogleFonts.poppins(color: Colors.blueAccent, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    labelController.dispose();
+    return fieldLabel;
   }
 
   void _showSummaryDialog(BuildContext context, ReportAdminState state) {
@@ -483,7 +548,6 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                 'databases=${state.availableDatabases}');
             return Column(
               children: [
-                // NEW: Edit Button at the Top
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
                   child: Row(
@@ -669,7 +733,9 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                                     Expanded(
                                                       child: _buildTextField(
                                                         controller: _paramControllers[paramIndex]!,
-                                                        label: param['name'],
+                                                        label: param['field_label']?.isNotEmpty ?? false
+                                                            ? param['field_label']
+                                                            : param['name'],
                                                         isDateField: isDate,
                                                         onTap: isDate
                                                             ? () => _selectDate(
@@ -678,18 +744,49 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                                           paramIndex,
                                                         )
                                                             : null,
+                                                        isSmall: true,
                                                       ),
                                                     ),
-                                                    const SizedBox(width: 10),
+                                                    if (param['show'] ?? false)
+                                                      IconButton(
+                                                        icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                                                        onPressed: () async {
+                                                          final fieldLabel = await _showFieldLabelDialog(
+                                                            context,
+                                                            param['name'],
+                                                            param['field_label'],
+                                                          );
+                                                          if (fieldLabel != null && context.mounted) {
+                                                            context.read<ReportAdminBloc>().add(
+                                                              UpdateParameterFieldLabel(paramIndex, fieldLabel),
+                                                            );
+                                                          }
+                                                        },
+                                                        tooltip: 'Edit Field Label',
+                                                      ),
+                                                    const SizedBox(width: 8),
                                                     Checkbox(
                                                       value: param['show'] ?? false,
-                                                      onChanged: (value) {
-                                                        context.read<ReportAdminBloc>().add(
-                                                          UpdateParameterShow(
-                                                            paramIndex,
-                                                            value ?? false,
-                                                          ),
-                                                        );
+                                                      onChanged: (value) async {
+                                                        if (value == true) {
+                                                          final fieldLabel = await _showFieldLabelDialog(
+                                                            context,
+                                                            param['name'],
+                                                            param['field_label'],
+                                                          );
+                                                          if (fieldLabel != null && context.mounted) {
+                                                            context.read<ReportAdminBloc>().add(
+                                                              UpdateParameterFieldLabel(paramIndex, fieldLabel),
+                                                            );
+                                                            context.read<ReportAdminBloc>().add(
+                                                              UpdateParameterShow(paramIndex, true),
+                                                            );
+                                                          }
+                                                        } else {
+                                                          context.read<ReportAdminBloc>().add(
+                                                            UpdateParameterShow(paramIndex, false),
+                                                          );
+                                                        }
                                                       },
                                                       activeColor: Colors.blueAccent,
                                                     ),
@@ -716,7 +813,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                         state.password.isNotEmpty &&
                                         state.databaseName.isNotEmpty &&
                                         state.apiServerURL.isNotEmpty &&
-                                        (!_showParameters || state.parameters.isEmpty || state.apiName.isNotEmpty) &&
+                                        (state.parameters.isEmpty || state.apiName.isNotEmpty) &&
                                         !state.isLoading
                                         ? () => _showSummaryDialog(context, state)
                                         : null,

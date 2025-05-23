@@ -2,21 +2,41 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:qualityapproach/ReportUtils/subtleloader.dart';
 import '../../../ReportUtils/Appbar.dart';
 import '../../ReportAPIService.dart';
 import 'EditDetailAdminBloc.dart';
 import 'dart:async';
 
-class EditDetailAdmin extends StatefulWidget {
+class EditDetailAdmin extends StatelessWidget {
   final Map<String, dynamic> apiData;
 
   const EditDetailAdmin({super.key, required this.apiData});
 
   @override
-  _EditDetailAdminState createState() => _EditDetailAdminState();
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => EditDetailAdminBloc(ReportAPIService(), apiData)
+        ..add(FetchDatabases(
+          serverIP: apiData['ServerIP'] ?? '',
+          userName: apiData['UserName'] ?? '',
+          password: apiData['Password'] ?? '',
+        )),
+      child: _EditDetailAdminContent(apiData: apiData),
+    );
+  }
 }
 
-class _EditDetailAdminState extends State<EditDetailAdmin> {
+class _EditDetailAdminContent extends StatefulWidget {
+  final Map<String, dynamic> apiData;
+
+  const _EditDetailAdminContent({required this.apiData});
+
+  @override
+  _EditDetailAdminContentState createState() => _EditDetailAdminContentState();
+}
+
+class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
   final Map<int, TextEditingController> _paramControllers = {};
   final TextEditingController _serverIPController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController();
@@ -36,7 +56,6 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
     _apiServerURLController.text = widget.apiData['APIServerURl'] ?? '';
     _apiNameController.text = widget.apiData['APIName'] ?? '';
 
-    // Add listeners for state updates
     _serverIPController.addListener(() {
       _debouncedUpdate(() {
         context.read<EditDetailAdminBloc>().add(UpdateServerIP(_serverIPController.text));
@@ -59,6 +78,8 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
     });
     _apiNameController.addListener(() {
       _debouncedUpdate(() {
+        print('User entered APIName: ${_apiNameController.text}');
+        print('Dispatching UpdateApiName with: ${_apiNameController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateApiName(_apiNameController.text));
       });
     });
@@ -255,6 +276,67 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
     }
   }
 
+  Future<String?> _showFieldLabelDialog(BuildContext context, String paramName, String? currentLabel) async {
+    final TextEditingController labelController = TextEditingController(text: currentLabel ?? '');
+    String? fieldLabel;
+
+    await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        backgroundColor: Colors.white,
+        title: Text(
+          'Enter Field Label for $paramName',
+          style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        content: _buildTextField(
+          controller: labelController,
+          label: 'Field Label',
+          icon: Icons.label,
+          isSmall: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(
+              'Cancel',
+              style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.w600),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              if (labelController.text.trim().isNotEmpty) {
+                fieldLabel = labelController.text.trim();
+                Navigator.pop(context);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Field label cannot be empty',
+                      style: GoogleFonts.poppins(color: Colors.white),
+                    ),
+                    backgroundColor: Colors.redAccent,
+                    behavior: SnackBarBehavior.floating,
+                    margin: const EdgeInsets.all(16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+              }
+            },
+            child: Text(
+              'OK',
+              style: GoogleFonts.poppins(color: Colors.blueAccent, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    labelController.dispose();
+    return fieldLabel;
+  }
+
   void _debouncedUpdate(VoidCallback callback) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), callback);
@@ -265,7 +347,6 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
     final dateParams = <Map<String, dynamic>>[];
     final nonDateParams = <Map<String, dynamic>>[];
 
-    // Separate date and non-date parameters
     for (var param in parameters) {
       if (_isDateParameter(param['name'], param['value'])) {
         dateParams.add(param);
@@ -274,7 +355,6 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
       }
     }
 
-    // Handle date parameters (group FromDate and ToDate in one row)
     for (var i = 0; i < dateParams.length; i += 2) {
       final param1 = dateParams[i];
       final param2 = i + 1 < dateParams.length ? dateParams[i + 1] : null;
@@ -303,38 +383,88 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
           child: Row(
             children: [
               Expanded(
-                child: _buildTextField(
-                  controller: _paramControllers[index1]!,
-                  label: param1['name'],
-                  isSmall: true,
-                  isDateField: true,
-                  onTap: () => _selectDate(context, _paramControllers[index1]!, index1),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildTextField(
+                        controller: _paramControllers[index1]!,
+                        label: param1['field_label']?.isNotEmpty ?? false ? param1['field_label'] : param1['name'],
+                        isSmall: true,
+                        isDateField: true,
+                        onTap: () => _selectDate(context, _paramControllers[index1]!, index1),
+                      ),
+                    ),
+                    if (param1['show'] ?? false)
+                      IconButton(
+                        icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                        onPressed: () async {
+                          final fieldLabel = await _showFieldLabelDialog(context, param1['name'], param1['field_label']);
+                          if (fieldLabel != null && context.mounted) {
+                            context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index1, fieldLabel));
+                          }
+                        },
+                        tooltip: 'Edit Field Label',
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(width: 8),
               Checkbox(
                 value: param1['show'] ?? false,
-                onChanged: (value) {
-                  context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index1, value ?? false));
+                onChanged: (value) async {
+                  if (value == true) {
+                    final fieldLabel = await _showFieldLabelDialog(context, param1['name'], param1['field_label']);
+                    if (fieldLabel != null && context.mounted) {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index1, fieldLabel));
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index1, true));
+                    }
+                  } else {
+                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index1, false));
+                  }
                 },
                 activeColor: Colors.blueAccent,
               ),
               const SizedBox(width: 16),
               if (param2 != null) ...[
                 Expanded(
-                  child: _buildTextField(
-                    controller: _paramControllers[index2!]!,
-                    label: param2['name'],
-                    isSmall: true,
-                    isDateField: true,
-                    onTap: () => _selectDate(context, _paramControllers[index2]!, index2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _paramControllers[index2!]!,
+                          label: param2['field_label']?.isNotEmpty ?? false ? param2['field_label'] : param2['name'],
+                          isSmall: true,
+                          isDateField: true,
+                          onTap: () => _selectDate(context, _paramControllers[index2]!, index2),
+                        ),
+                      ),
+                      if (param2['show'] ?? false)
+                        IconButton(
+                          icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                          onPressed: () async {
+                            final fieldLabel = await _showFieldLabelDialog(context, param2['name'], param2['field_label']);
+                            if (fieldLabel != null && context.mounted) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index2, fieldLabel));
+                            }
+                          },
+                          tooltip: 'Edit Field Label',
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Checkbox(
                   value: param2['show'] ?? false,
-                  onChanged: (value) {
-                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, value ?? false));
+                  onChanged: (value) async {
+                    if (value == true) {
+                      final fieldLabel = await _showFieldLabelDialog(context, param2['name'], param2['field_label']);
+                      if (fieldLabel != null && context.mounted) {
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index2, fieldLabel));
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, true));
+                      }
+                    } else {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, false));
+                    }
                   },
                   activeColor: Colors.blueAccent,
                 ),
@@ -346,7 +476,6 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
       );
     }
 
-    // Handle non-date parameters (2 per row, then 1, alternating)
     for (var i = 0; i < nonDateParams.length; i++) {
       final param = nonDateParams[i];
       final index = parameters.indexOf(param);
@@ -359,7 +488,6 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
         });
 
       if (i % 3 == 0 && i + 1 < nonDateParams.length) {
-        // Two parameters in one row
         final param2 = nonDateParams[i + 1];
         final index2 = parameters.indexOf(param2);
 
@@ -376,33 +504,83 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
             child: Row(
               children: [
                 Expanded(
-                  child: _buildTextField(
-                    controller: _paramControllers[index]!,
-                    label: param['name'],
-                    isSmall: true,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _paramControllers[index]!,
+                          label: param['field_label']?.isNotEmpty ?? false ? param['field_label'] : param['name'],
+                          isSmall: true,
+                        ),
+                      ),
+                      if (param['show'] ?? false)
+                        IconButton(
+                          icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                          onPressed: () async {
+                            final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
+                            if (fieldLabel != null && context.mounted) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
+                            }
+                          },
+                          tooltip: 'Edit Field Label',
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Checkbox(
                   value: param['show'] ?? false,
-                  onChanged: (value) {
-                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, value ?? false));
+                  onChanged: (value) async {
+                    if (value == true) {
+                      final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
+                      if (fieldLabel != null && context.mounted) {
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, true));
+                      }
+                    } else {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, false));
+                    }
                   },
                   activeColor: Colors.blueAccent,
                 ),
                 const SizedBox(width: 16),
                 Expanded(
-                  child: _buildTextField(
-                    controller: _paramControllers[index2]!,
-                    label: param2['name'],
-                    isSmall: true,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _paramControllers[index2]!,
+                          label: param2['field_label']?.isNotEmpty ?? false ? param2['field_label'] : param2['name'],
+                          isSmall: true,
+                        ),
+                      ),
+                      if (param2['show'] ?? false)
+                        IconButton(
+                          icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                          onPressed: () async {
+                            final fieldLabel = await _showFieldLabelDialog(context, param2['name'], param2['field_label']);
+                            if (fieldLabel != null && context.mounted) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index2, fieldLabel));
+                            }
+                          },
+                          tooltip: 'Edit Field Label',
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Checkbox(
                   value: param2['show'] ?? false,
-                  onChanged: (value) {
-                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, value ?? false));
+                  onChanged: (value) async {
+                    if (value == true) {
+                      final fieldLabel = await _showFieldLabelDialog(context, param2['name'], param2['field_label']);
+                      if (fieldLabel != null && context.mounted) {
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index2, fieldLabel));
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, true));
+                      }
+                    } else {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index2, false));
+                    }
                   },
                   activeColor: Colors.blueAccent,
                 ),
@@ -410,26 +588,50 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
             ),
           ),
         );
-        i++; // Skip the next parameter since it was already processed
+        i++;
       } else {
-        // One parameter in a row
         rows.add(
           Padding(
             padding: const EdgeInsets.only(bottom: 8.0),
             child: Row(
               children: [
                 Expanded(
-                  child: _buildTextField(
-                    controller: _paramControllers[index]!,
-                    label: param['name'],
-                    isSmall: true,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          controller: _paramControllers[index]!,
+                          label: param['field_label']?.isNotEmpty ?? false ? param['field_label'] : param['name'],
+                          isSmall: true,
+                        ),
+                      ),
+                      if (param['show'] ?? false)
+                        IconButton(
+                          icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                          onPressed: () async {
+                            final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
+                            if (fieldLabel != null && context.mounted) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
+                            }
+                          },
+                          tooltip: 'Edit Field Label',
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Checkbox(
                   value: param['show'] ?? false,
-                  onChanged: (value) {
-                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, value ?? false));
+                  onChanged: (value) async {
+                    if (value == true) {
+                      final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
+                      if (fieldLabel != null && context.mounted) {
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
+                        context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, true));
+                      }
+                    } else {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, false));
+                    }
                   },
                   activeColor: Colors.blueAccent,
                 ),
@@ -445,213 +647,198 @@ class _EditDetailAdminState extends State<EditDetailAdmin> {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => EditDetailAdminBloc(ReportAPIService(), widget.apiData)
-        ..add(FetchDatabases(
-          serverIP: widget.apiData['ServerIP'] ?? '',
-          userName: widget.apiData['UserName'] ?? '',
-          password: widget.apiData['Password'] ?? '',
-        )),
-      child: Scaffold(
-        appBar: AppBarWidget(
-          title: 'Edit API: ${widget.apiData['APIName']}',
-          onBackPress: () => Navigator.pop(context),
-        ),
-        body: BlocConsumer<EditDetailAdminBloc, EditDetailAdminState>(
-          listener: (context, state) {
-            if (state.error != null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    state.error!,
-                    style: GoogleFonts.poppins(color: Colors.white),
-                  ),
-                  backgroundColor: Colors.redAccent,
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  duration: const Duration(seconds: 5),
+    return Scaffold(
+      appBar: AppBarWidget(
+        title: 'Edit API: ${widget.apiData['APIName']}',
+        onBackPress: () => Navigator.pop(context),
+      ),
+      body: BlocConsumer<EditDetailAdminBloc, EditDetailAdminState>(
+        listener: (context, state) {
+          if (state.error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  state.error!,
+                  style: GoogleFonts.poppins(color: Colors.white),
                 ),
-              );
-            } else if (!state.isLoading && state.saveInitiated) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Changes saved successfully',
-                    style: GoogleFonts.poppins(color: Colors.white),
-                  ),
-                  backgroundColor: Colors.green,
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  duration: const Duration(seconds: 3),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 5),
+              ),
+            );
+          } else if (!state.isLoading && state.saveInitiated) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Changes saved successfully',
+                  style: GoogleFonts.poppins(color: Colors.white),
                 ),
-              );
-              Navigator.pop(context);
-            }
-          },
-          builder: (context, state) {
-            _serverIPController.text = state.serverIP;
-            _userNameController.text = state.userName;
-            _passwordController.text = state.password;
-            _databaseNameController.text = state.databaseName;
-            _apiServerURLController.text = state.apiServerURL;
-            _apiNameController.text = state.apiName;
-
-            return Stack(
-              children: [
-                SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Card(
-                      color: Colors.white,
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(20.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Edit API Configuration',
-                              style: GoogleFonts.poppins(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+            Navigator.pop(context, true);
+          }
+        },
+        builder: (context, state) {
+          return Stack(
+            children: [
+              SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Card(
+                    color: Colors.white,
+                    elevation: 6,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Edit API Configuration',
+                            style: GoogleFonts.poppins(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _serverIPController,
+                                  label: 'Server IP',
+                                  icon: Icons.dns,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 20),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildTextField(
-                                    controller: _serverIPController,
-                                    label: 'Server IP',
-                                    icon: Icons.dns,
-                                  ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _userNameController,
+                                  label: 'Username',
+                                  icon: Icons.person,
                                 ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildTextField(
-                                    controller: _userNameController,
-                                    label: 'Username',
-                                    icon: Icons.person,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildTextField(
-                                    controller: _passwordController,
-                                    label: 'Password',
-                                    icon: Icons.lock,
-                                    obscureText: true,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: state.isLoading && state.availableDatabases.isEmpty
-                                      ? const Center(
-                                    child: CircularProgressIndicator(color: Colors.blueAccent),
-                                  )
-                                      : _buildDropdownField(
-                                    value: state.databaseName,
-                                    items: state.availableDatabases,
-                                    onChanged: (value) {
-                                      if (value != null) {
-                                        _databaseNameController.text = value;
-                                        context.read<EditDetailAdminBloc>().add(UpdateDatabaseName(value));
-                                      }
-                                    },
-                                    label: 'Database Name',
-                                    icon: Icons.storage,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildTextField(
-                                    controller: _apiServerURLController,
-                                    label: 'API Server URL',
-                                    icon: Icons.link,
-                                  ),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: _buildTextField(
-                                    controller: _apiNameController,
-                                    label: 'API Name',
-                                    icon: Icons.api,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 20),
-                            const Divider(color: Colors.grey, thickness: 1),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Parameters',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.black87,
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                            if (state.parameters.isEmpty)
-                              Text(
-                                'No parameters available',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 14,
-                                  color: Colors.grey[700],
-                                  fontStyle: FontStyle.italic,
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _passwordController,
+                                  label: 'Password',
+                                  icon: Icons.lock,
+                                  obscureText: true,
                                 ),
-                              )
-                            else
-                              ..._buildParameterRows(state.parameters, context),
-                            const SizedBox(height: 20),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                _buildButton(
-                                  text: 'Save',
-                                  color: Colors.blueAccent,
-                                  onPressed: state.isLoading
-                                      ? () {}
-                                      : () {
-                                    context.read<EditDetailAdminBloc>().add(SaveChanges());
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: state.isLoading && state.availableDatabases.isEmpty
+                                    ? const Center(
+                                  child: CircularProgressIndicator(color: Colors.blueAccent),
+                                )
+                                    : _buildDropdownField(
+                                  value: state.databaseName,
+                                  items: state.availableDatabases,
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      _databaseNameController.text = value;
+                                      context.read<EditDetailAdminBloc>().add(UpdateDatabaseName(value));
+                                    }
                                   },
-                                  icon: Icons.save,
+                                  label: 'Database Name',
+                                  icon: Icons.storage,
                                 ),
-                                const SizedBox(width: 12),
-                                _buildButton(
-                                  text: 'Cancel',
-                                  color: Colors.grey,
-                                  onPressed: () => Navigator.pop(context),
-                                  icon: Icons.cancel,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _apiServerURLController,
+                                  label: 'API Server URL',
+                                  icon: Icons.link,
                                 ),
-                              ],
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: _buildTextField(
+                                  controller: _apiNameController,
+                                  label: 'API Name',
+                                  icon: Icons.api,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          const Divider(color: Colors.grey, thickness: 1),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Parameters',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.black87,
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(height: 10),
+                          if (state.parameters.isEmpty)
+                            Text(
+                              'No parameters available',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                                fontStyle: FontStyle.italic,
+                              ),
+                            )
+                          else
+                            ..._buildParameterRows(state.parameters, context),
+                          const SizedBox(height: 20),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              _buildButton(
+                                text: 'Save',
+                                color: Colors.blueAccent,
+                                onPressed: state.isLoading
+                                    ? () {}
+                                    : () {
+                                  context.read<EditDetailAdminBloc>().add(SaveChanges());
+                                },
+                                icon: Icons.save,
+                              ),
+                              const SizedBox(width: 12),
+                              _buildButton(
+                                text: 'Cancel',
+                                color: Colors.grey,
+                                onPressed: () => Navigator.pop(context),
+                                icon: Icons.cancel,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-                if (state.isLoading)
-                  const Center(
-                    child: CircularProgressIndicator(color: Colors.blueAccent),
-                  ),
-              ],
-            );
-          },
-        ),
+              ),
+              if (state.isLoading)
+                const Center(
+                  child: SubtleLoader(),
+                ),
+            ],
+          );
+        },
       ),
     );
   }

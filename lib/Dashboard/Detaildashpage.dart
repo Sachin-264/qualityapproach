@@ -124,20 +124,20 @@ class _DetailDashPageState extends State<DetailDashPage> {
                       ],
                     ),
                   ),
-                  // Use ExportWidget instead of ExportButtons
-                  ExportWidget(
-                    data: state.data,
-                    fileName: 'Field_Details',
-                    headerMap: {
-                      'Indent No': 'IndentNo',
-                      'Dept': 'DepartmentName',
-                      'Item': 'ItemName',
-                      'Qty': 'Qty',
-                      'Vendor Name': 'VendorName',
-                      'Last Date': 'IndentDate',
-                      'Remark': state.mergedData['Level1'] == 'Y' ? 'Action_L1_Remark' : 'Action_L2_Remark',
-                    },
-                  ),
+                  // // Use ExportWidget instead of ExportButtons
+                  // ExportWidget(
+                  //   data: state.data,
+                  //   fileName: 'Field_Details',
+                  //   headerMap: {
+                  //     'Indent No': 'IndentNo',
+                  //     'Dept': 'DepartmentName',
+                  //     'Item': 'ItemName',
+                  //     'Qty': 'Qty',
+                  //     'Vendor Name': 'VendorName',
+                  //     'Last Date': 'IndentDate',
+                  //     'Remark': state.mergedData['Level1'] == 'Y' ? 'Action_L1_Remark' : 'Action_L2_Remark',
+                  //   },
+                  // ),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.all(16.0),

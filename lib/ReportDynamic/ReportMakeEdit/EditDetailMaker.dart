@@ -1,26 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
-import '../ReportUtils/Appbar.dart';
-import '../ReportUtils/subtleloader.dart';
-import 'ReportAPIService.dart';
-import 'ReportMakeEdit/EditReportMaker.dart';
-import 'Report_MakeBLoc.dart';
 
+import '../../ReportUtils/Appbar.dart';
+import '../../ReportUtils/subtleloader.dart';
+import 'EditDetailMakerBloc.dart';
+import '../ReportAPIService.dart';
 
-class ReportMakerUI extends StatefulWidget {
-  const ReportMakerUI({super.key});
+class EditDetailMaker extends StatefulWidget {
+  final int recNo;
+  final String reportName;
+  final String reportLabel;
+  final String apiName;
+
+  const EditDetailMaker({
+    super.key,
+    required this.recNo,
+    required this.reportName,
+    required this.reportLabel,
+    required this.apiName,
+  });
 
   @override
-  _ReportMakerUIState createState() => _ReportMakerUIState();
+  _EditDetailMakerState createState() => _EditDetailMakerState();
 }
 
-class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProviderStateMixin {
+class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProviderStateMixin {
   final TextEditingController _reportNameController = TextEditingController();
   final TextEditingController _reportLabelController = TextEditingController();
   final TextEditingController _apiController = TextEditingController();
-
-  // Controllers for field config panel
   final TextEditingController _fieldNameController = TextEditingController();
   final TextEditingController _fieldLabelController = TextEditingController();
   final TextEditingController _sequenceController = TextEditingController();
@@ -29,13 +37,22 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
 
   String? _selectedApi;
   bool _showConfigPanel = false;
-
+  late EditDetailMakerBloc _bloc;
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
+    print('EditDetailMaker initState: recNo=${widget.recNo}, apiName=${widget.apiName}');
+    _reportNameController.text = widget.reportName;
+    _reportLabelController.text = widget.reportLabel;
+    _apiController.text = widget.apiName;
+    _selectedApi = widget.apiName;
+    print('Controllers initialized: reportName=${_reportNameController.text}, apiName=${_apiController.text}');
+
+    _bloc = EditDetailMakerBloc(ReportAPIService());
+
     _animationController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 300),
@@ -44,7 +61,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
-    // Add listeners to maintain cursor position
     for (var controller in [
       _reportNameController,
       _reportLabelController,
@@ -63,10 +79,16 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         }
       });
     }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      print('Dispatching LoadPreselectedFields: recNo=${widget.recNo}, apiName=${widget.apiName}');
+      _bloc.add(LoadPreselectedFields(widget.recNo, widget.apiName));
+    });
   }
 
   @override
   void dispose() {
+    print('EditDetailMaker dispose');
     _reportNameController.dispose();
     _reportLabelController.dispose();
     _apiController.dispose();
@@ -76,10 +98,12 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     _widthController.dispose();
     _decimalPointsController.dispose();
     _animationController.dispose();
+    _bloc.close();
     super.dispose();
   }
 
   void _toggleConfigPanel() {
+    print('Toggling config panel: showConfigPanel=true');
     setState(() {
       _showConfigPanel = true;
     });
@@ -87,6 +111,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
   }
 
   void _returnToFieldSelection() {
+    print('Returning to field selection: showConfigPanel=false');
     setState(() {
       _showConfigPanel = false;
     });
@@ -94,6 +119,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
   }
 
   void _updateFieldConfigControllers(Map<String, dynamic>? field) {
+    print('Updating field config controllers: field=${field?['Field_name']}');
     if (field == null) {
       _fieldNameController.clear();
       _fieldLabelController.clear();
@@ -101,8 +127,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
       _widthController.clear();
       _decimalPointsController.clear();
     } else {
-      _fieldNameController.text = field['Field_name'] ?? '';
-      _fieldLabelController.text = field['Field_label'] ?? '';
+      _fieldNameController.text = field['Field_name']?.toString() ?? '';
+      _fieldLabelController.text = field['Field_label']?.toString() ?? '';
       _sequenceController.text = field['Sequence_no']?.toString() ?? '';
       _widthController.text = field['width']?.toString() ?? '';
       _decimalPointsController.text = field['decimal_points']?.toString() ?? '';
@@ -111,16 +137,22 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (context) => ReportMakerBloc(ReportAPIService())..add(LoadApis()),
+    print('Building EditDetailMaker UI');
+    return BlocProvider.value(
+      value: _bloc,
       child: Scaffold(
         appBar: AppBarWidget(
-          title: 'Report Maker',
-          onBackPress: () => Navigator.pop(context),
+          title: 'Edit Report Details',
+          onBackPress: () {
+            print('AppBar back pressed');
+            Navigator.pop(context, true);
+          },
         ),
-        body: BlocListener<ReportMakerBloc, ReportMakerState>(
+        body: BlocListener<EditDetailMakerBloc, EditDetailMakerState>(
           listener: (context, state) {
+            print('BlocListener: isLoading=${state.isLoading}, error=${state.error}, saveSuccess=${state.saveSuccess}, fields=${state.fields.length}, selectedFields=${state.selectedFields.length}, preselectedFields=${state.preselectedFields.length}');
             if (state.error != null) {
+              print('Showing error SnackBar: ${state.error}');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(state.error!),
@@ -128,48 +160,25 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                 ),
               );
             } else if (state.saveSuccess) {
+              print('Showing success SnackBar');
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Report and field configurations saved successfully!'),
+                  content: Text('Report and field configurations updated successfully!'),
                   backgroundColor: Colors.green,
                 ),
               );
-              _reportNameController.clear();
-              _reportLabelController.clear();
-              _apiController.clear();
-              setState(() {
-                _selectedApi = null;
-                _showConfigPanel = false;
-                _apiController.text = '';
-              });
-              context.read<ReportMakerBloc>().add(ResetFields());
-              _animationController.reset();
+              print('Navigating back with refresh');
+              Navigator.pop(context, true);
             }
             _updateFieldConfigControllers(state.currentField);
           },
-          child: BlocBuilder<ReportMakerBloc, ReportMakerState>(
+          child: BlocBuilder<EditDetailMakerBloc, EditDetailMakerState>(
             builder: (context, state) {
+              print('BlocBuilder: isLoading=${state.isLoading}, fields=${state.fields.length}, selectedFields=${state.selectedFields.length}, preselectedFields=${state.preselectedFields.length}');
               return Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        _buildButton(
-                          text: 'Edit Reports',
-                          color: Colors.purpleAccent,
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(builder: (context) => const EditReportMaker()),
-                            );
-                          },
-                          icon: Icons.edit,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
                     Card(
                       color: Colors.white,
                       elevation: 6,
@@ -187,7 +196,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                     label: 'Report Name',
                                     icon: Icons.description,
                                     onChanged: (value) {
-                                      print('Report Name input: $value');
+                                      print('Report Name changed: $value');
                                     },
                                   ),
                                 ),
@@ -198,7 +207,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                     label: 'Report Label',
                                     icon: Icons.label,
                                     onChanged: (value) {
-                                      print('Report Label input: $value');
+                                      print('Report Label changed: $value');
                                     },
                                   ),
                                 ),
@@ -208,67 +217,14 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                             Row(
                               children: [
                                 Expanded(
-                                  child: SizedBox(
-                                    width: 300,
-                                    child: Autocomplete<String>(
-                                      optionsBuilder: (TextEditingValue textEditingValue) {
-                                        if (textEditingValue.text.isEmpty) {
-                                          return const Iterable<String>.empty();
-                                        }
-                                        return state.apis.where((api) => api
-                                            .toLowerCase()
-                                            .contains(textEditingValue.text.toLowerCase()));
-                                      },
-                                      onSelected: (String selection) {
-                                        setState(() {
-                                          _selectedApi = selection;
-                                          _apiController.text = selection;
-                                          _apiController.selection = TextSelection.fromPosition(
-                                            TextPosition(offset: _apiController.text.length),
-                                          );
-                                        });
-                                        context.read<ReportMakerBloc>().add(FetchApiData(selection));
-                                      },
-                                      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                                        return _buildTextField(
-                                          controller: controller,
-                                          focusNode: focusNode,
-                                          label: 'API Name',
-                                          icon: Icons.api,
-                                          onChanged: (value) {
-                                            print('API Name input: $value');
-                                          },
-                                        );
-                                      },
-                                      optionsViewBuilder: (context, onSelected, options) {
-                                        return Align(
-                                          alignment: Alignment.topLeft,
-                                          child: Material(
-                                            elevation: 4,
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(12),
-                                            child: SizedBox(
-                                              width: 300,
-                                              child: ListView.builder(
-                                                shrinkWrap: true,
-                                                padding: const EdgeInsets.all(8),
-                                                itemCount: options.length,
-                                                itemBuilder: (context, index) {
-                                                  final option = options.elementAt(index);
-                                                  return ListTile(
-                                                    title: Text(
-                                                      option,
-                                                      style: GoogleFonts.poppins(fontSize: 14),
-                                                    ),
-                                                    onTap: () => onSelected(option),
-                                                  );
-                                                },
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                  child: _buildTextField(
+                                    controller: _apiController,
+                                    label: 'API Name',
+                                    icon: Icons.api,
+                                    readOnly: true,
+                                    onChanged: (value) {
+                                      print('API Name changed: $value');
+                                    },
                                   ),
                                 ),
                               ],
@@ -278,26 +234,18 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
                                 _buildButton(
-                                  text: 'Show',
-                                  color: Colors.blueAccent,
-                                  onPressed: _selectedApi != null
-                                      ? () => context.read<ReportMakerBloc>().add(FetchApiData(_selectedApi!))
-                                      : null,
-                                ),
-                                const SizedBox(width: 12),
-                                _buildButton(
                                   text: 'Reset',
                                   color: Colors.redAccent,
                                   onPressed: () {
-                                    _reportNameController.clear();
-                                    _reportLabelController.clear();
-                                    _apiController.clear();
+                                    print('Reset button pressed');
+                                    context.read<EditDetailMakerBloc>().add(ResetFields());
+                                    _reportNameController.text = widget.reportName;
+                                    _reportLabelController.text = widget.reportLabel;
+                                    _apiController.text = widget.apiName;
                                     setState(() {
-                                      _selectedApi = null;
+                                      _selectedApi = widget.apiName;
                                       _showConfigPanel = false;
-                                      _apiController.text = '';
                                     });
-                                    context.read<ReportMakerBloc>().add(ResetFields());
                                     _animationController.reset();
                                   },
                                 ),
@@ -313,16 +261,56 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                         color: Colors.white,
                         elevation: 6,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: state.isLoading
-                            ? const SubtleLoader()
-                            : state.fields.isEmpty
-                            ? const Center(child: Text('Select an API to load fields'))
-                            : _showConfigPanel
-                            ? FadeTransition(
-                          opacity: _fadeAnimation,
-                          child: _buildFieldConfigPanel(context, state),
-                        )
-                            : _buildFieldSelection(context, state),
+                        child: () {
+                          print('Rendering field selection card: isLoading=${state.isLoading}, fields=${state.fields.length}, preselectedFields=${state.preselectedFields.length}');
+                          if (state.isLoading) {
+                            print('Showing SubtleLoader');
+                            return const SubtleLoader();
+                          }
+                          if (state.error != null) {
+                            print('Showing error state: ${state.error}');
+                            return Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    'Error: ${state.error}',
+                                    style: GoogleFonts.poppins(fontSize: 16, color: Colors.redAccent),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  _buildButton(
+                                    text: 'Retry',
+                                    color: Colors.blueAccent,
+                                    onPressed: () {
+                                      print('Retry button pressed');
+                                      context.read<EditDetailMakerBloc>().add(
+                                        LoadPreselectedFields(widget.recNo, widget.apiName),
+                                      );
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
+                          if (state.fields.isEmpty) {
+                            print('Showing empty fields state');
+                            return Center(
+                              child: Text(
+                                'No fields available.',
+                                style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey),
+                              ),
+                            );
+                          }
+                          if (_showConfigPanel) {
+                            print('Showing field config panel');
+                            return FadeTransition(
+                              opacity: _fadeAnimation,
+                              child: _buildFieldConfigPanel(context, state),
+                            );
+                          }
+                          print('Showing field selection');
+                          return _buildFieldSelection(context, state);
+                        }(),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -333,10 +321,12 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                           text: 'Save',
                           color: Colors.green,
                           onPressed: () {
+                            print('Save button pressed');
                             if (_reportNameController.text.isEmpty ||
                                 _reportLabelController.text.isEmpty ||
                                 _selectedApi == null ||
                                 state.selectedFields.isEmpty) {
+                              print('Validation failed: showing SnackBar');
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Please fill all fields and select at least one field.'),
@@ -349,11 +339,14 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                             if (_sequenceController.text.isNotEmpty) {
                               final parsed = int.tryParse(_sequenceController.text);
                               if (parsed != null && parsed > 0) {
-                                context.read<ReportMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
+                                print('Updating Sequence_no: $parsed');
+                                context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
                               }
                             }
 
-                            context.read<ReportMakerBloc>().add(SaveReport(
+                            print('Dispatching SaveReport event');
+                            context.read<EditDetailMakerBloc>().add(SaveReport(
+                              recNo: widget.recNo,
                               reportName: _reportNameController.text,
                               reportLabel: _reportLabelController.text,
                               apiName: _selectedApi!,
@@ -367,15 +360,15 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                           text: 'Reset',
                           color: Colors.redAccent,
                           onPressed: () {
-                            _reportNameController.clear();
-                            _reportLabelController.clear();
-                            _apiController.clear();
+                            print('Reset button (bottom) pressed');
+                            context.read<EditDetailMakerBloc>().add(ResetFields());
+                            _reportNameController.text = widget.reportName;
+                            _reportLabelController.text = widget.reportLabel;
+                            _apiController.text = widget.apiName;
                             setState(() {
-                              _selectedApi = null;
+                              _selectedApi = widget.apiName;
                               _showConfigPanel = false;
-                              _apiController.text = '';
                             });
-                            context.read<ReportMakerBloc>().add(ResetFields());
                             _animationController.reset();
                           },
                           icon: Icons.refresh,
@@ -399,12 +392,15 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     TextInputType? keyboardType,
     Function(String)? onChanged,
     IconData? icon,
+    bool readOnly = false,
   }) {
+    print('Building TextField: label=$label, readOnly=$readOnly');
     return TextField(
       controller: controller,
       focusNode: focusNode,
       keyboardType: keyboardType,
       onChanged: onChanged,
+      readOnly: readOnly,
       style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
@@ -436,6 +432,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     required VoidCallback? onPressed,
     IconData? icon,
   }) {
+    print('Building Button: text=$text');
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
@@ -465,7 +462,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     );
   }
 
-  Widget _buildFieldSelection(BuildContext context, ReportMakerState state) {
+  Widget _buildFieldSelection(BuildContext context, EditDetailMakerState state) {
+    print('Building field selection: fields=${state.fields.length}, selectedFields=${state.selectedFields.length}, preselectedFields=${state.preselectedFields.length}');
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -483,30 +481,35 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                 spacing: 12,
                 runSpacing: 12,
                 children: state.fields.map((field) {
-                  final isSelected = state.selectedFields.any((f) => f['Field_name'] == field);
+                  final isPreselected = state.preselectedFields.any((f) => f['Field_name'] == field);
+                  final isUserSelected = state.selectedFields.any((f) => f['Field_name'] == field) && !isPreselected;
+                  print('Rendering chip: field=$field, isPreselected=$isPreselected, isUserSelected=$isUserSelected');
                   return FilterChip(
                     label: Text(
                       field,
                       style: GoogleFonts.poppins(
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                        color: isSelected ? Colors.blueAccent : Colors.black87,
+                        fontSize: 13,
+                        fontWeight: isPreselected || isUserSelected ? FontWeight.w600 : FontWeight.normal,
+                        color: isPreselected || isUserSelected ? Colors.white : Colors.black87,
                       ),
                     ),
-                    selected: isSelected,
-                    selectedColor: Colors.blueAccent.withOpacity(0.15),
-                    checkmarkColor: Colors.blueAccent,
+                    selected: isPreselected || isUserSelected,
+                    selectedColor: isPreselected ? Colors.blueAccent : Colors.green,
+                    checkmarkColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(20),
                       side: BorderSide(
-                        color: isSelected ? Colors.blueAccent : Colors.grey.shade300,
+                        color: isPreselected ? Colors.blueAccent : isUserSelected ? Colors.green : Colors.grey.shade300,
                       ),
                     ),
                     backgroundColor: Colors.white,
+                    labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     onSelected: (selected) {
+                      print('Chip selected: field=$field, selected=$selected');
                       if (selected) {
-                        context.read<ReportMakerBloc>().add(SelectField(field));
+                        context.read<EditDetailMakerBloc>().add(SelectField(field));
                       } else {
-                        context.read<ReportMakerBloc>().add(DeselectField(field));
+                        context.read<EditDetailMakerBloc>().add(DeselectField(field));
                       }
                     },
                   );
@@ -530,7 +533,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     );
   }
 
-  Widget _buildFieldConfigPanel(BuildContext context, ReportMakerState state) {
+  Widget _buildFieldConfigPanel(BuildContext context, EditDetailMakerState state) {
+    print('Building field config panel: selectedFields=${state.selectedFields.length}');
     final sortedFields = List<Map<String, dynamic>>.from(state.selectedFields)
       ..sort((a, b) {
         final aSeq = a['Sequence_no'] as int? ?? 9999;
@@ -565,6 +569,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                         itemBuilder: (context, index) {
                           final field = sortedFields[index];
                           final isSelected = state.currentField?['Field_name'] == field['Field_name'];
+                          print('Rendering config field: ${field['Field_name']}, isSelected=$isSelected');
                           return Column(
                             children: [
                               Padding(
@@ -575,15 +580,17 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                   child: InkWell(
                                     borderRadius: BorderRadius.circular(10),
                                     onTap: () {
+                                      print('Field tapped: ${field['Field_name']}');
                                       if (_sequenceController.text.isNotEmpty) {
                                         final parsed = int.tryParse(_sequenceController.text);
                                         if (parsed != null && parsed > 0) {
-                                          context.read<ReportMakerBloc>().add(
+                                          print('Updating Sequence_no: $parsed');
+                                          context.read<EditDetailMakerBloc>().add(
                                             UpdateFieldConfig('Sequence_no', parsed),
                                           );
                                         }
                                       }
-                                      context.read<ReportMakerBloc>().add(UpdateCurrentField(field));
+                                      context.read<EditDetailMakerBloc>().add(UpdateCurrentField(field));
                                     },
                                     child: Padding(
                                       padding: const EdgeInsets.all(12),
@@ -591,9 +598,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                         children: [
                                           CircleAvatar(
                                             radius: 16,
-                                            backgroundColor: isSelected
-                                                ? Colors.blueAccent
-                                                : Colors.grey.shade300,
+                                            backgroundColor: isSelected ? Colors.blueAccent : Colors.grey.shade300,
                                             child: Text(
                                               '${field['Sequence_no'] ?? 'N/A'}',
                                               style: GoogleFonts.poppins(
@@ -609,8 +614,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                               field['Field_name'],
                                               style: GoogleFonts.poppins(
                                                 fontSize: 15,
-                                                fontWeight:
-                                                isSelected ? FontWeight.w600 : FontWeight.w500,
+                                                fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                                                 color: isSelected ? Colors.blueAccent : Colors.black87,
                                               ),
                                               overflow: TextOverflow.ellipsis,
@@ -619,7 +623,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                           IconButton(
                                             icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
                                             onPressed: () {
-                                              context.read<ReportMakerBloc>().add(DeselectField(field['Field_name']));
+                                              print('Delete field: ${field['Field_name']}');
+                                              context.read<EditDetailMakerBloc>().add(DeselectField(field['Field_name']));
                                             },
                                           ),
                                         ],
@@ -705,14 +710,17 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     );
   }
 
-  List<Widget> _buildFieldConfigWidgets(BuildContext context, ReportMakerState state) {
+  List<Widget> _buildFieldConfigWidgets(BuildContext context, EditDetailMakerState state) {
+    print('Building field config widgets for: ${state.currentField!['Field_name']}');
     return [
       _buildTextField(
         controller: _fieldNameController,
         label: 'Field Name',
         icon: Icons.text_fields,
+        readOnly: true,
         onChanged: (value) {
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('Field_name', value));
+          print('Field Name changed: $value');
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Field_name', value));
         },
       ),
       const SizedBox(height: 16),
@@ -721,7 +729,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         label: 'Field Label',
         icon: Icons.label_outline,
         onChanged: (value) {
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('Field_label', value));
+          print('Field Label changed: $value');
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Field_label', value));
         },
       ),
       const SizedBox(height: 16),
@@ -731,9 +740,10 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         icon: Icons.sort,
         keyboardType: TextInputType.number,
         onChanged: (value) {
+          print('Sequence No changed: $value');
           final parsed = int.tryParse(value);
           if (parsed != null && parsed > 0) {
-            context.read<ReportMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
+            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
             setState(() {
               _sequenceController.text = parsed.toString();
               _sequenceController.selection = TextSelection.fromPosition(
@@ -750,8 +760,9 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         icon: Icons.width_normal,
         keyboardType: TextInputType.number,
         onChanged: (value) {
+          print('Width changed: $value');
           final parsed = int.tryParse(value);
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('width', parsed));
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('width', parsed));
         },
       ),
       const SizedBox(height: 16),
@@ -760,7 +771,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         value: state.currentField!['Total'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('Total', value!));
+          print('Total checkbox changed: $value');
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Total', value!));
         },
       ),
       const Divider(
@@ -789,12 +801,15 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
         ),
         style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
-        value: state.currentField!['num_alignment'] ?? 'left',
-        items: ['left', 'center', 'right']
-            .map((align) => DropdownMenuItem(value: align, child: Text(align)))
-            .toList(),
+        value: state.currentField!['num_alignment']?.toString().toLowerCase() ?? 'left',
+        items: [
+          DropdownMenuItem(value: 'left', child: Text('Left', style: GoogleFonts.poppins())),
+          DropdownMenuItem(value: 'center', child: Text('Center', style: GoogleFonts.poppins())),
+          DropdownMenuItem(value: 'right', child: Text('Right', style: GoogleFonts.poppins())),
+        ],
         onChanged: (value) {
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('num_alignment', value!));
+          print('Number Alignment changed: $value');
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('num_alignment', value!));
         },
         dropdownColor: Colors.white,
       ),
@@ -813,7 +828,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         value: state.currentField!['num_format'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          context.read<ReportMakerBloc>().add(UpdateFieldConfig('num_format', value!));
+          print('Indian Number Format changed: $value');
+          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('num_format', value!));
         },
       ),
       if (state.currentField!['Field_name'].toString().endsWith('No')) ...[
@@ -824,8 +840,9 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           icon: Icons.numbers,
           keyboardType: TextInputType.number,
           onChanged: (value) {
+            print('Decimal Points changed: $value');
             final parsed = int.tryParse(value);
-            context.read<ReportMakerBloc>().add(UpdateFieldConfig(
+            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig(
                 'decimal_points', parsed != null && parsed >= 0 ? parsed : 0));
           },
         ),
@@ -837,7 +854,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           value: state.currentField!['time'] ?? false,
           activeColor: Colors.blueAccent,
           onChanged: (value) {
-            context.read<ReportMakerBloc>().add(UpdateFieldConfig('time', value!));
+            print('Time checkbox changed: $value');
+            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('time', value!));
           },
         ),
       ],
