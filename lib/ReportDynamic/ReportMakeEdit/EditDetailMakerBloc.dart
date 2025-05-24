@@ -170,7 +170,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
   void _onSelectField(SelectField event, Emitter<EditDetailMakerState> emit) {
     print('Handling SelectField: field=${event.field}');
-    // Prevent adding the same field multiple times
     if (state.selectedFields.any((f) => f['Field_name'] == event.field)) {
       print('Field already selected: ${event.field}, skipping');
       return;
@@ -236,13 +235,16 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       return;
     }
     dynamic value = event.value;
-    if (event.key == 'Sequence_no') {
+    if (event.key == 'Sequence_no' || event.key == 'width' || event.key == 'decimal_points') {
       final parsed = value is int ? value : int.tryParse(value.toString());
-      if (parsed == null || parsed <= 0) {
-        print('Invalid Sequence_no: $value');
+      if (parsed == null || (event.key != 'decimal_points' && parsed <= 0)) {
+        print('Invalid value for ${event.key}: $value');
         return;
       }
       value = parsed;
+    } else if (event.key == 'Total' || event.key == 'num_format' || event.key == 'time') {
+      value = event.value == true;
+      print('Updating boolean field ${event.key}: $value');
     }
     final updatedField = {...state.currentField!, event.key: value};
     final updatedFields = state.selectedFields.map((field) {
@@ -253,7 +255,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         final bSeq = b['Sequence_no'] as int? ?? 9999;
         return aSeq.compareTo(bSeq);
       });
-    print('Updated field: ${updatedField['Field_name']}, ${event.key}=$value');
+    print('Updated field: ${updatedField['Field_name']}, ${event.key}=$value, updatedFields=$updatedFields');
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: updatedField,
@@ -281,24 +283,26 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     try {
       print('Saving report metadata: {RecNo: ${event.recNo}, Report_name: ${event.reportName}, Report_label: ${event.reportLabel}, API_name: ${event.apiName}, Parameter: ${event.parameter}}');
 
-      // Remove duplicates by Field_name, keeping the last occurrence
       final uniqueFields = <String, Map<String, dynamic>>{};
       for (var field in state.selectedFields) {
-        uniqueFields[field['Field_name']] = field;
+        uniqueFields[field['Field_name']] = Map<String, dynamic>.from(field); // Deep copy to avoid mutation
       }
-      final fieldConfigs = uniqueFields.values.map((field) => ({
-        'Field_name': field['Field_name']?.toString() ?? '',
-        'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
-        'Sequence_no': field['Sequence_no'] is int ? field['Sequence_no'] : int.tryParse(field['Sequence_no'].toString()) ?? 0,
-        'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
-        'Total': field['Total'] == true ? 1 : 0,
-        'num_alignment': field['num_alignment']?.toString().toLowerCase() ?? 'left',
-        'time': field['time'] == true ? 1 : 0,
-        'indian_format': field['num_format'] == true ? 1 : 0,
-        'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
-      })).toList();
+      final fieldConfigs = uniqueFields.values.map((field) {
+        print('Processing field for save: ${field['Field_name']}, Total=${field['Total']}');
+        return {
+          'Field_name': field['Field_name']?.toString() ?? '',
+          'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
+          'Sequence_no': field['Sequence_no'] is int ? field['Sequence_no'] : int.tryParse(field['Sequence_no'].toString()) ?? 0,
+          'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
+          'Total': field['Total'] == true ? 1 : 0,
+          'num_alignment': field['num_alignment']?.toString().toLowerCase() ?? 'left',
+          'time': field['time'] == true ? 1 : 0,
+          'indian_format': field['num_format'] == true ? 1 : 0,
+          'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
+        };
+      }).toList();
 
-      print('Saving field configs: $fieldConfigs');
+      print('Sending field configs to API: ${jsonEncode(fieldConfigs)}');
       await apiService.editDemoTables(
         recNo: event.recNo,
         reportName: event.reportName,

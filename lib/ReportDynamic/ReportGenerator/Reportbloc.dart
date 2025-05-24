@@ -97,7 +97,7 @@ on<ResetReports>(_onResetReports);
 
 Future<void> _onLoadReports(LoadReports event, Emitter<ReportState> emit) async {
 emit(state.copyWith(isLoading: true, error: null));
-print('LoadReports: Starting fetch');
+
 try {
 final reports = await apiService.fetchDemoTable();
 emit(state.copyWith(isLoading: false, reports: reports));
@@ -110,7 +110,6 @@ print('LoadReports error: $e');
 
 Future<void> _onFetchApiDetails(FetchApiDetails event, Emitter<ReportState> emit) async {
 emit(state.copyWith(isLoading: true, error: null));
-print('FetchApiDetails: Starting for apiName=${event.apiName}');
 try {
 final apiDetails = await apiService.getApiDetails(event.apiName);
 emit(state.copyWith(
@@ -172,12 +171,7 @@ selectedReportLabel: event.reportLabel,
 error: errorMessage,
 );
 emit(newState);
-print('FetchFieldConfigs success: fieldConfigs.length=${fieldConfigs.length}, '
-'reportData.length=${reportData.length}, '
-'fieldConfigs.sample=${fieldConfigs.isNotEmpty ? fieldConfigs.first : {}}, '
-'reportData.sample=${reportData.isNotEmpty ? reportData.first : {}}, '
-'error=$errorMessage, '
-'stateHash=${newState.hashCode}');
+
 } catch (e) {
 final fieldConfigs = await apiService.fetchDemoTable2(event.recNo).catchError((_) => []);
 final newState = state.copyWith(
@@ -190,10 +184,7 @@ selectedReportLabel: event.reportLabel,
 error: 'Failed to fetch report data: ${e.toString()}',
 );
 emit(newState);
-print('FetchFieldConfigs error: $e, '
-'fieldConfigs.length=${fieldConfigs.length}, '
-'fieldConfigs.sample=${fieldConfigs.isNotEmpty ? fieldConfigs.first : {}}, '
-'stateHash=${newState.hashCode}');
+
 }
 }
 

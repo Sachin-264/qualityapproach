@@ -567,7 +567,7 @@ class ReportAPIService {
     required String reportLabel,
     required String apiName,
     required String parameter,
-    required List<Map<String, dynamic>> fieldConfigs, // Changed to List for multiple fields
+    required List<Map<String, dynamic>> fieldConfigs,
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
     if (url == null) {
@@ -583,20 +583,33 @@ class ReportAPIService {
         'API_name': apiName.trim(),
         'Parameter': parameter.trim(),
       },
-      'Demo_table_2': fieldConfigs.map((field) => {
-        'Field_name': field['Field_name']?.toString() ?? '',
-        'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
-        'Sequence_no': field['Sequence_no'] is int ? field['Sequence_no'] : int.tryParse(field['Sequence_no'].toString()) ?? 0,
-        'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
-        'Total': field['Total'] == true ? 1 : 0,
-        'num_alignment': field['num_alignment']?.toString() ?? 'Left',
-        'time': field['time'] == true ? 1 : 0,
-        'indian_format': field['num_format'] == true ? 1 : 0,
-        'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
+      'Demo_table_2': fieldConfigs.map((field) {
+        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}');
+        return {
+          'Field_name': field['Field_name']?.toString() ?? '',
+          'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
+          'Sequence_no': field['Sequence_no'] is int
+              ? field['Sequence_no']
+              : int.tryParse(field['Sequence_no'].toString()) ?? 0,
+          'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
+          'Total': field['Total'] is int
+              ? field['Total']
+              : (field['Total'] == true ? 1 : 0), // Handle both int and bool
+          'num_alignment': field['num_alignment']?.toString() ?? 'Left',
+          'time': field['time'] is int
+              ? field['time']
+              : (field['time'] == true ? 1 : 0),
+          'indian_format': field['num_format'] is int
+              ? field['num_format']
+              : (field['num_format'] == true ? 1 : 0),
+          'decimal_points': field['decimal_points'] is int
+              ? field['decimal_points']
+              : int.tryParse(field['decimal_points'].toString()) ?? 0,
+        };
       }).toList(),
     };
 
-    print('Editing demo tables with payload: $payload');
+    print('Editing demo tables with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -625,7 +638,7 @@ class ReportAPIService {
     }
   }
 
-  Future<void> deleteDemoTables({
+  Future<Map<String, dynamic>> deleteDemoTables({
     required int recNo,
   }) async {
     final url = _postEndpoints['delete_demo_tables'];
@@ -658,9 +671,9 @@ class ReportAPIService {
         throw Exception('API returned error: ${jsonData['message']}');
       }
       print('Demo tables deleted successfully: RecNo=$recNo');
+      return jsonData; // Return the parsed JSON response
     } catch (e) {
       print('delete_demo_tables exception: $e');
       rethrow;
     }
-  }
-}
+  }}

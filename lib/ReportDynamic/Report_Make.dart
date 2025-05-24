@@ -816,20 +816,18 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           context.read<ReportMakerBloc>().add(UpdateFieldConfig('num_format', value!));
         },
       ),
-      if (state.currentField!['Field_name'].toString().endsWith('No')) ...[
-        const SizedBox(height: 16),
-        _buildTextField(
-          controller: _decimalPointsController,
-          label: 'Decimal Points',
-          icon: Icons.numbers,
-          keyboardType: TextInputType.number,
-          onChanged: (value) {
-            final parsed = int.tryParse(value);
-            context.read<ReportMakerBloc>().add(UpdateFieldConfig(
-                'decimal_points', parsed != null && parsed >= 0 ? parsed : 0));
-          },
-        ),
-      ],
+      const SizedBox(height: 16),
+      _buildTextField(
+        controller: _decimalPointsController,
+        label: 'Decimal Points',
+        icon: Icons.numbers,
+        keyboardType: TextInputType.number,
+        onChanged: (value) {
+          final parsed = int.tryParse(value);
+          context.read<ReportMakerBloc>().add(UpdateFieldConfig(
+              'decimal_points', parsed != null && parsed >= 0 ? parsed : 0));
+        },
+      ),
       if (state.currentField!['Field_name'].toString().toLowerCase().contains('date')) ...[
         const SizedBox(height: 16),
         CheckboxListTile(
