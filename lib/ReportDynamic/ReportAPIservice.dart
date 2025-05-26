@@ -182,7 +182,7 @@ class ReportAPIService {
     while (attempt <= maxRetries) {
       try {
         final response = await http.get(uri).timeout(
-          const Duration(seconds: 90), // Increased timeout to 30 seconds
+          const Duration(seconds: 180), // Increased timeout to 30 seconds
           onTimeout: () {
             print('ApiData timeout on attempt $attempt/$maxRetries for $uri');
             throw TimeoutException('Request to $uri timed out');
