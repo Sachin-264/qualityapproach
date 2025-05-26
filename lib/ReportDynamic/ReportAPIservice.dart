@@ -176,27 +176,47 @@ class ReportAPIService {
     final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
     print('Fetching ApiData with URL: $uri');
 
-    try {
-      final response = await http.get(uri).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException('Request to $uri timed out'),
-      );
-      print('ApiData response: status=${response.statusCode}, body=${response.body}');
+    const int maxRetries = 3;
+    int attempt = 1;
 
-      final parsedData = _parseApiResponse(response);
-      return {
-        'status': response.statusCode,
-        'data': parsedData,
-        'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null,
-      };
-    } catch (e) {
-      print('ApiData exception: $e');
-      return {
-        'status': null,
-        'data': [],
-        'error': e.toString(),
-      };
+    while (attempt <= maxRetries) {
+      try {
+        final response = await http.get(uri).timeout(
+          const Duration(seconds: 90), // Increased timeout to 30 seconds
+          onTimeout: () {
+            print('ApiData timeout on attempt $attempt/$maxRetries for $uri');
+            throw TimeoutException('Request to $uri timed out');
+          },
+        );
+        print('ApiData response: status=${response.statusCode}, body=${response.body}');
+
+        final parsedData = _parseApiResponse(response);
+        return {
+          'status': response.statusCode,
+          'data': parsedData,
+          'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null,
+        };
+      } catch (e) {
+        print('ApiData exception on attempt $attempt/$maxRetries: $e');
+        if (e is TimeoutException && attempt < maxRetries) {
+          attempt++;
+          await Future.delayed(Duration(seconds: attempt * 2)); // Exponential backoff
+          continue;
+        }
+        return {
+          'status': null,
+          'data': [],
+          'error': e is TimeoutException
+              ? 'API request timed out after $maxRetries attempts. Please check your network or try again later.'
+              : 'Failed to fetch data: $e',
+        };
+      }
     }
+    return {
+      'status': null,
+      'data': [],
+      'error': 'API request failed after $maxRetries attempts.',
+    };
   }
 
   List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
@@ -213,17 +233,26 @@ class ReportAPIService {
         final isSuccess = status == 'success' || status == 200 || status == '200';
 
         if (isSuccess && jsonData['data'] != null) {
-          return List<Map<String, dynamic>>.from(jsonData['data']);
+          final data = jsonData['data'];
+          if (data is List) {
+            return List<Map<String, dynamic>>.from(data);
+          } else {
+            print('ParseApiResponse: Data field is not a list: $data');
+            throw Exception('Data field must be a list');
+          }
         } else if (!isSuccess && jsonData['message'] != null) {
+          print('ParseApiResponse: API error: ${jsonData['message']}');
           throw Exception('API returned error: ${jsonData['message']}');
         } else {
+          print('ParseApiResponse: Unexpected response format: ${response.body}');
           throw Exception('Unexpected response format: ${response.body}');
         }
       } else {
+        print('ParseApiResponse: Invalid response format: ${response.body}');
         throw Exception('Invalid response format: ${response.body}');
       }
     } catch (e) {
-      print('ParseApiResponse error: $e');
+      print('ParseApiResponse error: $e, response: ${response.body}');
       if (response.statusCode != 200) {
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
