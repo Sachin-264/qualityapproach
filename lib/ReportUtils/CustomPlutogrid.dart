@@ -1,3 +1,4 @@
+// CustomPlutogrid.dart
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
@@ -6,12 +7,14 @@ class CustomPlutoGrid extends StatelessWidget {
   final List<PlutoColumn> columns;
   final List<PlutoRow> rows;
   final void Function(PlutoGridOnChangedEvent)? onChanged;
+  final PlutoRowColorCallback? rowColorCallback;
 
   const CustomPlutoGrid({
     super.key,
     required this.columns,
     required this.rows,
     this.onChanged,
+    this.rowColorCallback, // <--- Initialize it in the constructor
   });
 
   @override
@@ -45,6 +48,7 @@ class CustomPlutoGrid extends StatelessWidget {
             borderColor: Colors.grey[400]!,
             activatedBorderColor: Colors.blueGrey[300]!,
             inactivatedBorderColor: Colors.grey[400]!,
+            // rowColorCallback: rowColorCallback,
           ),
           columnSize: const PlutoGridColumnSizeConfig(
             autoSizeMode: PlutoAutoSizeMode.none,
@@ -53,9 +57,6 @@ class CustomPlutoGrid extends StatelessWidget {
             filters: [PlutoFilterTypeContains()],
           ),
         ),
-        rowColorCallback: (PlutoRowColorContext context) {
-          return context.rowIdx % 2 == 0 ? Colors.white : Colors.grey[50]!;
-        },
         onChanged: onChanged,
         onLoaded: (PlutoGridOnLoadedEvent event) {
           event.stateManager.setShowColumnFilter(true);

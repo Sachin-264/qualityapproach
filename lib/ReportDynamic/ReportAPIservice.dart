@@ -1,3 +1,4 @@
+// ReportAPIService.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 class ReportAPIService {
   final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
   final String _databaseFetchUrl = 'http://localhost/reportBuilder/DatabaseFetch.php';
+  final String _databaseFieldUrl = 'http://localhost/reportBuilder/DatabaseField.php';
   late final Map<String, String> _postEndpoints;
   late final Map<String, String> _getEndpoints;
 
@@ -24,6 +26,7 @@ class ReportAPIService {
     };
 
     _getEndpoints = {
+      'fetch_tables_and_fields': _databaseFieldUrl,
       'get_database_server': '$_baseUrl?mode=get_database_server',
       'get_demo_table': '$_baseUrl?mode=get_demo_table',
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
@@ -81,6 +84,160 @@ class ReportAPIService {
       rethrow;
     }
   }
+
+  // Corrected method: Fetch tables
+  Future<List<String>> fetchTables({
+    required String server,
+    required String UID,
+    required String PWD,
+    required String database,
+  }) async {
+    final url = _getEndpoints['fetch_tables_and_fields'];
+    if (url == null) {
+      throw Exception('API endpoint not found for fetching tables.');
+    }
+
+    final payload = {
+      'server': server.trim(),
+      'UID': UID.trim(),
+      'PWD': PWD.trim(),
+      'Database': database.trim(),
+      'action': 'table',
+    };
+
+    print('Fetching tables with payload: $payload');
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15)); // Increased timeout
+
+      print('Fetch tables response status: ${response.statusCode}, body: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] == 'success' && jsonData['tables'] is List) {
+          return List<String>.from(jsonData['tables'].map((item) => item.toString()));
+        } else {
+          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        }
+      } else {
+        throw Exception('Failed to fetch tables: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching tables: $e');
+      rethrow;
+    }
+  }
+
+  // Corrected method: Fetch fields (columns) for a given table
+  // NOTE: This assumes 'action: fields' is supported by DatabaseField.php and returns 'fields' key
+  Future<List<String>> fetchFields({
+    required String server,
+    required String UID,
+    required String PWD,
+    required String database,
+    required String table,
+  }) async {
+    final url = _getEndpoints['fetch_tables_and_fields'];
+    if (url == null) {
+      throw Exception('API endpoint not found for fetching fields.');
+    }
+
+    final payload = {
+      'server': server.trim(),
+      'UID': UID.trim(),
+      'PWD': PWD.trim(),
+      'Database': database.trim(),
+      'action': 'fields', // Assuming 'fields' action in DatabaseField.php
+      'table': table.trim(),
+    };
+
+    print('Fetching fields with payload: $payload');
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15));
+
+      print('Fetch fields response status: ${response.statusCode}, body: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        // >>> CORRECTED LINE HERE <<<
+        if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
+          return List<String>.from(jsonData['fields'].map((item) => item.toString()));
+        } else {
+          throw Exception('API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}');
+        }
+      } else {
+        throw Exception('Failed to fetch fields: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching fields: $e');
+      rethrow;
+    }
+  }
+
+
+  // Existing method: Fetch field values for a specific field and table
+  Future<List<String>> fetchFieldValues({
+    required String server,
+    required String UID,
+    required String PWD,
+    required String database,
+    required String table,
+    required String field,
+  }) async {
+    final url = _getEndpoints['fetch_tables_and_fields'];
+    if (url == null) {
+      throw Exception('API endpoint not found for fetching field values.');
+    }
+
+    final payload = {
+      'server': server.trim(),
+      'UID': UID.trim(),
+      'PWD': PWD.trim(),
+      'Database': database.trim(),
+      'action': 'field', // Existing 'field' action as per description
+      'table': table.trim(),
+      'field': field.trim(),
+    };
+
+    print('Fetching field values with payload: $payload');
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15)); // Increased timeout
+
+      print('Fetch field values response status: ${response.statusCode}, body: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+          return List<String>.from(jsonData['data'].map((item) => item.toString()));
+        } else {
+          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        }
+      } else {
+        throw Exception('Failed to fetch field values: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching field values: $e');
+      rethrow;
+    }
+  }
+
 
   Future<List<String>> getAvailableApis() async {
     final url = _getEndpoints['get_database_server'];
@@ -415,8 +572,7 @@ class ReportAPIService {
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
 
-    print('Saving database server with payload: $payload');
-    print('Payload JSON: ${jsonEncode(payload)}');
+    print('Saving database server with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -469,6 +625,9 @@ class ReportAPIService {
         'time': field['time'] == true ? 1 : 0,
         'indian_format': field['num_format'] == true ? 1 : 0,
         'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
+        'Breakpoint': field['Breakpoint'] == true ? 1 : 0, // New
+        'SubTotal': field['SubTotal'] == true ? 1 : 0,     // New
+        'image': field['image'] == true ? 1 : 0,             // NEW: Image field
       };
 
       print('Saving field config for ${field['Field_name']} with payload: $payload');
@@ -561,7 +720,7 @@ class ReportAPIService {
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
 
-    print('Editing database server with payload: $payload');
+    print('Editing database server with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -613,7 +772,7 @@ class ReportAPIService {
         'Parameter': parameter.trim(),
       },
       'Demo_table_2': fieldConfigs.map((field) {
-        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}');
+        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}, Breakpoint=${field['Breakpoint']}, SubTotal=${field['SubTotal']}, Image=${field['image']}'); // Added Image here for debug print
         return {
           'Field_name': field['Field_name']?.toString() ?? '',
           'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
@@ -631,9 +790,18 @@ class ReportAPIService {
           'indian_format': field['num_format'] is int
               ? field['num_format']
               : (field['num_format'] == true ? 1 : 0),
+          'Breakpoint': field['Breakpoint'] is int
+              ? field['Breakpoint']
+              : (field['Breakpoint'] == true ? 1 : 0), // New
+          'SubTotal': field['SubTotal'] is int
+              ? field['SubTotal']
+              : (field['SubTotal'] == true ? 1 : 0),     // New
           'decimal_points': field['decimal_points'] is int
               ? field['decimal_points']
               : int.tryParse(field['decimal_points'].toString()) ?? 0,
+          'image': field['image'] is int // NEW: Convert image boolean to 0 or 1
+              ? field['image']
+              : (field['image'] == true ? 1 : 0),
         };
       }).toList(),
     };
@@ -705,4 +873,5 @@ class ReportAPIService {
       print('delete_demo_tables exception: $e');
       rethrow;
     }
-  }}
+  }
+}
