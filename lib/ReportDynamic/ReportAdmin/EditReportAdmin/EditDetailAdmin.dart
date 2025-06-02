@@ -63,7 +63,40 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         final parameters = context.read<EditDetailAdminBloc>().state.parameters;
         for (var i = 0; i < parameters.length; i++) {
           _paramControllers[i] ??= TextEditingController(); // Ensure controller is created
-          _paramControllers[i]!.text = parameters[i]['value'].toString();
+
+          // Determine the display value for picker fields using master_table, master_field, display_field
+          final param = parameters[i];
+          String valueToDisplay = param['value']?.toString() ?? ''; // Default to actual value
+          final String? masterTable = param['master_table']?.toString();
+          final String? masterField = param['master_field']?.toString();
+          final String? displayField = param['display_field']?.toString(); // Get display_field
+
+          if (masterTable != null && masterTable.isNotEmpty &&
+              masterField != null && masterField.isNotEmpty &&
+              displayField != null && displayField.isNotEmpty &&
+              valueToDisplay.isNotEmpty &&
+              context.read<EditDetailAdminBloc>().state.serverIP != null &&
+              context.read<EditDetailAdminBloc>().state.userName != null &&
+              context.read<EditDetailAdminBloc>().state.password != null &&
+              context.read<EditDetailAdminBloc>().state.databaseName != null
+          ) {
+            // For simplicity, I'm NOT trying to fetch picker options here to populate
+            // the display_field initially as that would make initState async.
+            // The _SelectFieldValuesModal is where the display field logic is truly important.
+            // If a user has pre-selected "E" for Branch, and "EAST" is its display,
+            // when this page loads, it might show "E" first.
+            // This can be enhanced by fetching display labels for *all* picker params in bloc init,
+            // or allowing UI to update when the `_SelectFieldValuesModal` sends back.
+            // For now, the text controller gets the "value" directly from API, and modal interaction
+            // correctly sets it.
+            // If you want initial loading of actual display values in the main form for previously
+            // selected pickers, it needs to be part of EditDetailAdminBloc's state as well.
+            // Given the context of a new `_SelectFieldValuesModal` showing, this approach is more isolated.
+
+          }
+
+          _paramControllers[i]!.text = valueToDisplay; // Set the text field content
+
           if (!_paramControllers[i]!.hasListeners) { // Avoid adding duplicate listeners
             _paramControllers[i]!.addListener(() {
               _debouncedUpdate(() {
@@ -281,9 +314,12 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
   }
 
   bool _isDateParameter(String name, String value) {
-    // Check if the parameter name contains 'date' or if the value matches the dd-MMM-yyyy pattern
-    final datePattern = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$');
-    return name.toLowerCase().contains('date') || datePattern.hasMatch(value);
+    // Check if the parameter name contains 'date' or if the value matches a common date pattern
+    final datePattern1 = RegExp(r'^\d{2}-\d{2}-\d{4}$'); // DD-MM-YYYY
+    final datePattern2 = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$'); // DD-MMM-YYYY
+    final datePattern3 = RegExp(r'^\d{4}-\d{2}-\d{2}$'); // YYYY-MM-DD
+
+    return name.toLowerCase().contains('date') || datePattern1.hasMatch(value) || datePattern2.hasMatch(value) || datePattern3.hasMatch(value);
   }
 
   Future<void> _selectDate(BuildContext context, TextEditingController controller, int index) async {
@@ -410,26 +446,48 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     final List<Map<String, dynamic>> allParamsOrdered = [...parameters];
 
     for (var i = 0; i < allParamsOrdered.length; i++) {
-      final param1 = allParamsOrdered[i];
-      final index1 = i; // This is the actual index in the state.parameters list
+      final param = allParamsOrdered[i];
+      final index = i; // This is the actual index in the state.parameters list
 
       // Ensure controller exists and is linked to the correct value
-      if (!_paramControllers.containsKey(index1)) {
-        _paramControllers[index1] = TextEditingController(text: param1['value'].toString());
-        _paramControllers[index1]!.addListener(() {
+      if (!_paramControllers.containsKey(index)) {
+        _paramControllers[index] = TextEditingController(text: param['value'].toString());
+        _paramControllers[index]!.addListener(() {
           _debouncedUpdate(() {
-            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index1, _paramControllers[index1]!.text));
+            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, _paramControllers[index]!.text));
           });
         });
       } else {
         // Update controller text if state value has changed externally (e.g., from modal selection)
         // Only update if the text is different to avoid infinite loops or cursor issues
-        if (_paramControllers[index1]!.text != param1['value'].toString()) {
-          _paramControllers[index1]!.text = param1['value'].toString();
+        final currentText = _paramControllers[index]!.text;
+        final newValueFromBloc = param['value']?.toString() ?? '';
+        if (currentText != newValueFromBloc) {
+          _paramControllers[index]!.text = newValueFromBloc;
+          // IMPORTANT: If we also have a `display_field`, we need to get its label from the modal result.
+          // This would ideally come from the modal, but here we just pass the raw value from the bloc.
+          // If the selected parameter from the modal has a display_field, the controller's text
+          // would be the *display* value (e.g. "EAST") while the bloc parameter value is the *master* value ("E").
+          // The current setup uses 'value' directly from state for _paramControllers text.
+          // This means if "E" is saved, the field shows "E".
+          // If you want "EAST" to show when "E" is selected, the bloc state for 'parameters'
+          // needs to hold BOTH the master value (for API) AND the display label (for UI).
+          // Or, when the modal returns a result, we update _paramControllers[index].text with the display label.
+          // Let's modify the modal to return the display value to update the controller.
         }
       }
 
-      final bool isDate = _isDateParameter(param1['name'], param1['value']);
+      final bool isDate = _isDateParameter(param['name'].toString(), param['value'].toString());
+      final String? masterTable = param['master_table']?.toString();
+      final String? masterField = param['master_field']?.toString();
+      final String? displayField = param['display_field']?.toString();
+
+
+      // Determine if it's a field for which the SelectFieldValuesModal should be invoked
+      // It's a field selection parameter if it has master_table, master_field (and now display_field)
+      final bool isFieldSelection = (masterTable?.isNotEmpty ?? false) &&
+          (masterField?.isNotEmpty ?? false) &&
+          (displayField?.isNotEmpty ?? false);
 
       rows.add(
         Padding(
@@ -441,16 +499,18 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                   children: [
                     Expanded(
                       child: _buildTextField(
-                        controller: _paramControllers[index1]!,
-                        label: param1['field_label']?.isNotEmpty ?? false ? param1['field_label'] : param1['name'],
+                        controller: _paramControllers[index]!,
+                        label: param['field_label']?.isNotEmpty ?? false ? param['field_label'] : param['name'],
                         isSmall: true,
                         isDateField: isDate,
-                        onTap: isDate ? () => _selectDate(context, _paramControllers[index1]!, index1) : null,
+                        onTap: isDate ? () => _selectDate(context, _paramControllers[index]!, index) : null,
                         suffixIcon: isDate ? null : Icons.table_view, // Show table icon for non-date fields
-                        onSuffixIconTap: isDate ? null : () async { // Only for non-date fields
+                        onSuffixIconTap: isDate
+                            ? null
+                            : () async { // Only for non-date fields, allow selecting master values
                           final blocState = context.read<EditDetailAdminBloc>().state;
-                          // MODIFIED: Change expected return type to Map<String, String?>?
-                          final result = await showGeneralDialog<Map<String, String?>?>(
+                          // Pass actual current values for pre-population
+                          final result = await showGeneralDialog<Map<String, String?>>( // Type changed
                             context: context,
                             barrierDismissible: true,
                             barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
@@ -463,10 +523,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                                 userName: blocState.userName,
                                 password: blocState.password,
                                 databaseName: blocState.databaseName,
-                                // Pass current master_table/field/display_field if available for pre-filling
-                                initialTable: param1['master_table'],
-                                initialField: param1['master_field'],
-                                initialDisplayField: param1['display_field'], // NEW: Pass initial display field
+                                initialTable: masterTable,      // Pre-populate with current
+                                initialField: masterField,      // Pre-populate with current master field
+                                initialDisplayField: displayField, // Pre-populate with current display field
+                                initialValue: _paramControllers[index]!.text, // The current actual value
                               );
                             },
                             transitionBuilder: (context, a1, a2, child) {
@@ -480,25 +540,34 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                             },
                           );
                           if (result != null && context.mounted) {
-                            // Update the text controller
-                            _paramControllers[index1]!.text = result['value'] ?? ''; // Handle null value just in case
+                            // If a new value/label is selected from the modal
+                            // Update the text controller with the DISPLAY value
+                            _paramControllers[index]!.text = result['display_label'] ?? result['value'] ?? ''; // Prefer display, fallback to value
+
                             // Dispatch events to update BLoC state
-                            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index1, result['value']!));
+                            // The param['value'] in BLoC state should hold the actual master_field value for API
+                            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, result['value']!));
+
+                            // Update the master_table, master_field, display_field in Bloc for the parameter
                             context.read<EditDetailAdminBloc>().add(
-                              // MODIFIED: Pass the new display field
-                              UpdateParameterMasterSelection(index1, result['table'], result['field'], result['display_field']),
+                              UpdateParameterMasterSelection(
+                                index,
+                                result['table'],       // Selected Table
+                                result['field'],       // Selected Master Field (Value)
+                                result['display_field'], // Selected Display Field (Label)
+                              ),
                             );
                           }
                         },
                       ),
                     ),
-                    if (param1['show'] ?? false)
+                    if (param['show'] ?? false)
                       IconButton(
-                        icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                        icon: const Icon(Icons.edit, color: Colors.blueAccent, size: 20),
                         onPressed: () async {
-                          final fieldLabel = await _showFieldLabelDialog(context, param1['name'], param1['field_label']);
+                          final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
                           if (fieldLabel != null && context.mounted) {
-                            context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index1, fieldLabel));
+                            context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
                           }
                         },
                         tooltip: 'Edit Field Label',
@@ -508,16 +577,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
               ),
               const SizedBox(width: 8),
               Checkbox(
-                value: param1['show'] ?? false,
+                value: param['show'] ?? false,
                 onChanged: (value) async {
                   if (value == true) {
-                    final fieldLabel = await _showFieldLabelDialog(context, param1['name'], param1['field_label']);
+                    final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
                     if (fieldLabel != null && context.mounted) {
-                      context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index1, fieldLabel));
-                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index1, true));
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, true));
                     }
                   } else {
-                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index1, false));
+                    context.read<EditDetailAdminBloc>().add(UpdateParameterShow(index, false));
                   }
                 },
                 activeColor: Colors.blueAccent,
@@ -628,7 +697,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               Expanded(
                                 child: state.isLoading && state.availableDatabases.isEmpty
                                     ? const Center(
-                                  child: CircularProgressIndicator(color: Colors.blueAccent),
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 20.0),
+                                    child: CircularProgressIndicator(color: Colors.blueAccent),
+                                  ),
                                 )
                                     : _buildDropdownField(
                                   value: state.databaseName,
@@ -733,23 +805,25 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
 // This widget is now built directly within showGeneralDialog
 class _SelectFieldValuesModal extends StatefulWidget {
   final ReportAPIService apiService;
-  final String serverIP;
-  final String userName;
-  final String password;
-  final String databaseName;
+  final String? serverIP;
+  final String? userName;
+  final String? password;
+  final String? databaseName; // This is the pre-selected database
   final String? initialTable;
   final String? initialField;
-  final String? initialDisplayField; // NEW: Added initialDisplayField
+  final String? initialDisplayField;
+  final String? initialValue; // The current value in the parameter text field
 
   const _SelectFieldValuesModal({
     required this.apiService,
-    required this.serverIP,
-    required this.userName,
-    required this.password,
-    required this.databaseName,
+    this.serverIP,
+    this.userName,
+    this.password,
+    this.databaseName,
     this.initialTable,
     this.initialField,
-    this.initialDisplayField, // NEW: Added initialDisplayField
+    this.initialDisplayField,
+    this.initialValue,
   });
 
   @override
@@ -760,143 +834,181 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
   List<String> _tables = [];
   String? _selectedTable;
   List<String> _fields = [];
-  String? _selectedField;
-  String? _selectedDisplayField; // NEW: State for selected display field
-  List<String> _allFieldValues = [];
-  String _searchText = '';
+  String? _selectedMasterField; // This will be the "Master Field (Value)"
+  String? _selectedDisplayField; // This will be the "Display Field (Optional)"
+
+  List<Map<String, String>> _allFieldData = []; // Stores { 'value': 'master_val', 'label': 'display_label' }
+  String _searchRawText = ''; // For the search bar
   final TextEditingController _searchController = TextEditingController();
-  final TextEditingController _tableSearchController = TextEditingController();
-  final TextEditingController _fieldSearchController = TextEditingController();
-  final TextEditingController _displayFieldSearchController = TextEditingController(); // NEW: Controller for display field
+
+  final TextEditingController _tableAutocompleteController = TextEditingController();
+  final TextEditingController _masterFieldAutocompleteController = TextEditingController();
+  final TextEditingController _displayFieldAutocompleteController = TextEditingController();
 
   bool _isLoadingTables = false;
   bool _isLoadingFields = false;
-  bool _isLoadingFieldValues = false;
+  bool _isLoadingFieldData = false; // Changed from _isLoadingFieldValues
   String? _error;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
-    _tableSearchController.addListener(() {
-      setState(() {}); // Rebuild to filter autocomplete options
-    });
-    _fieldSearchController.addListener(() {
-      setState(() {}); // Rebuild to filter autocomplete options
-    });
-    _displayFieldSearchController.addListener(() { // NEW: Listener for display field search
-      setState(() {});
-    });
 
-    if (widget.initialTable != null) {
-      _tableSearchController.text = widget.initialTable!;
-      _selectedTable = widget.initialTable;
-      _fetchTables(thenFetchFields: true); // Fetch tables, then fields if initial table exists
-    } else {
-      _fetchTables();
-    }
+    // Initialize with initial values from widget
+    _selectedTable = widget.initialTable;
+    _tableAutocompleteController.text = widget.initialTable ?? '';
+
+    _selectedMasterField = widget.initialField;
+    _masterFieldAutocompleteController.text = widget.initialField ?? '';
+
+    _selectedDisplayField = widget.initialDisplayField;
+    _displayFieldAutocompleteController.text = widget.initialDisplayField ?? '';
+
+
+    // Start fetching tables for the pre-selected database immediately
+    _fetchTablesForSelectedDatabase();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _tableSearchController.dispose();
-    _fieldSearchController.dispose();
-    _displayFieldSearchController.dispose(); // NEW: Dispose new controller
+    _tableAutocompleteController.dispose();
+    _masterFieldAutocompleteController.dispose();
+    _displayFieldAutocompleteController.dispose();
     super.dispose();
   }
 
   void _onSearchChanged() {
     setState(() {
-      _searchText = _searchController.text;
+      _searchRawText = _searchController.text;
     });
   }
 
-  List<String> get _filteredFieldValues {
-    if (_searchText.isEmpty) {
-      return _allFieldValues;
+  // Filter based on the display label
+  List<Map<String, String>> get _filteredFieldData {
+    if (_searchRawText.isEmpty) {
+      return _allFieldData;
     }
-    return _allFieldValues
-        .where((value) => value.toLowerCase().contains(_searchText.toLowerCase()))
+    return _allFieldData
+        .where((item) => (item['label'] ?? '').toLowerCase().contains(_searchRawText.toLowerCase()))
         .toList();
   }
 
-  Future<void> _fetchTables({bool thenFetchFields = false}) async {
+  Future<void> _fetchTablesForSelectedDatabase() async {
     setState(() {
       _isLoadingTables = true;
       _error = null;
+      _tables = [];
       _fields = [];
-      _selectedField = null;
-      _selectedDisplayField = null; // NEW: Clear display field
-      _allFieldValues = [];
-      _searchText = '';
+      _allFieldData = [];
+      _selectedTable = null; // Clear selections if refetching tables
+      _selectedMasterField = null;
+      _selectedDisplayField = null;
+      _tableAutocompleteController.clear();
+      _masterFieldAutocompleteController.clear();
+      _displayFieldAutocompleteController.clear();
       _searchController.clear();
-      _fieldSearchController.clear();
-      _displayFieldSearchController.clear(); // NEW: Clear display field search
     });
+
+    if (widget.serverIP == null || widget.userName == null || widget.password == null || widget.databaseName == null) {
+      setState(() {
+        _error = "Database connection details are incomplete.";
+        _isLoadingTables = false;
+      });
+      return;
+    }
+
     try {
-      final tables = await widget.apiService.fetchDatabases(
-        serverIP: widget.serverIP,
-        userName: widget.userName,
-        password: widget.password,
+      final tables = await widget.apiService.fetchTables(
+        server: widget.serverIP!,
+        UID: widget.userName!,
+        PWD: widget.password!,
+        database: widget.databaseName!,
       );
       setState(() {
         _tables = tables;
         _isLoadingTables = false;
+        // Attempt to pre-populate selected table if initialTable exists
+        if (widget.initialTable != null && tables.contains(widget.initialTable)) {
+          _selectedTable = widget.initialTable;
+          _tableAutocompleteController.text = widget.initialTable!;
+          // If initial table is set, immediately fetch its fields
+          _fetchFieldsForTable(widget.initialTable!);
+        } else {
+          // Clear if initial table not found or null
+          _selectedTable = null;
+          _tableAutocompleteController.clear();
+        }
       });
-
-      if (thenFetchFields && widget.initialTable != null && tables.contains(widget.initialTable)) {
-        // If initialTable was provided and exists, fetch fields for it
-        _fetchFieldsForTable(widget.initialTable!, thenFetchValues: true);
-      }
     } catch (e) {
       setState(() {
-        _error = 'Failed to load tables: $e';
+        _error = 'Failed to load tables for database "${widget.databaseName}": $e';
         _isLoadingTables = false;
       });
     }
   }
 
-  Future<void> _fetchFieldsForTable(String tableName, {bool thenFetchValues = false}) async {
+  Future<void> _fetchFieldsForTable(String tableName) async {
     setState(() {
       _isLoadingFields = true;
       _error = null;
-      _allFieldValues = [];
-      _searchText = '';
+      _fields = []; // Clear previous fields
+      _allFieldData = []; // Clear data
+      _selectedMasterField = null; // Reset master field
+      _selectedDisplayField = null; // Reset display field
+      _masterFieldAutocompleteController.clear();
+      _displayFieldAutocompleteController.clear();
       _searchController.clear();
     });
+
+    if (widget.serverIP == null || widget.userName == null || widget.password == null || widget.databaseName == null) {
+      setState(() {
+        _error = "Database connection details are incomplete for fields.";
+        _isLoadingFields = false;
+      });
+      return;
+    }
+
     try {
       final fields = await widget.apiService.fetchFields(
-        server: widget.serverIP,
-        UID: widget.userName,
-        PWD: widget.password,
-        database: widget.databaseName,
+        server: widget.serverIP!,
+        UID: widget.userName!,
+        PWD: widget.password!,
+        database: widget.databaseName!,
         table: tableName,
       );
       setState(() {
         _fields = fields;
         _isLoadingFields = false;
-      });
 
-      // NEW/MODIFIED: Check for initialField and initialDisplayField
-      if (thenFetchValues && widget.initialField != null && fields.contains(widget.initialField)) {
-        _selectedField = widget.initialField;
-        _fieldSearchController.text = widget.initialField!;
-        _fetchFieldValues(); // Fetch values for the master field
+        // Try to pre-populate master field
+        if (widget.initialField != null && fields.contains(widget.initialField)) {
+          _selectedMasterField = widget.initialField;
+          _masterFieldAutocompleteController.text = widget.initialField!;
+        } else {
+          _selectedMasterField = null;
+          _masterFieldAutocompleteController.clear();
+        }
 
+        // Try to pre-populate display field
         if (widget.initialDisplayField != null && fields.contains(widget.initialDisplayField)) {
           _selectedDisplayField = widget.initialDisplayField;
-          _displayFieldSearchController.text = widget.initialDisplayField!;
+          _displayFieldAutocompleteController.text = widget.initialDisplayField!;
+        } else if (_selectedMasterField != null) {
+          // If no initial display field, and master field exists, default display field to master field
+          _selectedDisplayField = _selectedMasterField;
+          _displayFieldAutocompleteController.text = _selectedMasterField!;
         } else {
-          // If initialDisplayField not found or not provided, default to master field
-          _selectedDisplayField = widget.initialField;
-          _displayFieldSearchController.text = widget.initialField!;
+          _selectedDisplayField = null;
+          _displayFieldAutocompleteController.clear();
         }
-      } else {
-        // Default display field to master field if no initial display field
-        _selectedDisplayField = null;
-        _displayFieldSearchController.clear();
-      }
+
+        // After setting initial master and display fields, fetch field data
+        if (_selectedMasterField != null && _selectedDisplayField != null) {
+          _fetchFieldData();
+        }
+      });
     } catch (e) {
       setState(() {
         _error = 'Failed to load fields for table "$tableName": $e';
@@ -905,34 +1017,64 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
     }
   }
 
-  Future<void> _fetchFieldValues() async {
-    if (_selectedTable == null || _selectedField == null) return;
+  // UPDATED: Fetches `master_field` and `display_field` data pairs
+  Future<void> _fetchFieldData() async {
+    if (_selectedTable == null || _selectedMasterField == null || _selectedDisplayField == null) return;
 
     setState(() {
-      _isLoadingFieldValues = true;
+      _isLoadingFieldData = true;
       _error = null;
-      _allFieldValues = [];
-      _searchText = '';
+      _allFieldData = [];
       _searchController.clear();
+      _searchRawText = '';
     });
+
     try {
-      final values = await widget.apiService.fetchFieldValues(
-        server: widget.serverIP,
-        UID: widget.userName,
-        PWD: widget.password,
-        database: widget.databaseName,
-        table: _selectedTable!,
-        field: _selectedField!,
+      // >>> Use the new fetchPickerData method <<<
+      final data = await widget.apiService.fetchPickerData(
+        server: widget.serverIP!,
+        UID: widget.userName!,
+        PWD: widget.password!,
+        database: widget.databaseName!,
+        masterTable: _selectedTable!,
+        masterField: _selectedMasterField!,
+        displayField: _selectedDisplayField!,
       );
+
+      // Convert the fetched raw data to the { 'value': '...', 'label': '...' } format
+      final List<Map<String, String>> mappedData = data.map((item) {
+        return {
+          'value': item[_selectedMasterField]?.toString() ?? '',
+          'label': item[_selectedDisplayField]?.toString() ?? '',
+        };
+      }).toList();
+
       setState(() {
-        _allFieldValues = values;
-        _isLoadingFieldValues = false;
+        _allFieldData = mappedData;
+        _isLoadingFieldData = false;
+
+        // If an initialValue was provided, try to pre-populate the search bar with its display label
+        if (widget.initialValue != null && widget.initialValue!.isNotEmpty) {
+          final matchedItem = mappedData.firstWhere(
+                (item) => item['value'] == widget.initialValue,
+            orElse: () => {}, // Use empty map as fallback if not found
+          );
+          if (matchedItem.isNotEmpty && matchedItem['label'] != null) {
+            _searchController.text = matchedItem['label']!;
+            _searchRawText = matchedItem['label']!;
+          } else {
+            // If the initialValue doesn't match any fetched picker item,
+            // default the search controller to the raw initialValue itself
+            _searchController.text = widget.initialValue!;
+            _searchRawText = widget.initialValue!;
+          }
+        }
       });
     } catch (e) {
       setState(() {
-        _error = 'Failed to load field values for "${_selectedField!}" in "${_selectedTable!}": $e';
-        _isLoadingFieldValues = false;
-        _allFieldValues = [];
+        _error = 'Failed to load field data for "${_selectedMasterField!}" & "${_selectedDisplayField!}" in "${_selectedTable!}": $e';
+        _isLoadingFieldData = false;
+        _allFieldData = [];
       });
     }
   }
@@ -943,7 +1085,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
     final Size screenSize = mediaQuery.size;
 
     final double modalWidth = screenSize.width * 0.8;
-    final double modalHeight = screenSize.height * 0.7;
+    final double modalHeight = screenSize.height * 0.85; // Made slightly taller for more fields
 
     return Center(
       child: Material(
@@ -959,7 +1101,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Select Table, Value & Display Field', // MODIFIED: Title
+                'Select Master Data (Value & Display Field)',
                 style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
@@ -972,6 +1114,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                     textAlign: TextAlign.center,
                   ),
                 ),
+              // Autocomplete for Tables
               _isLoadingTables
                   ? const Center(
                 child: Padding(
@@ -979,19 +1122,23 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                   child: CircularProgressIndicator(),
                 ),
               )
-                  : Autocomplete<String>( // Autocomplete for Tables
+                  : Autocomplete<String>(
                 optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text == '') {
-                    return Iterable<String>.empty();
+                  if (textEditingValue.text.isEmpty) {
+                    return Iterable<String>.empty(); // Or _tables for all options initially
                   }
                   return _tables.where((String option) {
                     return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
                   });
                 },
                 fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  // Sync internal controller with Autocomplete's controller
-                  if (textEditingController.text != _tableSearchController.text) {
-                    _tableSearchController.text = textEditingController.text;
+                  // Sync Autocomplete's controller with our internal controller
+                  if (textEditingController.text != _tableAutocompleteController.text) {
+                    // This update ensures initial values also reflect in the Autocomplete field.
+                    // Needs to be done safely using addPostFrameCallback if setting during build.
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      textEditingController.text = _tableAutocompleteController.text;
+                    });
                   }
                   return TextField(
                     controller: textEditingController,
@@ -1000,27 +1147,28 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                       labelText: 'Select Table',
                       labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      suffixIcon: _isLoadingTables ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : null,
                     ),
                     style: GoogleFonts.poppins(),
                   );
                 },
                 onSelected: (String selection) {
-                  _selectedTable = selection;
-                  _tableSearchController.text = selection; // Keep the controller synced
-                  _selectedField = null; // Reset field when table changes
-                  _fieldSearchController.clear(); // Clear field search
-                  _selectedDisplayField = null; // NEW: Reset display field
-                  _displayFieldSearchController.clear(); // NEW: Clear display field search
-                  _fields = [];
-                  _allFieldValues = [];
-                  _searchText = '';
-                  _searchController.clear();
+                  setState(() {
+                    _selectedTable = selection;
+                    _tableAutocompleteController.text = selection; // Keep internal controller synced
+                    _selectedMasterField = null; // Reset fields when table changes
+                    _masterFieldAutocompleteController.clear();
+                    _selectedDisplayField = null;
+                    _displayFieldAutocompleteController.clear();
+                    _fields = [];
+                    _allFieldData = [];
+                    _searchController.clear();
+                  });
                   _fetchFieldsForTable(selection);
                   FocusScope.of(context).unfocus(); // Dismiss keyboard
                 },
               ),
               const SizedBox(height: 16),
+              // Autocomplete for Master Field (Value)
               _selectedTable == null
                   ? Container()
                   : _isLoadingFields
@@ -1030,9 +1178,9 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                   child: CircularProgressIndicator(),
                 ),
               )
-                  : Autocomplete<String>( // Autocomplete for Fields (Master Field)
+                  : Autocomplete<String>(
                 optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text == '') {
+                  if (textEditingValue.text.isEmpty) {
                     return Iterable<String>.empty();
                   }
                   return _fields.where((String option) {
@@ -1040,41 +1188,44 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                   });
                 },
                 fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  // Sync internal controller with Autocomplete's controller
-                  if (textEditingController.text != _fieldSearchController.text) {
-                    _fieldSearchController.text = textEditingController.text;
+                  if (textEditingController.text != _masterFieldAutocompleteController.text) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      textEditingController.text = _masterFieldAutocompleteController.text;
+                    });
                   }
                   return TextField(
                     controller: textEditingController,
                     focusNode: focusNode,
                     decoration: InputDecoration(
-                      labelText: 'Select Master Field (Value)', // MODIFIED: Label clarity
+                      labelText: 'Select Master Field (Value)',
                       labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      suffixIcon: _isLoadingFields ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2)) : null,
                     ),
                     style: GoogleFonts.poppins(),
                   );
                 },
                 onSelected: (String selection) {
-                  _selectedField = selection;
-                  _fieldSearchController.text = selection; // Keep the controller synced
-                  // NEW: Automatically set display field to master field when master field changes
-                  _selectedDisplayField = selection;
-                  _displayFieldSearchController.text = selection;
-                  _allFieldValues = [];
-                  _searchText = '';
-                  _searchController.clear();
-                  _fetchFieldValues();
-                  FocusScope.of(context).unfocus(); // Dismiss keyboard
+                  setState(() {
+                    _selectedMasterField = selection;
+                    _masterFieldAutocompleteController.text = selection;
+                    // Auto-select display field to master field if no specific display field was previously set
+                    if (_selectedDisplayField == null || _selectedDisplayField == widget.initialField) {
+                      _selectedDisplayField = selection;
+                      _displayFieldAutocompleteController.text = selection;
+                    }
+                    _allFieldData = [];
+                    _searchController.clear();
+                  });
+                  _fetchFieldData(); // Fetch paired values/labels
+                  FocusScope.of(context).unfocus();
                 },
               ),
               const SizedBox(height: 16),
-              // NEW: Autocomplete for Display Field
-              if (_selectedField != null) // Display only after master field is selected
+              // Autocomplete for Display Field (Optional)
+              if (_selectedTable != null && _selectedMasterField != null)
                 Autocomplete<String>(
                   optionsBuilder: (TextEditingValue textEditingValue) {
-                    if (textEditingValue.text == '') {
+                    if (textEditingValue.text.isEmpty) {
                       return Iterable<String>.empty();
                     }
                     return _fields.where((String option) {
@@ -1082,14 +1233,16 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                     });
                   },
                   fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                    if (textEditingController.text != _displayFieldSearchController.text) {
-                      _displayFieldSearchController.text = textEditingController.text;
+                    if (textEditingController.text != _displayFieldAutocompleteController.text) {
+                      WidgetsBinding.instance.addPostFrameCallback((_){
+                        textEditingController.text = _displayFieldAutocompleteController.text;
+                      });
                     }
                     return TextField(
                       controller: textEditingController,
                       focusNode: focusNode,
                       decoration: InputDecoration(
-                        labelText: 'Select Display Field (Optional)', // Label for display field
+                        labelText: 'Select Display Field (Optional)',
                         labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                       ),
@@ -1099,14 +1252,22 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                   onSelected: (String selection) {
                     setState(() {
                       _selectedDisplayField = selection;
-                      _displayFieldSearchController.text = selection; // Keep the controller synced
+                      _displayFieldAutocompleteController.text = selection;
+                      _allFieldData = []; // Clear values because display field changes means re-fetch paired data
+                      _searchController.clear();
                     });
-                    FocusScope.of(context).unfocus(); // Dismiss keyboard
+                    // Only refetch data if master and display fields are both valid.
+                    // This handles scenarios where display field might be empty or invalid.
+                    if (_selectedMasterField != null && _selectedDisplayField != null && _selectedTable != null) {
+                      _fetchFieldData();
+                    }
+                    FocusScope.of(context).unfocus();
                   },
                 ),
               const SizedBox(height: 16),
-              if (_selectedField != null)
-                _isLoadingFieldValues
+              // Display Values for selected Master & Display Fields
+              if (_selectedTable != null && _selectedMasterField != null && _selectedDisplayField != null)
+                _isLoadingFieldData
                     ? const Center(
                   child: Padding(
                     padding: EdgeInsets.all(8.0),
@@ -1119,7 +1280,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                       TextField(
                         controller: _searchController,
                         decoration: InputDecoration(
-                          labelText: 'Search values',
+                          labelText: 'Search values (by Display Field)',
                           prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
@@ -1133,30 +1294,34 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                       ),
                       const SizedBox(height: 8),
                       Expanded(
-                        child: _filteredFieldValues.isEmpty
+                        child: _filteredFieldData.isEmpty
                             ? Center(
                           child: Text(
-                            _searchText.isNotEmpty
-                                ? 'No matching values found for "${_searchText}".'
-                                : 'No values available for this field.',
+                            _searchRawText.isNotEmpty
+                                ? 'No matching values found for "${_searchRawText}".'
+                                : 'No values available for this field combination.',
                             style: GoogleFonts.poppins(color: Colors.grey),
                           ),
                         )
                             : ListView.builder(
-                          itemCount: _filteredFieldValues.length,
+                          itemCount: _filteredFieldData.length,
                           itemBuilder: (context, index) {
-                            final value = _filteredFieldValues[index];
+                            final item = _filteredFieldData[index];
+                            final displayLabel = item['label'];
+                            final masterValue = item['value'];
                             return ListTile(
-                              title: Text(value, style: GoogleFonts.poppins()),
+                              title: Text(displayLabel ?? '', style: GoogleFonts.poppins()),
+                              subtitle: (displayLabel != masterValue && masterValue != null && masterValue.isNotEmpty)
+                                  ? Text('($masterValue)', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))
+                                  : null,
                               onTap: () {
-                                if (!context.mounted) return; // Safety check
-                                WidgetsBinding.instance.addPostFrameCallback((_) {
-                                  Navigator.pop(context, {
-                                    'value': value,
-                                    'table': _selectedTable,
-                                    'field': _selectedField,
-                                    'display_field': _selectedDisplayField, // NEW: Return display_field
-                                  }); // Return map of selected data
+                                if (!context.mounted) return;
+                                Navigator.pop(context, {
+                                  'value': masterValue,       // Actual value for the API parameter
+                                  'display_label': displayLabel, // Display value for the UI text field
+                                  'table': _selectedTable,
+                                  'field': _selectedMasterField,
+                                  'display_field': _selectedDisplayField,
                                 });
                               },
                             );
@@ -1171,10 +1336,8 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                 alignment: Alignment.bottomRight,
                 child: TextButton(
                   onPressed: () {
-                    if (!context.mounted) return; // Safety check
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      Navigator.pop(context);
-                    });
+                    if (!context.mounted) return;
+                    Navigator.pop(context); // Pop without result
                   },
                   child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.redAccent)),
                 ),

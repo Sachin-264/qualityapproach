@@ -1,9 +1,7 @@
-// Reportbloc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../ReportAPIService.dart';
 import 'package:intl/intl.dart';
+import '../ReportAPIService.dart';
 
-// Events
 abstract class ReportEvent {}
 
 class LoadReports extends ReportEvent {}
@@ -11,12 +9,14 @@ class LoadReports extends ReportEvent {}
 class FetchApiDetails extends ReportEvent {
   final String apiName;
   FetchApiDetails(this.apiName);
+// @override List<Object?> get props => [apiName]; // If Equatable
 }
 
 class UpdateParameter extends ReportEvent {
   final String paramName;
   final String value;
   UpdateParameter(this.paramName, this.value);
+// @override List<Object?> get props => [paramName, value]; // If Equatable
 }
 
 class FetchFieldConfigs extends ReportEvent {
@@ -24,9 +24,10 @@ class FetchFieldConfigs extends ReportEvent {
   final String apiName;
   final String reportLabel;
   FetchFieldConfigs(this.recNo, this.apiName, this.reportLabel);
+// @override List<Object?> get props => [recNo, apiName, reportLabel]; // If Equatable
 }
 
-// NEW EVENT: FetchPickerOptions
+// NEW EVENT: FetchPickerOptions - Now includes displayField
 class FetchPickerOptions extends ReportEvent {
   final String paramName;
   final String serverIP;
@@ -35,6 +36,8 @@ class FetchPickerOptions extends ReportEvent {
   final String databaseName;
   final String masterTable;
   final String masterField;
+  final String displayField; // NEW: Added displayField
+
   FetchPickerOptions({
     required this.paramName,
     required this.serverIP,
@@ -43,12 +46,15 @@ class FetchPickerOptions extends ReportEvent {
     required this.databaseName,
     required this.masterTable,
     required this.masterField,
+    required this.displayField, // NEW: Added displayField
   });
+// @override List<Object?> get props => [paramName, serverIP, userName, password, databaseName, masterTable, masterField, displayField]; // If Equatable
 }
 
 class ResetReports extends ReportEvent {}
 
 // States
+// class ReportState extends Equatable { // Uncomment and extend Equatable if you use it
 class ReportState {
   final bool isLoading;
   final List<Map<String, dynamic>> reports;
@@ -60,11 +66,12 @@ class ReportState {
   final String? selectedApiUrl;
   final List<Map<String, dynamic>> selectedApiParameters;
   final Map<String, String> userParameterValues;
-  final Map<String, List<String>> pickerOptions; // To store fetched picker values
-  final String? serverIP; // For picker options fetching
-  final String? userName; // For picker options fetching
-  final String? password; // For picker options fetching
-  final String? databaseName; // For picker options fetching
+  // UPDATED TYPE: Now stores List of Maps for picker options (value and label)
+  final Map<String, List<Map<String, String>>> pickerOptions;
+  final String? serverIP;
+  final String? userName;
+  final String? password;
+  final String? databaseName;
   final String? error;
 
   ReportState({
@@ -78,13 +85,15 @@ class ReportState {
     this.selectedApiUrl,
     this.selectedApiParameters = const [],
     this.userParameterValues = const {},
-    this.pickerOptions = const {},
+    this.pickerOptions = const {}, // Initialize with empty map
     this.serverIP,
     this.userName,
     this.password,
     this.databaseName,
     this.error,
   });
+
+  // @override List<Object?> get props => [ /* list all properties here */ ]; // If Equatable
 
   ReportState copyWith({
     bool? isLoading,
@@ -97,7 +106,8 @@ class ReportState {
     String? selectedApiUrl,
     List<Map<String, dynamic>>? selectedApiParameters,
     Map<String, String>? userParameterValues,
-    Map<String, List<String>>? pickerOptions,
+    // UPDATED PARAMETER TYPE for copyWith
+    Map<String, List<Map<String, String>>>? pickerOptions,
     String? serverIP,
     String? userName,
     String? password,
@@ -115,7 +125,7 @@ class ReportState {
       selectedApiUrl: selectedApiUrl ?? this.selectedApiUrl,
       selectedApiParameters: selectedApiParameters ?? this.selectedApiParameters,
       userParameterValues: userParameterValues ?? this.userParameterValues,
-      pickerOptions: pickerOptions ?? this.pickerOptions,
+      pickerOptions: pickerOptions ?? this.pickerOptions, // Update pickerOptions in copyWith
       serverIP: serverIP ?? this.serverIP,
       userName: userName ?? this.userName,
       password: password ?? this.password,
@@ -157,7 +167,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       error: null,
       selectedApiParameters: [], // Clear old parameters
       userParameterValues: {}, // Clear old parameter values
-      pickerOptions: {}, // Clear previous picker options
+      pickerOptions: {}, // Clear previous picker options for new report selection
       selectedApiUrl: null, // Clear previous URL
       serverIP: null, // Clear previous server details
       userName: null,
@@ -168,26 +178,47 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       final apiDetails = await apiService.getApiDetails(event.apiName);
       List<Map<String, dynamic>> fetchedParameters = List<Map<String, dynamic>>.from(apiDetails['parameters'] ?? []);
 
-      // Initialize userParameterValues with default values from fetched parameters
-      Map<String, String> initialUserParameterValues = {};
+      final Map<String, String> initialUserParameterValues = {};
+      final Map<String, List<Map<String, String>>> initialPickerOptions = {}; // For immediate population of picker data
+
+      // Extract server details from API details for fetching picker options
+      final String? serverIP = apiDetails['serverIP']?.toString();
+      final String? userName = apiDetails['userName']?.toString();
+      final String? password = apiDetails['password']?.toString();
+      final String? databaseName = apiDetails['databaseName']?.toString();
+
+
+      // Step 1: Pre-load picker options synchronously before emitting state (if needed for initial values)
+      // This ensures pickerOptions are available if initial values need label lookup.
+      // However, usually we load picker options on demand in UI. If API initial parameter has
+      // a picker value (e.g. 'E' for Branch), we want to show its 'label' (e.g., 'EAST').
+      // To do this, we need the pickerOptions to be loaded BEFORE setting userParameterValues for display.
+      // This can be complex if there are many pickers and you need to ensure all their options are ready.
+      // For this solution, we will load options *after* emitting the main parameters, and the UI
+      // will trigger the fetch, making the initial controller text potentially show the value
+      // (like 'E') temporarily until the labels load and are updated in UI.
+
       for (var param in fetchedParameters) {
         if (param['name'] != null) {
+          String paramName = param['name'].toString();
           String paramValue = param['value']?.toString() ?? '';
-          // Date format handling
-          if ((param['type']?.toString().toLowerCase() == 'date') || (param['name'].toString().toLowerCase().contains('date') && paramValue.isNotEmpty)) {
+
+          // Date format handling for initial value
+          if ((param['type']?.toString().toLowerCase() == 'date') || (paramName.toLowerCase().contains('date') && paramValue.isNotEmpty)) {
+            // Check if it can be parsed to an existing format before applying new format
+            // To be safe, rely on UI's _parseDateSmartly for robust parsing and formatting.
+            // For Bloc, it's safer to store original 'yyyy-MM-dd' from backend if applicable,
+            // or if it already comes in 'dd-MM-yyyy' or 'dd-MMM-yyyy', just store it.
             try {
-              // Attempt to parse existing date value (e.g. from 'yyyy-MM-dd' to 'dd-MMM-yyyy')
-              final DateTime parsedDate = DateTime.parse(paramValue);
-              paramValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
+              final DateTime parsedDate = DateTime.parse(paramValue); // Assume backend returns yyyy-MM-dd initially
+              paramValue = DateFormat('dd-MMM-yyyy').format(parsedDate); // Format for consistent display if needed
             } catch (e) {
-              // If backend sends 'dd-MM-yyyy' or 'dd-MMM-yyyy' initially, and DateTime.parse fails
-              // try parsing with specific formats or keep as is.
-              // For simplicity, we'll log and keep original if direct parse fails for now.
-              // The UI's _parseDateSmartly will handle multiple formats for date picker interactions.
-              print('Bloc: Warning: Failed to parse initial date parameter ${param['name']}: $paramValue. Error: $e');
+              print('Bloc: Warning: Failed to parse initial date parameter $paramName: $paramValue. Error: $e');
+              // Keep original value if parsing to default foramt fails.
             }
           }
-          initialUserParameterValues[param['name'].toString()] = paramValue;
+
+          initialUserParameterValues[paramName] = paramValue;
         }
       }
 
@@ -196,11 +227,12 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         selectedApiUrl: apiDetails['url'],
         selectedApiParameters: fetchedParameters,
         userParameterValues: initialUserParameterValues,
-        serverIP: apiDetails['serverIP'], // Store server details from API
-        userName: apiDetails['userName'],
-        password: apiDetails['password'],
-        databaseName: apiDetails['databaseName'],
-        error: null, // Clear any previous errors
+        pickerOptions: initialPickerOptions, // Initial empty picker options
+        serverIP: serverIP,
+        userName: userName,
+        password: password,
+        databaseName: databaseName,
+        error: null,
       ));
       print('Bloc: FetchApiDetails success: url=${apiDetails['url']}, parameters=${apiDetails['parameters']}, initialUserParameterValues=$initialUserParameterValues');
     } catch (e) {
@@ -271,29 +303,45 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     }
   }
 
-  // Handler for fetching picker options
+  // Handler for fetching picker options - NOW USES fetchPickerData AND CORRECTLY MAPS
   Future<void> _onFetchPickerOptions(FetchPickerOptions event, Emitter<ReportState> emit) async {
-    // Check if options are already loaded for this parameter to prevent redundant API calls
+    // Only set loading for the specific picker if other things aren't already loading
+    // And, only if pickerOptions for this param are not yet loaded (or empty)
     if (state.pickerOptions.containsKey(event.paramName) && state.pickerOptions[event.paramName]!.isNotEmpty) {
       print('Bloc: Picker options for ${event.paramName} already loaded. Skipping fetch.');
       return;
     }
 
-    emit(state.copyWith(isLoading: true, error: null)); // Indicate loading for picker data
+    // Indicate loading, but prevent overall app loading spinner if it's just a picker field loading.
+    // This is tricky, a simpler approach might just be to emit `isLoading: true` and then `isLoading: false`.
+    emit(state.copyWith(isLoading: true, error: null));
     try {
-      print('Bloc: Fetching picker values for param: ${event.paramName}, table: ${event.masterTable}, field: ${event.masterField}');
-      final values = await apiService.fetchFieldValues(
+      print('Bloc: Fetching picker values for param: ${event.paramName}, masterTable: ${event.masterTable}, masterField: ${event.masterField}, displayField: ${event.displayField}');
+
+      // >>> CORRECTED: Call the new fetchPickerData which returns List<Map<String, dynamic>>
+      final List<Map<String, dynamic>> fetchedData = await apiService.fetchPickerData(
         server: event.serverIP,
         UID: event.userName,
         PWD: event.password,
         database: event.databaseName,
-        table: event.masterTable,
-        field: event.masterField,
+        masterTable: event.masterTable,
+        masterField: event.masterField,
+        displayField: event.displayField, // Pass the display field
       );
-      final updatedPickerOptions = Map<String, List<String>>.from(state.pickerOptions);
-      updatedPickerOptions[event.paramName] = values;
+
+      // Map the fetched data to the { 'value': 'master_value', 'label': 'display_label' } format
+      final List<Map<String, String>> mappedOptions = fetchedData.map((item) {
+        return {
+          'value': item[event.masterField]?.toString() ?? '', // Get value using masterField key
+          'label': item[event.displayField]?.toString() ?? '', // Get label using displayField key
+        };
+      }).toList();
+
+      final updatedPickerOptions = Map<String, List<Map<String, String>>>.from(state.pickerOptions);
+      updatedPickerOptions[event.paramName] = mappedOptions;
+
       emit(state.copyWith(isLoading: false, pickerOptions: updatedPickerOptions, error: null));
-      print('Bloc: Fetched picker options for ${event.paramName}: ${values.length} items');
+      print('Bloc: Fetched picker options for ${event.paramName}: ${mappedOptions.length} items. Sample: ${mappedOptions.isNotEmpty ? mappedOptions.first : {}}');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to load options for ${event.paramName}: $e'));
       print('Bloc: Error fetching picker options for ${event.paramName}: $e');

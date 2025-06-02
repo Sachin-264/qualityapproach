@@ -186,10 +186,28 @@ class _ReportUIState extends State<ReportUI> {
                   _paramFocusNodes[paramName] = FocusNode();
                   print('UI: Created controller/focus node for param: $paramName');
                 }
-                // Update the controller's text with the current value from state.userParameterValues
-                final currentValue = state.userParameterValues[paramName] ?? param['value']?.toString() ?? '';
-                if (_paramControllers[paramName]!.text != currentValue) {
-                  _paramControllers[paramName]!.text = currentValue;
+
+                final bool isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
+                    param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
+                    param['display_field'] != null && param['display_field'].toString().isNotEmpty;
+
+                // The master value from the Bloc state (which is what goes to the API)
+                final String currentMasterValue = state.userParameterValues[paramName] ?? param['value']?.toString() ?? '';
+
+                String displayValueForController = currentMasterValue; // Default to master value
+
+                // If it's a picker field and we have options loaded, try to find the display value
+                if (isPickerField && state.pickerOptions.containsKey(paramName) && currentMasterValue.isNotEmpty) {
+                  final option = state.pickerOptions[paramName]?.firstWhere(
+                        (opt) => opt['value'] == currentMasterValue,
+                    orElse: () => {'label': currentMasterValue, 'value': currentMasterValue}, // Fallback if not found
+                  );
+                  displayValueForController = option!['label']!;
+                }
+
+                // Update the controller's text with the determined display value
+                if (_paramControllers[paramName]!.text != displayValueForController) {
+                  _paramControllers[paramName]!.text = displayValueForController;
                 }
               }
               // --- End Parameter Controller and FocusNode Management ---
@@ -314,11 +332,15 @@ class _ReportUIState extends State<ReportUI> {
                                 final isDateField = (param['type']?.toString().toLowerCase() == 'date') ||
                                     (paramName.toLowerCase().contains('date') && param['value'].toString().contains('-'));
 
-                                // NEW LOGIC: Infer picker field by presence of master_table and master_field
+                                // NEW LOGIC: Infer picker field by presence of master_table, master_field, and display_field
                                 final isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
-                                    param['master_field'] != null && param['master_field'].toString().isNotEmpty;
+                                    param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
+                                    param['display_field'] != null && param['display_field'].toString().isNotEmpty; // Added display_field check
 
-                                print('UI: Param: $paramName, Label: $paramLabel, IsDate: $isDateField, IsPicker: $isPickerField, MasterTable: ${param['master_table']}, MasterField: ${param['master_field']}');
+                                final String masterField = param['master_field']?.toString() ?? '';
+                                final String displayField = param['display_field']?.toString() ?? '';
+
+                                print('UI: Param: $paramName, Label: $paramLabel, IsDate: $isDateField, IsPicker: $isPickerField, MasterTable: ${param['master_table']}, MasterField: $masterField, DisplayField: $displayField');
 
                                 // Ensure controller and focus node exist (should be done in management block above)
                                 final TextEditingController controller = _paramControllers[paramName]!;
@@ -327,16 +349,14 @@ class _ReportUIState extends State<ReportUI> {
                                 Widget parameterInputWidget;
                                 if (isPickerField) {
                                   // Build Autocomplete for picker fields
-                                  parameterInputWidget = Autocomplete<String>(
+                                  parameterInputWidget = Autocomplete<Map<String, String>>( // Autocomplete works with Map<String, String> now
                                     optionsBuilder: (TextEditingValue textEditingValue) {
-                                      // If no options are loaded for this picker, trigger fetch
-                                      if (state.pickerOptions[paramName] == null &&
+                                      // If options are not loaded for this picker, trigger fetch
+                                      if (!state.pickerOptions.containsKey(paramName) &&
                                           state.serverIP != null &&
                                           state.userName != null &&
                                           state.password != null &&
-                                          state.databaseName != null &&
-                                          param['master_table'] != null &&
-                                          param['master_field'] != null) {
+                                          state.databaseName != null) {
                                         print('UI: Dispatching FetchPickerOptions for $paramName');
                                         context.read<ReportBlocGenerate>().add(
                                           FetchPickerOptions(
@@ -346,7 +366,8 @@ class _ReportUIState extends State<ReportUI> {
                                             password: state.password!,
                                             databaseName: state.databaseName!,
                                             masterTable: param['master_table'].toString(),
-                                            masterField: param['master_field'].toString(),
+                                            masterField: masterField,
+                                            displayField: displayField,
                                           ),
                                         );
                                       }
@@ -356,35 +377,38 @@ class _ReportUIState extends State<ReportUI> {
                                         return options;
                                       }
                                       return options.where((option) =>
-                                          option.toLowerCase().contains(textEditingValue.text.toLowerCase()));
+                                          option['label']!.toLowerCase().contains(textEditingValue.text.toLowerCase())); // Filter by label
                                     },
-                                    displayStringForOption: (String option) => option,
-                                    onSelected: (String selection) {
-                                      controller.text = selection; // Update controller text
+                                    displayStringForOption: (Map<String, String> option) => option['label']!, // Display the label
+                                    onSelected: (Map<String, String> selection) {
+                                      controller.text = selection['label']!; // Update controller text with label (for display)
                                       context.read<ReportBlocGenerate>().add(
-                                        UpdateParameter(paramName, selection),
+                                        UpdateParameter(paramName, selection['value']!), // Send the master_field value to Bloc
                                       );
-                                      print('UI: Picker selected for $paramName: $selection');
+                                      print('UI: Picker selected for $paramName: Label=${selection['label']}, Value=${selection['value']}');
                                     },
                                     fieldViewBuilder: (context, textEditingController, currentFocusNode, onFieldSubmitted) {
-                                      // Sync Autocomplete's internal controller with our _paramControllers
-                                      if (textEditingController.text.isEmpty && controller.text.isNotEmpty) {
+                                      // Ensure Autocomplete's internal controller stays in sync with our widget's controller
+                                      if (textEditingController.text != controller.text) {
                                         textEditingController.text = controller.text;
-                                      } else if (textEditingController.text != controller.text && textEditingController.text.isNotEmpty) {
-                                        controller.text = textEditingController.text;
                                       }
-
                                       return _buildTextField(
                                         controller: textEditingController, // Use Autocomplete's controller
                                         focusNode: currentFocusNode, // Use Autocomplete's focus node
                                         label: paramLabel,
-                                        icon: Icons.list, // Or a more suitable icon for picker
-                                        onChanged: (value) {
-                                          controller.text = value; // Keep internal controller in sync
-                                          context.read<ReportBlocGenerate>().add(
-                                            UpdateParameter(paramName, value),
-                                          );
-                                        },
+                                        icon: Icons.list,
+                                        // onChanged is typically handled by onSelected for Autocomplete,
+                                        // or if direct typing should affect Bloc,
+                                        // it would need to perform a reverse lookup.
+                                        // For simplicity and standard Autocomplete behavior, keep onChanged null here.
+                                        // If you need direct typing to update the value, you'd add:
+                                        // onChanged: (value) {
+                                        //   // This is tricky: if user types "East" how do you get "E"?
+                                        //   // You'd need to find the option whose label matches 'value'
+                                        //   // and then use its 'value' key. This is usually not required
+                                        //   // for Autocomplete where selection from list is primary.
+                                        //   // For now, it's best to rely on onSelected.
+                                        // },
                                       );
                                     },
                                     optionsViewBuilder: (context, onSelected, options) {
@@ -404,10 +428,10 @@ class _ReportUIState extends State<ReportUI> {
                                                 final option = options.elementAt(index);
                                                 return ListTile(
                                                   title: Text(
-                                                    option,
+                                                    option['label']!, // Display the label
                                                     style: GoogleFonts.poppins(fontSize: 14),
                                                   ),
-                                                  onTap: () => onSelected(option),
+                                                  onTap: () => onSelected(option), // Pass the full map
                                                 );
                                               },
                                             ),

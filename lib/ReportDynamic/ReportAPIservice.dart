@@ -1,4 +1,3 @@
-// ReportAPIService.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -12,7 +11,7 @@ class ReportAPIService {
 
   Map<String, Map<String, dynamic>> _apiDetails = {};
 
-  static int _recNoCounter = 0;
+  static int _recNoCounter = 0; // Consider if this is truly needed or if backend manages RecNo
 
   ReportAPIService() {
     _postEndpoints = {
@@ -28,7 +27,7 @@ class ReportAPIService {
     _getEndpoints = {
       'fetch_tables_and_fields': _databaseFieldUrl,
       'get_database_server': '$_baseUrl?mode=get_database_server',
-      'get_demo_table': '$_baseUrl?mode=get_demo_table',
+      'get_demo_table': '$_baseUrl?mode=get_demo_table', // NEW: Add get_demo_table
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
       'fetch_databases': _databaseFetchUrl,
     };
@@ -85,7 +84,6 @@ class ReportAPIService {
     }
   }
 
-  // Corrected method: Fetch tables
   Future<List<String>> fetchTables({
     required String server,
     required String UID,
@@ -114,7 +112,7 @@ class ReportAPIService {
           'Accept': 'application/json',
         },
         body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 15)); // Increased timeout
+      ).timeout(const Duration(seconds: 15));
 
       print('Fetch tables response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
@@ -133,8 +131,6 @@ class ReportAPIService {
     }
   }
 
-  // Corrected method: Fetch fields (columns) for a given table
-  // NOTE: This assumes 'action: fields' is supported by DatabaseField.php and returns 'fields' key
   Future<List<String>> fetchFields({
     required String server,
     required String UID,
@@ -152,7 +148,7 @@ class ReportAPIService {
       'UID': UID.trim(),
       'PWD': PWD.trim(),
       'Database': database.trim(),
-      'action': 'fields', // Assuming 'fields' action in DatabaseField.php
+      'action': 'fields',
       'table': table.trim(),
     };
 
@@ -170,7 +166,6 @@ class ReportAPIService {
       print('Fetch fields response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
-        // >>> CORRECTED LINE HERE <<<
         if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
           return List<String>.from(jsonData['fields'].map((item) => item.toString()));
         } else {
@@ -185,8 +180,59 @@ class ReportAPIService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchPickerData({
+    required String server,
+    required String UID,
+    required String PWD,
+    required String database,
+    required String masterTable,
+    required String displayField,
+    required String masterField,
+  }) async {
+    final url = _getEndpoints['fetch_tables_and_fields'];
+    if (url == null) {
+      throw Exception('API endpoint not found for fetching picker data.');
+    }
 
-  // Existing method: Fetch field values for a specific field and table
+    final payload = {
+      'server': server.trim(),
+      'UID': UID.trim(),
+      'PWD': PWD.trim(),
+      'Database': database.trim(),
+      'action': 'picker_data',
+      'table': masterTable.trim(),
+      'master_field': masterField.trim(),
+      'display_field': displayField.trim(),
+    };
+
+    print('Fetching picker data with payload: $payload');
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 15));
+
+      print('Fetch picker data response status: ${response.statusCode}, body: ${response.body}');
+      if (response.statusCode == 200) {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+          return List<Map<String, dynamic>>.from(jsonData['data']);
+        } else {
+          throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
+        }
+      } else {
+        throw Exception('Failed to fetch picker data: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      print('Error fetching picker data: $e');
+      rethrow;
+    }
+  }
+
   Future<List<String>> fetchFieldValues({
     required String server,
     required String UID,
@@ -205,7 +251,7 @@ class ReportAPIService {
       'UID': UID.trim(),
       'PWD': PWD.trim(),
       'Database': database.trim(),
-      'action': 'field', // Existing 'field' action as per description
+      'action': 'field',
       'table': table.trim(),
       'field': field.trim(),
     };
@@ -219,7 +265,7 @@ class ReportAPIService {
           'Accept': 'application/json',
         },
         body: jsonEncode(payload),
-      ).timeout(const Duration(seconds: 15)); // Increased timeout
+      ).timeout(const Duration(seconds: 15));
 
       print('Fetch field values response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
@@ -238,7 +284,6 @@ class ReportAPIService {
     }
   }
 
-
   Future<List<String>> getAvailableApis() async {
     final url = _getEndpoints['get_database_server'];
     if (url == null) {
@@ -252,14 +297,17 @@ class ReportAPIService {
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
-          _apiDetails = {};
+          _apiDetails = {}; // Clear previous cache
           final uniqueApis = <String>{};
           for (var item in jsonData['data']) {
             if (!uniqueApis.contains(item['APIName'])) {
               uniqueApis.add(item['APIName']);
+              // Store all details for later lookup by getApiDetails
               _apiDetails[item['APIName']] = {
                 'url': item['APIServerURl'],
-                'parameters': item['Parameter'] != null ? jsonDecode(item['Parameter']) : [],
+                'parameters': item['Parameter'] != null && item['Parameter'].toString().isNotEmpty
+                    ? jsonDecode(item['Parameter'])
+                    : [],
                 'serverIP': item['ServerIP'],
                 'userName': item['UserName'],
                 'password': item['Password'],
@@ -285,13 +333,20 @@ class ReportAPIService {
   }
 
   Future<Map<String, dynamic>> getApiDetails(String apiName) async {
-    if (_apiDetails.isEmpty) {
-      await getAvailableApis();
+    // Attempt to retrieve from cache first
+    if (_apiDetails.isNotEmpty && _apiDetails.containsKey(apiName)) {
+      print('getApiDetails: Returning cached details for $apiName');
+      return _apiDetails[apiName]!;
     }
+
+    // If not cached, fetch all and then retrieve (this might happen if getAvailableApis wasn't called first)
+    print('getApiDetails: Details for $apiName not cached, fetching all APIs.');
+    await getAvailableApis(); // This will populate _apiDetails cache
     final apiDetail = _apiDetails[apiName];
+
     if (apiDetail == null) {
-      print('Error: API not found for apiName=$apiName');
-      throw Exception('API not found');
+      print('Error: API details not found for apiName=$apiName after fetch.');
+      throw Exception('API details not found for "$apiName".');
     }
     return apiDetail;
   }
@@ -339,7 +394,7 @@ class ReportAPIService {
     while (attempt <= maxRetries) {
       try {
         final response = await http.get(uri).timeout(
-          const Duration(seconds: 180), // Increased timeout to 30 seconds
+          const Duration(seconds: 180),
           onTimeout: () {
             print('ApiData timeout on attempt $attempt/$maxRetries for $uri');
             throw TimeoutException('Request to $uri timed out');
@@ -357,7 +412,7 @@ class ReportAPIService {
         print('ApiData exception on attempt $attempt/$maxRetries: $e');
         if (e is TimeoutException && attempt < maxRetries) {
           attempt++;
-          await Future.delayed(Duration(seconds: attempt * 2)); // Exponential backoff
+          await Future.delayed(Duration(seconds: attempt * 2));
           continue;
         }
         return {
@@ -380,12 +435,9 @@ class ReportAPIService {
     try {
       final jsonData = jsonDecode(response.body);
 
-      // Handle different response formats
       if (jsonData is List) {
-        // Direct list of records: [{SNo: 1, ...}, ...]
         return List<Map<String, dynamic>>.from(jsonData);
       } else if (jsonData is Map<String, dynamic>) {
-        // Structured response: {status: "success"/200, data: [...], message: ""}
         final status = jsonData['status'];
         final isSuccess = status == 'success' || status == 200 || status == '200';
 
@@ -417,6 +469,7 @@ class ReportAPIService {
     }
   }
 
+// MODIFIED: Fetch all reports from demo_table
   Future<List<Map<String, dynamic>>> fetchDemoTable() async {
     final url = _getEndpoints['get_demo_table'];
     if (url == null) {
@@ -424,13 +477,14 @@ class ReportAPIService {
       throw Exception('GET API not found');
     }
 
-    print('Fetching DemoTable with URL: $url');
+    print('Fetching all DemoTable reports with URL: $url');
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           print('DemoTable fetch successful: data.length=${jsonData['data'].length}');
+          // Backend should already decode actions_config into a proper JSON array/object
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
           print('DemoTable error: ${jsonData['message']}');
@@ -481,7 +535,8 @@ class ReportAPIService {
     required String reportLabel,
     required String apiName,
     required String parameter,
-    required List<Map<String, dynamic>> fields,
+    required List<Map<String, dynamic>> fields, // Fields are saved via demo_table_2 (not directly in saveReport)
+    List<Map<String, dynamic>> actions = const [], // NEW: Add actions parameter
   }) async {
     final url = _postEndpoints['post_demo_table'];
     if (url == null) {
@@ -489,13 +544,14 @@ class ReportAPIService {
       throw Exception('POST API not found');
     }
 
-    final recNo = ++_recNoCounter;
+    final recNo = ++_recNoCounter; // This logic might need review if backend assigns RecNo
     final payload = {
       'RecNo': recNo,
       'Report_name': reportName,
       'Report_label': reportLabel,
       'API_name': apiName,
       'Parameter': parameter,
+      'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
     };
 
     print('Saving report with payload: $payload');
@@ -625,9 +681,9 @@ class ReportAPIService {
         'time': field['time'] == true ? 1 : 0,
         'indian_format': field['num_format'] == true ? 1 : 0,
         'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
-        'Breakpoint': field['Breakpoint'] == true ? 1 : 0, // New
-        'SubTotal': field['SubTotal'] == true ? 1 : 0,     // New
-        'image': field['image'] == true ? 1 : 0,             // NEW: Image field
+        'Breakpoint': field['Breakpoint'] == true ? 1 : 0,
+        'SubTotal': field['SubTotal'] == true ? 1 : 0,
+        'image': field['image'] == true ? 1 : 0,
       };
 
       print('Saving field config for ${field['Field_name']} with payload: $payload');
@@ -749,6 +805,7 @@ class ReportAPIService {
     }
   }
 
+// MODIFIED: Added actions parameter
   Future<void> editDemoTables({
     required int recNo,
     required String reportName,
@@ -756,6 +813,7 @@ class ReportAPIService {
     required String apiName,
     required String parameter,
     required List<Map<String, dynamic>> fieldConfigs,
+    required List<Map<String, dynamic>> actions, // NEW: actions parameter
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
     if (url == null) {
@@ -770,9 +828,10 @@ class ReportAPIService {
         'Report_label': reportLabel.trim(),
         'API_name': apiName.trim(),
         'Parameter': parameter.trim(),
+        'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
       },
       'Demo_table_2': fieldConfigs.map((field) {
-        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}, Breakpoint=${field['Breakpoint']}, SubTotal=${field['SubTotal']}, Image=${field['image']}'); // Added Image here for debug print
+        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}, Breakpoint=${field['Breakpoint']}, SubTotal=${field['SubTotal']}, Image=${field['image']}');
         return {
           'Field_name': field['Field_name']?.toString() ?? '',
           'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
@@ -782,7 +841,7 @@ class ReportAPIService {
           'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
           'Total': field['Total'] is int
               ? field['Total']
-              : (field['Total'] == true ? 1 : 0), // Handle both int and bool
+              : (field['Total'] == true ? 1 : 0),
           'num_alignment': field['num_alignment']?.toString() ?? 'Left',
           'time': field['time'] is int
               ? field['time']
@@ -792,14 +851,14 @@ class ReportAPIService {
               : (field['num_format'] == true ? 1 : 0),
           'Breakpoint': field['Breakpoint'] is int
               ? field['Breakpoint']
-              : (field['Breakpoint'] == true ? 1 : 0), // New
+              : (field['Breakpoint'] == true ? 1 : 0),
           'SubTotal': field['SubTotal'] is int
               ? field['SubTotal']
-              : (field['SubTotal'] == true ? 1 : 0),     // New
+              : (field['SubTotal'] == true ? 1 : 0),
           'decimal_points': field['decimal_points'] is int
               ? field['decimal_points']
               : int.tryParse(field['decimal_points'].toString()) ?? 0,
-          'image': field['image'] is int // NEW: Convert image boolean to 0 or 1
+          'image': field['image'] is int
               ? field['image']
               : (field['image'] == true ? 1 : 0),
         };
@@ -868,7 +927,7 @@ class ReportAPIService {
         throw Exception('API returned error: ${jsonData['message']}');
       }
       print('Demo tables deleted successfully: RecNo=$recNo');
-      return jsonData; // Return the parsed JSON response
+      return jsonData;
     } catch (e) {
       print('delete_demo_tables exception: $e');
       rethrow;
