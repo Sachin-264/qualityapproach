@@ -49,14 +49,15 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
+  // Controllers for actions, managed in maps by actionId
   final Map<String, TextEditingController> _actionNameControllers = {};
   final Map<String, TextEditingController> _actionApiControllers = {};
-  final Map<String, TextEditingController> _tableActionReportLabelControllers = {}; // NEW: For Table action's Report_label autocomplete
+  // REMOVED: final Map<String, TextEditingController> _tableActionReportLabelControllers = {};
   final Map<String, Map<String, TextEditingController>> _actionParamValueControllers = {};
 
   final Uuid _uuid = const Uuid();
 
-  // NEW: GlobalKey to get the size of the Autocomplete's TextField for optionsViewBuilder
+  // GlobalKey to get the size of the Autocomplete's TextField for optionsViewBuilder
   // This will store keys like {'actionId_1': GlobalKey(), 'actionId_2': GlobalKey()}
   final Map<String, GlobalKey> _autocompleteFieldKeys = {};
 
@@ -101,9 +102,6 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     WidgetsBinding.instance.addPostFrameCallback((_) {
       print('UI: Dispatching LoadPreselectedFields: recNo=${widget.recNo}, apiName=${widget.apiName}');
       _bloc.add(LoadPreselectedFields(widget.recNo, widget.apiName));
-      // No need to manually fetch these here, LoadPreselectedFields does it
-      // _bloc.add(FetchAllReports());
-      // _bloc.add(FetchAllApiDetails());
     });
   }
 
@@ -121,9 +119,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     _animationController.dispose();
     _bloc.close();
 
+    // Dispose all controllers in the maps
     _actionNameControllers.forEach((_, controller) => controller.dispose());
     _actionApiControllers.forEach((_, controller) => controller.dispose());
-    _tableActionReportLabelControllers.forEach((_, controller) => controller.dispose());
+    // REMOVED: _tableActionReportLabelControllers.forEach((_, controller) => controller.dispose());
     _actionParamValueControllers.forEach((_, paramMap) {
       paramMap.forEach((_, controller) => controller.dispose());
     });
@@ -182,6 +181,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         print('UI: Cleared field config controllers (field is null).');
       }
     } else {
+      // Only update if the value actually changes to avoid unnecessary re-renders
       if (_fieldNameController.text != (field['Field_name']?.toString() ?? '')) {
         _fieldNameController.text = field['Field_name']?.toString() ?? '';
       }
@@ -202,14 +202,18 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _updateActionControllers(List<Map<String, dynamic>> actions) {
-    // Dispose controllers for actions that no longer exist
+    // Collect IDs of actions that *should* exist after this update
+    final Set<String> existingActionIds = actions.map((a) => a['id'] as String).toSet();
+
+    // Dispose and remove controllers for actions that no longer exist
     _actionNameControllers.keys.toList().forEach((id) {
-      if (!actions.any((action) => action['id'] == id)) {
+      if (!existingActionIds.contains(id)) {
         _actionNameControllers.remove(id)?.dispose();
         _actionApiControllers.remove(id)?.dispose();
-        _tableActionReportLabelControllers.remove(id)?.dispose();
+        // REMOVED: _tableActionReportLabelControllers.remove(id)?.dispose();
         _actionParamValueControllers.remove(id)?.forEach((_, controller) => controller.dispose());
         _actionParamValueControllers.remove(id);
+        _autocompleteFieldKeys.remove(id); // Also remove the GlobalKey
       }
     });
 
@@ -225,28 +229,19 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         _actionNameControllers[actionId]!.text = action['name']?.toString() ?? '';
       }
 
-      // API controller (holds direct URL for 'print', resolved URL for 'table')
+      // API controller
       if (!_actionApiControllers.containsKey(actionId)) {
         _actionApiControllers[actionId] = TextEditingController(text: action['api']?.toString() ?? '');
       } else if (_actionApiControllers[actionId]!.text != (action['api']?.toString() ?? '')) {
         _actionApiControllers[actionId]!.text = action['api']?.toString() ?? '';
       }
 
-      // Handle table actions specifically for reportLabel
+      // For table actions, the Autocomplete will manage its own controller.
+      // We only need the GlobalKey for positioning the options view.
       if (actionType == 'table') {
-        if (!_tableActionReportLabelControllers.containsKey(actionId)) {
-          _tableActionReportLabelControllers[actionId] = TextEditingController(text: action['reportLabel']?.toString() ?? '');
-        } else if (_tableActionReportLabelControllers[actionId]!.text != (action['reportLabel']?.toString() ?? '')) {
-          _tableActionReportLabelControllers[actionId]!.text = action['reportLabel']?.toString() ?? '';
-        }
-        // Ensure Autocomplete's associated key is present
         _autocompleteFieldKeys.putIfAbsent(actionId, () => GlobalKey());
       } else {
-        if (_tableActionReportLabelControllers.containsKey(actionId)) {
-          _tableActionReportLabelControllers[actionId]?.dispose();
-          _tableActionReportLabelControllers.remove(actionId);
-        }
-        _autocompleteFieldKeys.remove(actionId); // Remove key if not a table action
+        _autocompleteFieldKeys.remove(actionId);
       }
 
       // Parameter value controllers
@@ -257,12 +252,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         }
 
         final currentParamMap = _actionParamValueControllers[actionId]!;
+        // Remove params that no longer exist
         currentParamMap.keys.toList().forEach((paramId) {
           if (!params.any((p) => p['id'] == paramId)) {
             currentParamMap.remove(paramId)?.dispose();
           }
         });
 
+        // Add or update params
         for (var param in params) {
           final paramId = param['id'] as String;
           if (!currentParamMap.containsKey(paramId)) {
@@ -328,7 +325,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
               Navigator.pop(context, true);
             }
             _updateFieldConfigControllers(state.currentField);
-            _updateActionControllers(state.actions);
+            _updateActionControllers(state.actions); // This will update non-Autocomplete controllers and manage GlobalKeys
           },
           child: BlocBuilder<EditDetailMakerBloc, EditDetailMakerState>(
             builder: (context, state) {
@@ -444,7 +441,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                       ),
                                     ],
                                   )
-                                      : const SizedBox.shrink(key: ValueKey('reportDetailsEmpty')),
+                                     : SizedBox.shrink(key: ValueKey('reportDetailsEmpty')),
                                 ),
                               ],
                             ),
@@ -565,7 +562,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                   state.selectedFields.isEmpty) {
                                 print('UI: Validation failed: showing SnackBar');
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                   SnackBar(
+                                  SnackBar(
                                     content: Text('Please fill all report details and select at least one field.'),
                                     backgroundColor: Colors.redAccent,
                                     behavior: SnackBarBehavior.floating,
@@ -619,7 +616,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     String? label,
     FocusNode? focusNode,
     TextInputType? keyboardType,
-    Function(String)? onChanged,
+    Function(String)? onChanged, // Made nullable to match TextField signature
     IconData? icon,
     bool readOnly = false,
   }) {
@@ -950,7 +947,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         label: 'Field Name',
         icon: Icons.text_fields,
         readOnly: true,
-        onChanged: (value) {},
+        onChanged: (value) {}, // readOnly, so onChanged won't be called
       ),
       const SizedBox(height: 16),
       _buildTextField(
@@ -973,12 +970,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
           if (parsed != null && parsed > 0) {
             print('UI: Sequence No changed to: $parsed');
             context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
+            // Manually set selection to end to prevent cursor jump if input is valid
             _sequenceController.text = parsed.toString();
             _sequenceController.selection = TextSelection.fromPosition(
               TextPosition(offset: _sequenceController.text.length),
             );
           } else {
             print('UI: Invalid Sequence No input: $value');
+            // Optionally, clear the field or show an error for invalid input
           }
         },
       ),
@@ -1278,7 +1277,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             if (isTableAction) ...[
               Autocomplete<String>(
                 key: _autocompleteFieldKeys.putIfAbsent(actionId, () => GlobalKey()),
+                // Set the initial value for Autocomplete from the BLoC state
+                initialValue: TextEditingValue(text: action['reportLabel']?.toString() ?? ''),
                 optionsBuilder: (TextEditingValue textEditingValue) {
+                  print('UI: Autocomplete optionsBuilder - current text: ${textEditingValue.text}');
                   if (textEditingValue.text.isEmpty) {
                     return const Iterable<String>.empty();
                   }
@@ -1288,25 +1290,22 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                 },
                 onSelected: (String selection) {
                   FocusScope.of(context).unfocus();
-                  print('Selected Report Label: $selection');
-                  _tableActionReportLabelControllers[actionId]?.text = selection;
-                  // Dispatch the event to update the action and fetch API parameters
+                  print('UI: Autocomplete onSelected: Selected Report Label: $selection');
+                  // Dispatch the event to update the action, resolve API, and fetch parameters
                   context.read<EditDetailMakerBloc>().add(UpdateTableActionReport(actionId, selection));
                 },
                 fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  if (_tableActionReportLabelControllers[actionId] == null) {
-                    _tableActionReportLabelControllers[actionId] = textEditingController;
-                  } else if (_tableActionReportLabelControllers[actionId]!.text != textEditingController.text) {
-                    // Update controller if the bloc updated the value (e.g., on load)
-                    _tableActionReportLabelControllers[actionId]!.text = textEditingController.text;
-                  }
-
+                  // Use the TextEditingController provided by Autocomplete for the TextField
                   return _buildTextField(
-                    controller: _tableActionReportLabelControllers[actionId]!,
+                    controller: textEditingController, // <--- Use Autocomplete's provided controller
                     label: 'Select Report Label',
                     icon: Icons.description,
                     focusNode: focusNode,
-                    onChanged: (value) {}, // Autocomplete handles text changes internally for filtering
+                    onChanged: (value) {
+                      // Only update the 'reportLabel' string in BLoC as the user types.
+                      // Do NOT trigger API resolution here, that's for onSelected.
+                      context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'reportLabel', value));
+                    },
                   );
                 },
                 optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
@@ -1349,7 +1348,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                 label: 'Resolved API URL',
                 icon: Icons.link,
                 readOnly: true, // This URL is now resolved, not user-editable for table action
-                onChanged: (value) {},
+                onChanged: (value) {}, // Keep this onChanged as it's readOnly, won't affect anything
               ),
             ] else if (actionType == 'print') ...[ // Only 'print' allows direct URL input
               _buildTextField(
@@ -1363,19 +1362,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                       context.read<EditDetailMakerBloc>().add(ExtractParametersFromUrl(actionId, value));
                     });
                   } else {
-                    // If URL becomes empty or invalid, clear parameters for this action in cache
-                    // No need to update cache locally or emit from UI; Bloc handles it.
-                    // This logic is already handled by _onExtractParametersFromUrl
-                    // and the BlocListener will cause a rebuild with updated state.
-
-                    // Also clear parameters within the action itself to update UI
-                    // This specific update helps ensure the UI reflects the cleared state immediately
-                    // even before the next Bloc state emission from _onExtractParametersFromUrl.
                     final currentAction = state.actions.firstWhere((element) => element['id'] == actionId);
                     if (currentAction['params'] != null && currentAction['params'].isNotEmpty) {
-                      // This line modifies the local list in the UI state, but won't persist without a Bloc event
-                      currentAction['params'] = [];
-                      // This event will trigger the Bloc to update its state, which is the correct way
+                      // If the API URL becomes invalid or empty, clear existing parameters
                       context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'params', []));
                     }
                   }
@@ -1419,6 +1408,13 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
               Column(
                 children: params.map<Widget>((param) {
                   final paramId = param['id'] as String;
+                  // Ensure the controller exists before using it
+                  if (!_actionParamValueControllers.containsKey(actionId) || !_actionParamValueControllers[actionId]!.containsKey(paramId)) {
+                    // This should ideally not happen if _updateActionControllers is robust,
+                    // but as a fallback, create one.
+                    _actionParamValueControllers[actionId] ??= {};
+                    _actionParamValueControllers[actionId]![paramId] = TextEditingController(text: param['parameterValue']?.toString() ?? '');
+                  }
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
                     child: Row(

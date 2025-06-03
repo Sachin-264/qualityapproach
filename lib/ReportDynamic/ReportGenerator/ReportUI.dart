@@ -174,7 +174,6 @@ class _ReportUIState extends State<ReportUI> {
                   _paramControllers.remove(key);
                   _paramFocusNodes[key]?.dispose();
                   _paramFocusNodes.remove(key);
-                  print('UI: Disposed/removed controller/focus node for missing param: $key');
                 }
               });
 
@@ -184,7 +183,6 @@ class _ReportUIState extends State<ReportUI> {
                 if (!_paramControllers.containsKey(paramName)) {
                   _paramControllers[paramName] = TextEditingController();
                   _paramFocusNodes[paramName] = FocusNode();
-                  print('UI: Created controller/focus node for param: $paramName');
                 }
 
                 final bool isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
@@ -251,10 +249,24 @@ class _ReportUIState extends State<ReportUI> {
                                     _selectedReport = selection;
                                     _reportLabelController.text = selection['Report_label'];
                                   });
+
+                                  // Extract actions_config directly from the selected report (which came from fetchDemoTable)
+                                  List<Map<String, dynamic>> selectedActionsConfig = [];
+                                  final dynamic actionsRaw = selection['actions_config'];
+                                  if (actionsRaw is List) {
+                                    selectedActionsConfig = List<Map<String, dynamic>>.from(actionsRaw);
+                                  } else {
+                                    // Log if it's not a list, which indicates a potential parsing issue earlier
+                                    print('UI: Warning: actions_config is not a List for selected report: ${selection['Report_label']}. Value: $actionsRaw');
+                                  }
+
                                   context.read<ReportBlocGenerate>().add(
-                                    FetchApiDetails(selection['API_name']),
+                                    FetchApiDetails(
+                                      selection['API_name'],
+                                      selectedActionsConfig, // Pass the parsed actions_config
+                                    ),
                                   );
-                                  print('UI: Report selected: ${selection['Report_label']}');
+                                  print('UI: Report selected: ${selection['Report_label']}'); // Log
                                 },
                                 fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                                   // Sync Autocomplete's internal controller with our _reportLabelController
@@ -270,7 +282,6 @@ class _ReportUIState extends State<ReportUI> {
                                     icon: Icons.label,
                                     onChanged: (value) {
                                       _reportLabelController.text = value; // Keep our internal controller in sync
-                                      print('UI: Report Label input: $value');
                                       if (value.isEmpty) {
                                         // If input is cleared, reset selected report and clear parameters
                                         setState(() {
@@ -281,7 +292,7 @@ class _ReportUIState extends State<ReportUI> {
                                           _paramFocusNodes.clear();
                                         });
                                         context.read<ReportBlocGenerate>().add(ResetReports());
-                                        print('UI: Report Label cleared, resetting state.');
+                                        print('UI: Report Label cleared, resetting state.'); // Log
                                       }
                                     },
                                   );
@@ -337,10 +348,9 @@ class _ReportUIState extends State<ReportUI> {
                                     param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
                                     param['display_field'] != null && param['display_field'].toString().isNotEmpty; // Added display_field check
 
+
                                 final String masterField = param['master_field']?.toString() ?? '';
                                 final String displayField = param['display_field']?.toString() ?? '';
-
-                                print('UI: Param: $paramName, Label: $paramLabel, IsDate: $isDateField, IsPicker: $isPickerField, MasterTable: ${param['master_table']}, MasterField: $masterField, DisplayField: $displayField');
 
                                 // Ensure controller and focus node exist (should be done in management block above)
                                 final TextEditingController controller = _paramControllers[paramName]!;
@@ -357,7 +367,7 @@ class _ReportUIState extends State<ReportUI> {
                                           state.userName != null &&
                                           state.password != null &&
                                           state.databaseName != null) {
-                                        print('UI: Dispatching FetchPickerOptions for $paramName');
+                                        print('UI: Dispatching FetchPickerOptions for $paramName'); // Log
                                         context.read<ReportBlocGenerate>().add(
                                           FetchPickerOptions(
                                             paramName: paramName,
@@ -385,7 +395,6 @@ class _ReportUIState extends State<ReportUI> {
                                       context.read<ReportBlocGenerate>().add(
                                         UpdateParameter(paramName, selection['value']!), // Send the master_field value to Bloc
                                       );
-                                      print('UI: Picker selected for $paramName: Label=${selection['label']}, Value=${selection['value']}');
                                     },
                                     fieldViewBuilder: (context, textEditingController, currentFocusNode, onFieldSubmitted) {
                                       // Ensure Autocomplete's internal controller stays in sync with our widget's controller
@@ -396,19 +405,6 @@ class _ReportUIState extends State<ReportUI> {
                                         controller: textEditingController, // Use Autocomplete's controller
                                         focusNode: currentFocusNode, // Use Autocomplete's focus node
                                         label: paramLabel,
-                                        icon: Icons.list,
-                                        // onChanged is typically handled by onSelected for Autocomplete,
-                                        // or if direct typing should affect Bloc,
-                                        // it would need to perform a reverse lookup.
-                                        // For simplicity and standard Autocomplete behavior, keep onChanged null here.
-                                        // If you need direct typing to update the value, you'd add:
-                                        // onChanged: (value) {
-                                        //   // This is tricky: if user types "East" how do you get "E"?
-                                        //   // You'd need to find the option whose label matches 'value'
-                                        //   // and then use its 'value' key. This is usually not required
-                                        //   // for Autocomplete where selection from list is primary.
-                                        //   // For now, it's best to rely on onSelected.
-                                        // },
                                       );
                                     },
                                     optionsViewBuilder: (context, onSelected, options) {
@@ -461,7 +457,7 @@ class _ReportUIState extends State<ReportUI> {
                                       initialDate ??= DateTime.now();
                                       // Default to the first format in our list if no format was detected
                                       detectedFormat ??= _dateFormatsToTry.first;
-                                      print('UI: Date picker initial date: $initialDate, detected format: ${detectedFormat.pattern}');
+                                      print('UI: Date picker initial date: $initialDate, detected format: ${detectedFormat.pattern}'); // Log
 
                                       final pickedDate = await showDatePicker(
                                         context: context,
@@ -496,7 +492,6 @@ class _ReportUIState extends State<ReportUI> {
                                         context.read<ReportBlocGenerate>().add(
                                           UpdateParameter(paramName, formattedDate),
                                         );
-                                        print('UI: Date selected for $paramName: $formattedDate');
                                       }
                                     },
                                   );
@@ -533,20 +528,21 @@ class _ReportUIState extends State<ReportUI> {
                                     final recNo = _selectedReport!['RecNo'].toString();
                                     final apiName = _selectedReport!['API_name'].toString();
                                     final reportLabel = _selectedReport!['Report_label'].toString();
+                                    final actionsConfig = state.actionsConfig; // Get from current Bloc state
 
-                                    print('UI: "Show" button pressed for report: $reportLabel');
+                                    print('UI: "Show" button pressed for report: $reportLabel'); // Log
                                     bloc.add(FetchFieldConfigs(recNo, apiName, reportLabel));
                                     // Wait for the state to update (specifically, for isLoading to become false)
                                     // and ensure it's for the correct recNo.
                                     await bloc.stream.firstWhere((s) => !s.isLoading && s.selectedRecNo == recNo,
                                       orElse: () {
-                                        print('UI: Timeout/no match found while waiting for field configs and data.');
+                                        print('UI: Timeout/no match found while waiting for field configs and data.'); // Log
                                         return state; // Return current state if stream closes or no match found
                                       },
                                     );
 
                                     if (context.mounted) {
-                                      print('UI: Navigating to ReportMainUI.');
+                                      print('UI: Navigating to ReportMainUI.'); // Log
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -557,6 +553,7 @@ class _ReportUIState extends State<ReportUI> {
                                               apiName: apiName,
                                               reportLabel: reportLabel,
                                               userParameterValues: state.userParameterValues, // Pass the current parameter values
+                                              actionsConfig: actionsConfig, // NEW: Pass actions config
                                             ),
                                           ),
                                         ),
@@ -581,7 +578,7 @@ class _ReportUIState extends State<ReportUI> {
                                       _selectedReport = null;
                                     });
                                     context.read<ReportBlocGenerate>().add(ResetReports());
-                                    print('UI: Reset button pressed. All fields cleared.');
+                                    print('UI: Reset button pressed. All fields cleared.'); // Log
                                   },
                                   icon: Icons.refresh,
                                 ),

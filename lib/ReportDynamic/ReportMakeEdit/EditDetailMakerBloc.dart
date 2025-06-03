@@ -278,9 +278,14 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       final Map<String, Map<String, dynamic>> reportDetailsMap = {};
       for (var report in allReports) {
         final label = report['Report_label']?.toString();
+        // Ensure RecNo is explicitly converted to String to match potential future use in UIs, or keep as int if always int
+        final recNo = report['RecNo']?.toString() ?? '';
         if (label != null && label.isNotEmpty && !availableReportLabels.contains(label)) {
           availableReportLabels.add(label);
-          reportDetailsMap[label] = report;
+          reportDetailsMap[label] = {
+            ...report, // Keep all existing report data
+            'RecNo': recNo, // Ensure RecNo is consistently string or int as needed
+          };
         }
       }
       print('Bloc: Available report labels: ${availableReportLabels.length}');
@@ -332,7 +337,10 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         print('Bloc: Loaded actions_config for RecNo ${event.recNo}: ${actions.length} actions. needsAction=$needsAction');
 
         // For existing actions, trigger parameter fetching based on type
-        for (var action in actions) {
+        // Use a temporary list to allow modification during iteration
+        final List<Map<String, dynamic>> tempActions = List.from(actions);
+        for (int i = 0; i < tempActions.length; i++) {
+          final action = tempActions[i];
           if (action['type'] == 'print' && action['api'] != null && (action['api'] as String).isNotEmpty) {
             // For 'print' actions, parameters are extracted from the URL query string
             add(ExtractParametersFromUrl(action['id'], action['api']));
@@ -342,28 +350,34 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
             if (linkedReport != null) {
               final apiName = linkedReport['API_name']?.toString();
+              final recNoResolved = linkedReport['RecNo']?.toString();
+              tempActions[i]['recNo_resolved'] = recNoResolved; // Update in temp list
+              tempActions[i]['reportLabel'] = selectedReportLabel; // Ensure reportLabel is also set for Autocomplete initialValue
+
               if (apiName != null && apiName.isNotEmpty) {
                 final apiDetail = allApisDetails[apiName];
                 if (apiDetail != null) {
                   final apiUrl = apiDetail['url']?.toString() ?? '';
-                  action['api'] = apiUrl; // Update the action's API field with the resolved URL
-                  action['apiName_resolved'] = apiName; // Store the resolved API name
+                  tempActions[i]['api'] = apiUrl; // Update the action's API field with the resolved URL
+                  tempActions[i]['apiName_resolved'] = apiName; // Store the resolved API name
                   add(FetchParametersFromApiConfig(action['id'], apiName)); // Get params from database_server config
                 } else {
                   print('Bloc: API details not found for API Name: $apiName for report label: $selectedReportLabel');
-                  action['api'] = ''; // Clear API if lookup fails
-                  action['params'] = []; // Clear params if API fails
-                  action['apiName_resolved'] = ''; // Clear resolved API name
+                  tempActions[i]['api'] = ''; // Clear API if lookup fails
+                  tempActions[i]['params'] = []; // Clear params if API fails
+                  tempActions[i]['apiName_resolved'] = ''; // Clear resolved API name
                 }
               }
             } else {
               print('Bloc: Linked report not found for label: $selectedReportLabel');
-              action['api'] = ''; // Clear API if linked report not found
-              action['params'] = []; // Clear params
-              action['apiName_resolved'] = ''; // Clear resolved API name
+              tempActions[i]['api'] = ''; // Clear API if linked report not found
+              tempActions[i]['params'] = []; // Clear params
+              tempActions[i]['apiName_resolved'] = ''; // Clear resolved API name
+              tempActions[i]['recNo_resolved'] = ''; // Clear resolved RecNo if linked report not found
             }
           }
         }
+        actions = tempActions; // Assign the potentially modified list back
       }
 
       emit(state.copyWith(
@@ -529,10 +543,13 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       final processedActionsToSave = state.actions.map((action) {
         if (action['type'] == 'table') {
           return {
+            // Keep all existing fields from the action
             ...action,
+            // Ensure these specific fields are explicitly included if they might have been added/updated
             'reportLabel': action['reportLabel'],
-            'api': action['api'], // Store the resolved URL
-            'apiName_resolved': action['apiName_resolved'], // Store the resolved API Name
+            'api': action['api'],
+            'apiName_resolved': action['apiName_resolved'],
+            'recNo_resolved': action['recNo_resolved'],
           };
         }
         return action;
@@ -547,7 +564,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         reportName: event.reportName,
         reportLabel: event.reportLabel,
         apiName: event.apiName,
-        parameter: event.parameter,
+        parameter: 'default',
         fieldConfigs: fieldConfigs,
         actions: actionsToSaveFinal,
       );
@@ -599,8 +616,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       'type': event.type,
       'name': '${event.type.toCapitalized()} ${state.actions.length + 1}',
       'api': '', // For Table type, this will be auto-populated from Report_label
-      'reportLabel': '', // NEW: For 'table' type, store the selected report label
-      'apiName_resolved': '', // NEW: Store the resolved APIName for 'table' type
+      'reportLabel': '', // For 'table' type, store the selected report label
+      'apiName_resolved': '', // Store the resolved APIName for 'table' type
+      'recNo_resolved': '', // Store the resolved RecNo for 'table' type
       'params': <Map<String, dynamic>>[],
     };
 
@@ -631,6 +649,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
             add(ExtractParametersFromUrl(event.actionId, event.value));
           });
         }
+        // IMPORTANT: For 'table' actions, the 'reportLabel' update should NOT trigger
+        // API resolution here on every keystroke. That's handled by UpdateTableActionReport event.
+        // This 'UpdateActionConfig' only updates the string value in the state.
         return updatedAction;
       }
       return action;
@@ -747,7 +768,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         emit(state.copyWith(allApisDetails: newAllApisDetails));
       }
 
-      final List<dynamic> rawParams = apiDetail['parameters'] ?? [];
+      final List<dynamic> rawParams = apiDetail?['parameters'] ?? []; // Use null-safe access here
       List<String> parameterNames = [];
       if (rawParams.isNotEmpty) {
         // Extract just the 'name' from each parameter object
@@ -786,55 +807,75 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   Future<void> _onUpdateTableActionReport(UpdateTableActionReport event, Emitter<EditDetailMakerState> emit) async {
-    print('Bloc: UpdateTableActionReport for actionId=${event.actionId}, reportLabel=${event.reportLabel}');
+    print('Bloc: Handling UpdateTableActionReport for actionId=${event.actionId}, reportLabel=${event.reportLabel}');
 
     final updatedActions = List<Map<String, dynamic>>.from(state.actions);
     final actionIndex = updatedActions.indexWhere((a) => a['id'] == event.actionId);
 
     if (actionIndex != -1) {
+      print('Bloc: Found action at index $actionIndex.');
       final selectedReportData = state.reportDetailsMap[event.reportLabel];
-      String resolvedApiUrl = ''; // This will be the APIServerURl from database_server
-      String? resolvedApiName; // This will be the actual API_name from demo_table
+      String resolvedApiUrl = '';
+      String? resolvedApiName;
+      String? recNoResolved;
       String? error;
+      List<Map<String, dynamic>> newParams = []; // To clear params if lookup fails
 
-      if (selectedReportData != null) {
+      if (event.reportLabel.isEmpty) { // Handle case where reportLabel is cleared
+        print('Bloc: Report label cleared. Clearing resolved API and params.');
+        resolvedApiUrl = '';
+        resolvedApiName = '';
+        recNoResolved = '';
+        newParams = [];
+        // No error, as clearing is a valid action
+      } else if (selectedReportData != null) {
+        print('Bloc: Found report details for label: ${event.reportLabel}');
         resolvedApiName = selectedReportData['API_name']?.toString();
+        recNoResolved = selectedReportData['RecNo']?.toString();
+        print('Bloc: Resolved RecNo from report details: $recNoResolved');
+
         if (resolvedApiName != null && resolvedApiName.isNotEmpty) {
+          print('Bloc: Resolved API_name from report details: $resolvedApiName');
           final apiDetail = state.allApisDetails[resolvedApiName];
           if (apiDetail != null) {
             resolvedApiUrl = apiDetail['url']?.toString() ?? '';
-            print('Bloc: Found API URL for ${event.reportLabel} (API: $resolvedApiName): $resolvedApiUrl');
+            print('Bloc: Found API details for resolved API_name: $resolvedApiName, URL: $resolvedApiUrl');
           } else {
             error = 'API details (URL) not found for API Name: $resolvedApiName. Please configure API details in database server.';
-            print('Bloc: $error');
+            print('Bloc: ERROR: $error');
           }
         } else {
-          error = 'API Name not found for Report Label: ${event.reportLabel}.';
-          print('Bloc: $error');
+          error = 'API Name not found for Report Label: ${event.reportLabel}. Check demo_table configuration.';
+          print('Bloc: ERROR: $error');
         }
       } else {
-        error = 'Report details not found for label: ${event.reportLabel}.';
-        print('Bloc: $error');
+        error = 'Report details not found for label: ${event.reportLabel}. This report might not exist in demo_table.';
+        print('Bloc: ERROR: $error');
       }
 
       final updatedAction = Map<String, dynamic>.from(updatedActions[actionIndex]);
-      updatedAction['reportLabel'] = event.reportLabel; // Store the selected report label
-      updatedAction['api'] = resolvedApiUrl; // Store the resolved APIServerURl
-      updatedAction['apiName_resolved'] = resolvedApiName; // Store the resolved API_name for parameter fetching
-      updatedAction['params'] = []; // Clear previous params
+      updatedAction['reportLabel'] = event.reportLabel;
+      updatedAction['api'] = resolvedApiUrl;
+      updatedAction['apiName_resolved'] = resolvedApiName;
+      updatedAction['recNo_resolved'] = recNoResolved;
+      updatedAction['params'] = newParams; // Clear params on selection/resolution
 
       updatedActions[actionIndex] = updatedAction;
 
-      emit(state.copyWith(actions: updatedActions, error: error));
+      // Also clear the cached parameters for this action if an error occurred or label was cleared
+      final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
+      if (error != null || event.reportLabel.isEmpty) {
+        updatedCache.remove(event.actionId);
+      }
 
-      // Trigger parameter fetching using the resolved API_name
+      emit(state.copyWith(actions: updatedActions, error: error, apiParametersCache: updatedCache));
+
+      // Trigger parameter fetching using the resolved API_name ONLY if resolved and no error
       if (resolvedApiName != null && resolvedApiName.isNotEmpty && error == null) {
+        print('Bloc: Dispatching FetchParametersFromApiConfig for actionId: ${event.actionId}, apiName: $resolvedApiName');
         add(FetchParametersFromApiConfig(event.actionId, resolvedApiName));
       } else {
-        // If API name couldn't be resolved, clear parameters for this action in cache
-        final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
-        updatedCache.remove(event.actionId);
-        emit(state.copyWith(apiParametersCache: updatedCache));
+        print('Bloc: Not dispatching FetchParametersFromApiConfig due to missing resolved API name or error.');
       }
     } else {
       print('Bloc: UpdateTableActionReport: Action with ID ${event.actionId} not found.');
@@ -849,9 +890,13 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       final Map<String, Map<String, dynamic>> reportDetailsMap = {};
       for (var report in reports) {
         final label = report['Report_label']?.toString();
+        final recNo = report['RecNo']?.toString() ?? '';
         if (label != null && label.isNotEmpty && !availableReportLabels.contains(label)) {
           availableReportLabels.add(label);
-          reportDetailsMap[label] = report;
+          reportDetailsMap[label] = {
+            ...report,
+            'RecNo': recNo,
+          };
         }
       }
       emit(state.copyWith(allReportLabels: availableReportLabels, reportDetailsMap: reportDetailsMap));

@@ -1,3 +1,4 @@
+// ReportAPIService.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -40,18 +41,16 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_databases'];
     if (url == null) {
-      print('Error: GET API not found for fetch_databases');
+      print('Error: GET API not found for fetch_databases'); // Log
       throw Exception('GET API not found');
     }
 
-    print('Fetching databases from: $url');
     try {
       final payload = {
         'server': serverIP.trim(),
         'user': userName.trim(),
         'password': password.trim(),
       };
-      print('Sending payload: $payload');
       final response = await http.post(
         Uri.parse(url),
         headers: {
@@ -63,23 +62,21 @@ class ReportAPIService {
         throw TimeoutException('Request to $url timed out');
       });
 
-      print('Response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           final databases = List<String>.from(jsonData['databases'] ?? []);
-          print('Databases fetched successfully: $databases');
           return databases;
         } else {
-          print('DatabaseFetch error: ${jsonData['message']}');
+          print('DatabaseFetch error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DatabaseFetch failed: status=${response.statusCode}, body=${response.body}');
+        print('DatabaseFetch failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch databases: ${response.statusCode} - ${response.body}');
       }
     } catch (e, stackTrace) {
-      print('DatabaseFetch exception: $e\nStack trace: $stackTrace');
+      print('DatabaseFetch exception: $e\nStack trace: $stackTrace'); // Log
       rethrow;
     }
   }
@@ -92,6 +89,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
+      print('Error: API endpoint not found for fetching tables.'); // Log
       throw Exception('API endpoint not found for fetching tables.');
     }
 
@@ -103,7 +101,6 @@ class ReportAPIService {
       'action': 'table',
     };
 
-    print('Fetching tables with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -114,19 +111,20 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 15));
 
-      print('Fetch tables response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['tables'] is List) {
           return List<String>.from(jsonData['tables'].map((item) => item.toString()));
         } else {
+          print('Fetch tables error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
         }
       } else {
+        print('Fetch tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch tables: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching tables: $e');
+      print('Error fetching tables: $e'); // Log
       rethrow;
     }
   }
@@ -140,6 +138,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
+      print('Error: API endpoint not found for fetching fields.'); // Log
       throw Exception('API endpoint not found for fetching fields.');
     }
 
@@ -152,7 +151,6 @@ class ReportAPIService {
       'table': table.trim(),
     };
 
-    print('Fetching fields with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -163,19 +161,20 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 15));
 
-      print('Fetch fields response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
           return List<String>.from(jsonData['fields'].map((item) => item.toString()));
         } else {
+          print('Fetch fields error: API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}');
         }
       } else {
+        print('Fetch fields failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch fields: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching fields: $e');
+      print('Error fetching fields: $e'); // Log
       rethrow;
     }
   }
@@ -191,6 +190,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
+      print('Error: API endpoint not found for fetching picker data.'); // Log
       throw Exception('API endpoint not found for fetching picker data.');
     }
 
@@ -205,7 +205,6 @@ class ReportAPIService {
       'display_field': displayField.trim(),
     };
 
-    print('Fetching picker data with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -216,19 +215,20 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 15));
 
-      print('Fetch picker data response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['data'] is List) {
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
+          print('Fetch picker data error: API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
         }
       } else {
+        print('Fetch picker data failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch picker data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching picker data: $e');
+      print('Error fetching picker data: $e'); // Log
       rethrow;
     }
   }
@@ -243,6 +243,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
+      print('Error: API endpoint not found for fetching field values.'); // Log
       throw Exception('API endpoint not found for fetching field values.');
     }
 
@@ -256,7 +257,6 @@ class ReportAPIService {
       'field': field.trim(),
     };
 
-    print('Fetching field values with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -267,19 +267,20 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 15));
 
-      print('Fetch field values response status: ${response.statusCode}, body: ${response.body}');
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['data'] is List) {
           return List<String>.from(jsonData['data'].map((item) => item.toString()));
         } else {
+          print('Fetch field values error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
         }
       } else {
+        print('Fetch field values failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch field values: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching field values: $e');
+      print('Error fetching field values: $e'); // Log
       rethrow;
     }
   }
@@ -287,11 +288,10 @@ class ReportAPIService {
   Future<List<String>> getAvailableApis() async {
     final url = _getEndpoints['get_database_server'];
     if (url == null) {
-      print('Error: GET API not found for get_database_server');
+      print('Error: GET API not found for get_database_server'); // Log
       throw Exception('GET API not found');
     }
 
-    print('Fetching available APIs from: $url');
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
@@ -313,21 +313,25 @@ class ReportAPIService {
                 'password': item['Password'],
                 'databaseName': item['DatabaseName'],
                 'id': item['id'],
+                // actions_config is typically part of demo_table, not database_server,
+                // but included here for consistency if backend ever provides it.
+                'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty
+                    ? jsonDecode(item['actions_config'])
+                    : [],
               };
             }
           }
-          print('Available APIs: ${uniqueApis.toList()}');
           return uniqueApis.toList();
         } else {
-          print('get_database_server error: ${jsonData['message']}');
+          print('get_database_server error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('get_database_server failed: status=${response.statusCode}, body=${response.body}');
+        print('get_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load APIs: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('get_database_server exception: $e');
+      print('get_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -335,17 +339,16 @@ class ReportAPIService {
   Future<Map<String, dynamic>> getApiDetails(String apiName) async {
     // Attempt to retrieve from cache first
     if (_apiDetails.isNotEmpty && _apiDetails.containsKey(apiName)) {
-      print('getApiDetails: Returning cached details for $apiName');
       return _apiDetails[apiName]!;
     }
 
     // If not cached, fetch all and then retrieve (this might happen if getAvailableApis wasn't called first)
-    print('getApiDetails: Details for $apiName not cached, fetching all APIs.');
+    print('getApiDetails: Details for $apiName not cached, fetching all APIs.'); // Log
     await getAvailableApis(); // This will populate _apiDetails cache
     final apiDetail = _apiDetails[apiName];
 
     if (apiDetail == null) {
-      print('Error: API details not found for apiName=$apiName after fetch.');
+      print('Error: API details not found for apiName=$apiName after fetch.'); // Log
       throw Exception('API details not found for "$apiName".');
     }
     return apiDetail;
@@ -362,31 +365,56 @@ class ReportAPIService {
     }
 
     final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
-    print('Fetching ApiData with URL: $uri');
 
     try {
       final response = await http.get(uri);
-      print('ApiData response: status=${response.statusCode}, body=${response.body}');
+      print('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
       return _parseApiResponse(response);
     } catch (e) {
-      print('ApiData exception: $e');
+      print('ApiData exception: $e'); // Log
       rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams) async {
-    final apiDetail = await getApiDetails(apiName);
-    String baseUrl = apiDetail['url'];
-    List<dynamic> parameters = apiDetail['parameters'] ?? [];
+  Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams, {String? actionApiUrlTemplate}) async {
+    String baseUrl;
+    // Start with a map that will hold all final query parameters
+    Map<String, String> finalQueryParams = {};
 
-    Map<String, String> queryParams = {};
-    for (var param in parameters) {
-      final paramName = param['name'];
-      queryParams[paramName] = userParams[paramName] ?? param['value'].toString();
+    if (actionApiUrlTemplate != null && actionApiUrlTemplate.isNotEmpty) {
+      // If a specific action API URL template is provided, use it as the base URL
+      baseUrl = actionApiUrlTemplate;
+      // Parse parameters from this template URL first
+      final Uri tempUri = Uri.parse(baseUrl);
+      tempUri.queryParameters.forEach((key, value) {
+        finalQueryParams[key] = value; // Add all template parameters
+      });
+      print('Using actionApiUrlTemplate as base: $baseUrl'); // Log
+    } else {
+      // Otherwise, fall back to getting API details from the database server config
+      final apiDetail = await getApiDetails(apiName);
+      baseUrl = apiDetail['url'];
+      // Use parameters from apiDetail's config as defaults
+      (apiDetail['parameters'] as List<dynamic>?)?.forEach((param) {
+        final paramName = param['name']?.toString();
+        final paramValue = param['value']?.toString();
+        if (paramName != null && paramName.isNotEmpty) {
+          finalQueryParams[paramName] = paramValue ?? '';
+        }
+      });
+      print('Using API details from config for base: $baseUrl'); // Log
     }
 
-    final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
-    print('Fetching ApiData with URL: $uri');
+    // Now, override with `userParams` (dynamic data from the row).
+    // This is the crucial step: userParams values MUST override any defaults.
+    userParams.forEach((key, value) {
+      finalQueryParams[key] = value; // This will replace existing keys or add new ones
+    });
+
+    print('Parameters after merging (template defaults + userParams override): $finalQueryParams'); // Log the merged params
+
+    final uri = Uri.parse(baseUrl).replace(queryParameters: finalQueryParams);
+    print('Final API URL for action report: $uri'); // Log the final URL
 
     const int maxRetries = 3;
     int attempt = 1;
@@ -396,11 +424,11 @@ class ReportAPIService {
         final response = await http.get(uri).timeout(
           const Duration(seconds: 180),
           onTimeout: () {
-            print('ApiData timeout on attempt $attempt/$maxRetries for $uri');
+            print('ApiData timeout on attempt $attempt/$maxRetries for $uri'); // Log
             throw TimeoutException('Request to $uri timed out');
           },
         );
-        print('ApiData response: status=${response.statusCode}, body=${response.body}');
+        print('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
 
         final parsedData = _parseApiResponse(response);
         return {
@@ -409,7 +437,7 @@ class ReportAPIService {
           'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null,
         };
       } catch (e) {
-        print('ApiData exception on attempt $attempt/$maxRetries: $e');
+        print('ApiData exception on attempt $attempt/$maxRetries: $e'); // Log
         if (e is TimeoutException && attempt < maxRetries) {
           attempt++;
           await Future.delayed(Duration(seconds: attempt * 2));
@@ -446,22 +474,26 @@ class ReportAPIService {
           if (data is List) {
             return List<Map<String, dynamic>>.from(data);
           } else {
-            print('ParseApiResponse: Data field is not a list: $data');
+            print('ParseApiResponse: Data field is not a list: $data'); // Log
             throw Exception('Data field must be a list');
           }
         } else if (!isSuccess && jsonData['message'] != null) {
-          print('ParseApiResponse: API error: ${jsonData['message']}');
+          print('ParseApiResponse: API error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         } else {
-          print('ParseApiResponse: Unexpected response format: ${response.body}');
+          print('ParseApiResponse: Unexpected response format: ${response.body}'); // Log
+          // If the body is empty but status is 200, return an empty list
+          if (response.body.trim().isEmpty && response.statusCode == 200) {
+            return [];
+          }
           throw Exception('Unexpected response format: ${response.body}');
         }
       } else {
-        print('ParseApiResponse: Invalid response format: ${response.body}');
+        print('ParseApiResponse: Invalid response format: ${response.body}'); // Log
         throw Exception('Invalid response format: ${response.body}');
       }
     } catch (e) {
-      print('ParseApiResponse error: $e, response: ${response.body}');
+      print('ParseApiResponse error: $e, response: ${response.body}'); // Log
       if (response.statusCode != 200) {
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
@@ -469,33 +501,49 @@ class ReportAPIService {
     }
   }
 
-// MODIFIED: Fetch all reports from demo_table
+// MODIFIED: Fetch all reports from demo_table - now decodes actions_config
   Future<List<Map<String, dynamic>>> fetchDemoTable() async {
     final url = _getEndpoints['get_demo_table'];
     if (url == null) {
-      print('Error: GET API not found for get_demo_table');
+      print('Error: GET API not found for get_demo_table'); // Log
       throw Exception('GET API not found');
     }
 
-    print('Fetching all DemoTable reports with URL: $url');
+    print('Fetching all DemoTable reports with URL: $url'); // Log
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
-          print('DemoTable fetch successful: data.length=${jsonData['data'].length}');
-          // Backend should already decode actions_config into a proper JSON array/object
-          return List<Map<String, dynamic>>.from(jsonData['data']);
+          List<Map<String, dynamic>> reports = [];
+          for (var item in jsonData['data']) {
+            if (item is Map<String, dynamic>) {
+              Map<String, dynamic> reportItem = Map.from(item);
+              // Decode 'actions_config' if it's a string and not empty
+              if (reportItem['actions_config'] is String && reportItem['actions_config'].toString().isNotEmpty) {
+                try {
+                  reportItem['actions_config'] = jsonDecode(reportItem['actions_config'].toString());
+                } catch (e) {
+                  print('Warning: Failed to decode actions_config for RecNo ${reportItem['RecNo']}: ${reportItem['actions_config']} - Error: $e'); // Log
+                  reportItem['actions_config'] = []; // Default to empty list on error
+                }
+              } else if (reportItem['actions_config'] == null) {
+                reportItem['actions_config'] = []; // Ensure it's an empty list if null
+              }
+              reports.add(reportItem);
+            }
+          }
+          return reports;
         } else {
-          print('DemoTable error: ${jsonData['message']}');
+          print('DemoTable error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DemoTable failed: status=${response.statusCode}, body=${response.body}');
+        print('DemoTable failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('DemoTable exception: $e');
+      print('DemoTable exception: $e'); // Log
       rethrow;
     }
   }
@@ -503,29 +551,28 @@ class ReportAPIService {
   Future<List<Map<String, dynamic>>> fetchDemoTable2(String recNo) async {
     final url = _getEndpoints['get_demo_table2'];
     if (url == null) {
-      print('Error: GET API not found for get_demo_table2');
+      print('Error: GET API not found for get_demo_table2'); // Log
       throw Exception('GET API not found');
     }
 
     final fullUrl = '$url&RecNo=$recNo';
-    print('Fetching DemoTable2 with URL: $fullUrl');
+    print('Fetching DemoTable2 with URL: $fullUrl'); // Log
     try {
       final response = await http.get(Uri.parse(fullUrl));
       if (response.statusCode == 200) {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
-          print('DemoTable2 fetch successful: data.length=${jsonData['data'].length}');
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
-          print('DemoTable2 error: ${jsonData['message']}');
+          print('DemoTable2 error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DemoTable2 failed: status=${response.statusCode}, body=${response.body}');
+        print('DemoTable2 failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('DemoTable2 exception: $e');
+      print('DemoTable2 exception: $e'); // Log
       rethrow;
     }
   }
@@ -540,7 +587,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['post_demo_table'];
     if (url == null) {
-      print('Error: POST API not found for post_demo_table');
+      print('Error: POST API not found for post_demo_table'); // Log
       throw Exception('POST API not found');
     }
 
@@ -554,7 +601,6 @@ class ReportAPIService {
       'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
     };
 
-    print('Saving report with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -562,23 +608,21 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('post_demo_table response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('post_demo_table failed: status=${response.statusCode}, body=${response.body}');
+        print('post_demo_table failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to save report: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('post_demo_table error: ${jsonData['message']}');
+        print('post_demo_table error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
 
       final backendRecNo = int.tryParse(jsonData['RecNo'].toString());
-      print('Report saved successfully: RecNo=${backendRecNo ?? recNo}');
       return backendRecNo ?? recNo;
     } catch (e) {
-      print('post_demo_table exception: $e');
+      print('post_demo_table exception: $e'); // Log
       rethrow;
     }
   }
@@ -594,13 +638,9 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['post_database_server'];
     if (url == null) {
-      print('Error: POST API not found for post_database_server');
+      print('Error: POST API not found for post_database_server'); // Log
       throw Exception('POST API not found');
     }
-
-    print('saveDatabaseServer Inputs: serverIP=$serverIP, userName=$userName, '
-        'password=$password, databaseName=$databaseName, apiServerURL=$apiServerURL, '
-        'apiName=$apiName, parameters=$parameters');
 
     if (serverIP.isEmpty ||
         userName.isEmpty ||
@@ -614,7 +654,7 @@ class ReportAPIService {
           'databaseName=${databaseName.isEmpty ? "empty" : "non-empty"}, '
           'apiServerURL=${apiServerURL.isEmpty ? "empty" : "non-empty"}, '
           'apiName=${apiName.isEmpty ? "empty" : "non-empty"}, '
-          'parameters=${parameters.isEmpty ? "empty" : "non-empty"}');
+          'parameters=${parameters.isEmpty ? "empty" : "non-empty"}'); // Log
       throw Exception('Invalid input parameters: All required fields must be provided');
     }
 
@@ -628,7 +668,6 @@ class ReportAPIService {
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
 
-    print('Saving database server with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -639,20 +678,18 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('post_database_server response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('post_database_server failed: status=${response.statusCode}, body=${response.body}');
+        print('post_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to save database server: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('post_database_server error: ${jsonData['message']}');
+        print('post_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
-      print('Database server saved successfully');
     } catch (e) {
-      print('post_database_server exception: $e');
+      print('post_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -660,12 +697,11 @@ class ReportAPIService {
   Future<void> saveFieldConfigs(List<Map<String, dynamic>> fields, int recNo) async {
     final url = _postEndpoints['post_demo_table2'];
     if (url == null) {
-      print('Error: POST API not found for post_demo_table2');
+      print('Error: POST API not found for post_demo_table2'); // Log
       throw Exception('POST API not found');
     }
 
     if (fields.isEmpty) {
-      print('No fields to save for post_demo_table2 with RecNo $recNo');
       return;
     }
 
@@ -686,7 +722,6 @@ class ReportAPIService {
         'image': field['image'] == true ? 1 : 0,
       };
 
-      print('Saving field config for ${field['Field_name']} with payload: $payload');
       try {
         final response = await http.post(
           Uri.parse(url),
@@ -694,19 +729,18 @@ class ReportAPIService {
           body: jsonEncode(payload),
         );
 
-        print('post_demo_table2 response for ${field['Field_name']}: status=${response.statusCode}, body=${response.body}');
         if (response.statusCode != 200) {
-          print('post_demo_table2 failed for ${field['Field_name']}: status=${response.statusCode}, body=${response.body}');
+          print('post_demo_table2 failed for ${field['Field_name']}: status=${response.statusCode}, body=${response.body}'); // Log
           throw Exception('Failed to save field config for ${field['Field_name']}: ${response.statusCode} - ${response.body}');
         }
 
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] != 'success') {
-          print('post_demo_table2 error for ${field['Field_name']}: ${jsonData['message']}');
-          throw Exception('API returned error for ${field['Field_name']}: ${jsonData['message']}');
+          print('post_demo_table2 error: ${jsonData['message']}'); // Log
+          throw Exception('API returned error: ${jsonData['message']}');
         }
       } catch (e) {
-        print('post_demo_table2 exception for ${field['Field_name']}: $e');
+        print('post_demo_table2 exception for ${field['Field_name']}: $e'); // Log
         throw Exception('Failed to save field config for ${field['Field_name']}: $e');
       }
     }
@@ -715,12 +749,11 @@ class ReportAPIService {
   Future<void> deleteDatabaseServer(String id) async {
     final url = _postEndpoints['delete_database_server'];
     if (url == null) {
-      print('Error: POST API not found for delete_database_server');
+      print('Error: POST API not found for delete_database_server'); // Log
       throw Exception('POST API not found');
     }
 
     final payload = {'id': id};
-    print('Deleting database server with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -731,20 +764,18 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('delete_database_server response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('delete_database_server failed: status=${response.statusCode}, body=${response.body}');
+        print('delete_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to delete database server: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('delete_database_server error: ${jsonData['message']}');
+        print('delete_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
-      print('Database server deleted successfully: id=$id');
     } catch (e) {
-      print('delete_database_server exception: $e');
+      print('delete_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -761,7 +792,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['edit_database_server'];
     if (url == null) {
-      print('Error: POST API not found for edit_database_server');
+      print('Error: POST API not found for edit_database_server'); // Log
       throw Exception('POST API not found');
     }
 
@@ -776,7 +807,6 @@ class ReportAPIService {
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
 
-    print('Editing database server with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -787,20 +817,18 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('edit_database_server response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('edit_database_server failed: status=${response.statusCode}, body=${response.body}');
+        print('edit_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to edit database server: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('edit_database_server error: ${jsonData['message']}');
+        print('edit_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
-      print('Database server edited successfully: id=$id');
     } catch (e) {
-      print('edit_database_server exception: $e');
+      print('edit_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -817,7 +845,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
     if (url == null) {
-      print('Error: POST API not found for edit_demo_tables');
+      print('Error: POST API not found for edit_demo_tables'); // Log
       throw Exception('POST API not found');
     }
 
@@ -831,7 +859,6 @@ class ReportAPIService {
         'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
       },
       'Demo_table_2': fieldConfigs.map((field) {
-        print('Processing field for Demo_table_2: ${field['Field_name']}, Total=${field['Total']}, Breakpoint=${field['Breakpoint']}, SubTotal=${field['SubTotal']}, Image=${field['image']}');
         return {
           'Field_name': field['Field_name']?.toString() ?? '',
           'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
@@ -865,7 +892,6 @@ class ReportAPIService {
       }).toList(),
     };
 
-    print('Editing demo tables with payload: ${jsonEncode(payload)}');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -876,20 +902,18 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('edit_demo_tables response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('edit_demo_tables failed: status=${response.statusCode}, body=${response.body}');
+        print('edit_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to edit demo tables: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('edit_demo_tables error: ${jsonData['message']}');
+        print('edit_demo_tables error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
-      print('Demo tables edited successfully: RecNo=$recNo');
     } catch (e) {
-      print('edit_demo_tables exception: $e');
+      print('edit_demo_tables exception: $e'); // Log
       rethrow;
     }
   }
@@ -899,12 +923,11 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['delete_demo_tables'];
     if (url == null) {
-      print('Error: POST API not found for delete_demo_tables');
+      print('Error: POST API not found for delete_demo_tables'); // Log
       throw Exception('POST API not found');
     }
 
     final payload = {'RecNo': recNo};
-    print('Deleting demo tables with payload: $payload');
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -915,21 +938,19 @@ class ReportAPIService {
         body: jsonEncode(payload),
       );
 
-      print('delete_demo_tables response: status=${response.statusCode}, body=${response.body}');
       if (response.statusCode != 200) {
-        print('delete_demo_tables failed: status=${response.statusCode}, body=${response.body}');
+        print('delete_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to delete demo tables: ${response.statusCode} - ${response.body}');
       }
 
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('delete_demo_tables error: ${jsonData['message']}');
+        print('delete_demo_tables error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
-      print('Demo tables deleted successfully: RecNo=$recNo');
       return jsonData;
     } catch (e) {
-      print('delete_demo_tables exception: $e');
+      print('delete_demo_tables exception: $e'); // Log
       rethrow;
     }
   }
