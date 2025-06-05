@@ -1,7 +1,8 @@
-// ReportAPIService.dart
+// lib/ReportAPIService.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart'; // Import for debugPrint
 
 class ReportAPIService {
   final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
@@ -16,6 +17,7 @@ class ReportAPIService {
 
   ReportAPIService() {
     _postEndpoints = {
+      // Corrected problematic characters in URLs
       'post_demo_table': '$_baseUrl?mode=post_demo_table',
       'post_demo_table2': '$_baseUrl?mode=post_demo_table2',
       'post_database_server': '$_baseUrl?mode=post_database_server',
@@ -28,7 +30,7 @@ class ReportAPIService {
     _getEndpoints = {
       'fetch_tables_and_fields': _databaseFieldUrl,
       'get_database_server': '$_baseUrl?mode=get_database_server',
-      'get_demo_table': '$_baseUrl?mode=get_demo_table', // NEW: Add get_demo_table
+      'get_demo_table': '$_baseUrl?mode=get_demo_table',
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
       'fetch_databases': _databaseFetchUrl,
     };
@@ -41,7 +43,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_databases'];
     if (url == null) {
-      print('Error: GET API not found for fetch_databases'); // Log
+      debugPrint('Error: GET API not found for fetch_databases'); // Log
       throw Exception('GET API not found');
     }
 
@@ -63,20 +65,24 @@ class ReportAPIService {
       });
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('DatabaseFetch: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           final databases = List<String>.from(jsonData['databases'] ?? []);
           return databases;
         } else {
-          print('DatabaseFetch error: ${jsonData['message']}'); // Log
+          debugPrint('DatabaseFetch error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DatabaseFetch failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('DatabaseFetch failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch databases: ${response.statusCode} - ${response.body}');
       }
     } catch (e, stackTrace) {
-      print('DatabaseFetch exception: $e\nStack trace: $stackTrace'); // Log
+      debugPrint('DatabaseFetch exception: $e\nStack trace: $stackTrace'); // Log
       rethrow;
     }
   }
@@ -89,7 +95,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
-      print('Error: API endpoint not found for fetching tables.'); // Log
+      debugPrint('Error: API endpoint not found for fetching tables.'); // Log
       throw Exception('API endpoint not found for fetching tables.');
     }
 
@@ -112,19 +118,23 @@ class ReportAPIService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch tables: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['tables'] is List) {
           return List<String>.from(jsonData['tables'].map((item) => item.toString()));
         } else {
-          print('Fetch tables error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
+          debugPrint('Fetch tables error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
         }
       } else {
-        print('Fetch tables failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('Fetch tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch tables: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching tables: $e'); // Log
+      debugPrint('Error fetching tables: $e'); // Log
       rethrow;
     }
   }
@@ -138,7 +148,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
-      print('Error: API endpoint not found for fetching fields.'); // Log
+      debugPrint('Error: API endpoint not found for fetching fields.'); // Log
       throw Exception('API endpoint not found for fetching fields.');
     }
 
@@ -162,19 +172,23 @@ class ReportAPIService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch fields: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
           return List<String>.from(jsonData['fields'].map((item) => item.toString()));
         } else {
-          print('Fetch fields error: API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}'); // Log
+          debugPrint('Fetch fields error: API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}');
         }
       } else {
-        print('Fetch fields failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('Fetch fields failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch fields: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching fields: $e'); // Log
+      debugPrint('Error fetching fields: $e'); // Log
       rethrow;
     }
   }
@@ -190,7 +204,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
-      print('Error: API endpoint not found for fetching picker data.'); // Log
+      debugPrint('Error: API endpoint not found for fetching picker data.'); // Log
       throw Exception('API endpoint not found for fetching picker data.');
     }
 
@@ -216,19 +230,23 @@ class ReportAPIService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch picker data: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['data'] is List) {
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
-          print('Fetch picker data error: API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}'); // Log
+          debugPrint('Fetch picker data error: API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
         }
       } else {
-        print('Fetch picker data failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('Fetch picker data failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch picker data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching picker data: $e'); // Log
+      debugPrint('Error fetching picker data: $e'); // Log
       rethrow;
     }
   }
@@ -243,7 +261,7 @@ class ReportAPIService {
   }) async {
     final url = _getEndpoints['fetch_tables_and_fields'];
     if (url == null) {
-      print('Error: API endpoint not found for fetching field values.'); // Log
+      debugPrint('Error: API endpoint not found for fetching field values.'); // Log
       throw Exception('API endpoint not found for fetching field values.');
     }
 
@@ -268,19 +286,23 @@ class ReportAPIService {
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch field values: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['data'] is List) {
           return List<String>.from(jsonData['data'].map((item) => item.toString()));
         } else {
-          print('Fetch field values error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
+          debugPrint('Fetch field values error: API returned error or unexpected data format: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
         }
       } else {
-        print('Fetch field values failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('Fetch field values failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to fetch field values: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error fetching field values: $e'); // Log
+      debugPrint('Error fetching field values: $e'); // Log
       rethrow;
     }
   }
@@ -288,13 +310,17 @@ class ReportAPIService {
   Future<List<String>> getAvailableApis() async {
     final url = _getEndpoints['get_database_server'];
     if (url == null) {
-      print('Error: GET API not found for get_database_server'); // Log
+      debugPrint('Error: GET API not found for get_database_server'); // Log
       throw Exception('GET API not found');
     }
 
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('getAvailableApis: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           _apiDetails = {}; // Clear previous cache
@@ -323,15 +349,15 @@ class ReportAPIService {
           }
           return uniqueApis.toList();
         } else {
-          print('get_database_server error: ${jsonData['message']}'); // Log
+          debugPrint('get_database_server error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('get_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('get_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load APIs: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('get_database_server exception: $e'); // Log
+      debugPrint('get_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -343,12 +369,12 @@ class ReportAPIService {
     }
 
     // If not cached, fetch all and then retrieve (this might happen if getAvailableApis wasn't called first)
-    print('getApiDetails: Details for $apiName not cached, fetching all APIs.'); // Log
+    debugPrint('getApiDetails: Details for $apiName not cached, fetching all APIs.'); // Log
     await getAvailableApis(); // This will populate _apiDetails cache
     final apiDetail = _apiDetails[apiName];
 
     if (apiDetail == null) {
-      print('Error: API details not found for apiName=$apiName after fetch.'); // Log
+      debugPrint('Error: API details not found for apiName=$apiName after fetch.'); // Log
       throw Exception('API details not found for "$apiName".');
     }
     return apiDetail;
@@ -368,33 +394,37 @@ class ReportAPIService {
 
     try {
       final response = await http.get(uri);
-      print('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
+      debugPrint('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
       return _parseApiResponse(response);
     } catch (e) {
-      print('ApiData exception: $e'); // Log
+      debugPrint('ApiData exception: $e'); // Log
       rethrow;
     }
   }
 
   Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams, {String? actionApiUrlTemplate}) async {
-    String baseUrl;
-    // Start with a map that will hold all final query parameters
-    Map<String, String> finalQueryParams = {};
+    String effectiveBaseUrl; // The URL string that contains base path and its inherent query parameters
+    Map<String, String> finalQueryParams = {}; // Accumulator for all merged parameters
 
+    // Step 1: Determine the base URL and populate initial query params from it.
+    // Also, if from apiDetails, add its 'parameters' list.
     if (actionApiUrlTemplate != null && actionApiUrlTemplate.isNotEmpty) {
-      // If a specific action API URL template is provided, use it as the base URL
-      baseUrl = actionApiUrlTemplate;
-      // Parse parameters from this template URL first
-      final Uri tempUri = Uri.parse(baseUrl);
+      effectiveBaseUrl = actionApiUrlTemplate;
+      final Uri tempUri = Uri.parse(effectiveBaseUrl);
       tempUri.queryParameters.forEach((key, value) {
-        finalQueryParams[key] = value; // Add all template parameters
+        finalQueryParams[key] = value; // Add existing query params from the template URL
       });
-      print('Using actionApiUrlTemplate as base: $baseUrl'); // Log
+      debugPrint('ReportAPIService: Initializing params from actionApiUrlTemplate: $effectiveBaseUrl');
     } else {
-      // Otherwise, fall back to getting API details from the database server config
       final apiDetail = await getApiDetails(apiName);
-      baseUrl = apiDetail['url'];
-      // Use parameters from apiDetail's config as defaults
+      effectiveBaseUrl = apiDetail['url'];
+      final Uri tempUri = Uri.parse(effectiveBaseUrl);
+      tempUri.queryParameters.forEach((key, value) {
+        finalQueryParams[key] = value; // Add existing query params from API config URL
+      });
+      debugPrint('ReportAPIService: Initializing params from API config base URL: $effectiveBaseUrl');
+
+      // Add parameters from the apiDetails['parameters'] list. These might override some from the URL.
       (apiDetail['parameters'] as List<dynamic>?)?.forEach((param) {
         final paramName = param['name']?.toString();
         final paramValue = param['value']?.toString();
@@ -402,19 +432,21 @@ class ReportAPIService {
           finalQueryParams[paramName] = paramValue ?? '';
         }
       });
-      print('Using API details from config for base: $baseUrl'); // Log
     }
 
-    // Now, override with `userParams` (dynamic data from the row).
-    // This is the crucial step: userParams values MUST override any defaults.
+    // Step 2: Override with `userParams` (dynamic data extracted from the row or main UI inputs).
+    // This step ensures that values from the current row or main UI always take precedence.
     userParams.forEach((key, value) {
-      finalQueryParams[key] = value; // This will replace existing keys or add new ones
+      finalQueryParams[key] = value;
     });
 
-    print('Parameters after merging (template defaults + userParams override): $finalQueryParams'); // Log the merged params
+    debugPrint('ReportAPIService: Merged query parameters (final): $finalQueryParams');
 
-    final uri = Uri.parse(baseUrl).replace(queryParameters: finalQueryParams);
-    print('Final API URL for action report: $uri'); // Log the final URL
+    // Step 3: Reconstruct the URI using the base path and the final merged query parameters.
+    // We get only the path part (scheme, host, path) from effectiveBaseUrl
+    final Uri baseUriNoQuery = Uri.parse(effectiveBaseUrl).removeFragment().replace(query: '');
+    final uri = baseUriNoQuery.replace(queryParameters: finalQueryParams);
+    debugPrint('ReportAPIService: Final API URL constructed: $uri');
 
     const int maxRetries = 3;
     int attempt = 1;
@@ -424,11 +456,11 @@ class ReportAPIService {
         final response = await http.get(uri).timeout(
           const Duration(seconds: 180),
           onTimeout: () {
-            print('ApiData timeout on attempt $attempt/$maxRetries for $uri'); // Log
+            debugPrint('ReportAPIService: ApiData timeout on attempt $attempt/$maxRetries for $uri');
             throw TimeoutException('Request to $uri timed out');
           },
         );
-        print('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('ReportAPIService: ApiData response: status=${response.statusCode}, body length=${response.body.length}');
 
         final parsedData = _parseApiResponse(response);
         return {
@@ -437,7 +469,7 @@ class ReportAPIService {
           'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null,
         };
       } catch (e) {
-        print('ApiData exception on attempt $attempt/$maxRetries: $e'); // Log
+        debugPrint('ReportAPIService: ApiData exception on attempt $attempt/$maxRetries: $e');
         if (e is TimeoutException && attempt < maxRetries) {
           attempt++;
           await Future.delayed(Duration(seconds: attempt * 2));
@@ -461,6 +493,18 @@ class ReportAPIService {
 
   List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
     try {
+      if (response.body.trim().isEmpty) {
+        // If the body is empty but status is 200, return an empty list
+        if (response.statusCode == 200) {
+          debugPrint('ParseApiResponse: Empty response body for 200 status. Returning empty list.');
+          return [];
+        } else {
+          // If body is empty and status is not 200, it's an error.
+          debugPrint('ParseApiResponse: Empty response body for non-200 status (${response.statusCode}).');
+          throw Exception('Empty response body: ${response.statusCode}');
+        }
+      }
+
       final jsonData = jsonDecode(response.body);
 
       if (jsonData is List) {
@@ -474,26 +518,28 @@ class ReportAPIService {
           if (data is List) {
             return List<Map<String, dynamic>>.from(data);
           } else {
-            print('ParseApiResponse: Data field is not a list: $data'); // Log
+            debugPrint('ParseApiResponse: Data field is not a list: $data'); // Log
             throw Exception('Data field must be a list');
           }
         } else if (!isSuccess && jsonData['message'] != null) {
-          print('ParseApiResponse: API error: ${jsonData['message']}'); // Log
+          debugPrint('ParseApiResponse: API error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         } else {
-          print('ParseApiResponse: Unexpected response format: ${response.body}'); // Log
-          // If the body is empty but status is 200, return an empty list
-          if (response.body.trim().isEmpty && response.statusCode == 200) {
-            return [];
-          }
+          debugPrint('ParseApiResponse: Unexpected response format: ${response.body}'); // Log
           throw Exception('Unexpected response format: ${response.body}');
         }
       } else {
-        print('ParseApiResponse: Invalid response format: ${response.body}'); // Log
+        debugPrint('ParseApiResponse: Invalid response format: ${response.body}'); // Log
         throw Exception('Invalid response format: ${response.body}');
       }
+    } on FormatException catch (e) {
+      debugPrint('ParseApiResponse FormatException: $e, response body: "${response.body}"'); // Log the body causing the error
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load data: ${response.statusCode} - Invalid JSON from server.');
+      }
+      throw Exception('Failed to parse response JSON: $e. Response was: "${response.body}".');
     } catch (e) {
-      print('ParseApiResponse error: $e, response: ${response.body}'); // Log
+      debugPrint('ParseApiResponse generic error: $e, response: ${response.body}'); // Log
       if (response.statusCode != 200) {
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
@@ -505,14 +551,18 @@ class ReportAPIService {
   Future<List<Map<String, dynamic>>> fetchDemoTable() async {
     final url = _getEndpoints['get_demo_table'];
     if (url == null) {
-      print('Error: GET API not found for get_demo_table'); // Log
+      debugPrint('Error: GET API not found for get_demo_table'); // Log
       throw Exception('GET API not found');
     }
 
-    print('Fetching all DemoTable reports with URL: $url'); // Log
+    debugPrint('Fetching all DemoTable reports with URL: $url'); // Log
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch demo table: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           List<Map<String, dynamic>> reports = [];
@@ -524,7 +574,7 @@ class ReportAPIService {
                 try {
                   reportItem['actions_config'] = jsonDecode(reportItem['actions_config'].toString());
                 } catch (e) {
-                  print('Warning: Failed to decode actions_config for RecNo ${reportItem['RecNo']}: ${reportItem['actions_config']} - Error: $e'); // Log
+                  debugPrint('Warning: Failed to decode actions_config for RecNo ${reportItem['RecNo']}: ${reportItem['actions_config']} - Error: $e'); // Log
                   reportItem['actions_config'] = []; // Default to empty list on error
                 }
               } else if (reportItem['actions_config'] == null) {
@@ -535,15 +585,15 @@ class ReportAPIService {
           }
           return reports;
         } else {
-          print('DemoTable error: ${jsonData['message']}'); // Log
+          debugPrint('DemoTable error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DemoTable failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('DemoTable failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('DemoTable exception: $e'); // Log
+      debugPrint('DemoTable exception: $e'); // Log
       rethrow;
     }
   }
@@ -551,28 +601,32 @@ class ReportAPIService {
   Future<List<Map<String, dynamic>>> fetchDemoTable2(String recNo) async {
     final url = _getEndpoints['get_demo_table2'];
     if (url == null) {
-      print('Error: GET API not found for get_demo_table2'); // Log
+      debugPrint('Error: GET API not found for get_demo_table2'); // Log
       throw Exception('GET API not found');
     }
 
     final fullUrl = '$url&RecNo=$recNo';
-    print('Fetching DemoTable2 with URL: $fullUrl'); // Log
+    debugPrint('Fetching DemoTable2 with URL: $fullUrl'); // Log
     try {
       final response = await http.get(Uri.parse(fullUrl));
       if (response.statusCode == 200) {
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('Fetch demo table 2: Empty response body for 200 status. Returning empty list.');
+          return [];
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
-          print('DemoTable2 error: ${jsonData['message']}'); // Log
+          debugPrint('DemoTable2 error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } else {
-        print('DemoTable2 failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('DemoTable2 failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('DemoTable2 exception: $e'); // Log
+      debugPrint('DemoTable2 exception: $e'); // Log
       rethrow;
     }
   }
@@ -587,7 +641,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['post_demo_table'];
     if (url == null) {
-      print('Error: POST API not found for post_demo_table'); // Log
+      debugPrint('Error: POST API not found for post_demo_table'); // Log
       throw Exception('POST API not found');
     }
 
@@ -609,20 +663,24 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('post_demo_table failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('post_demo_table failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to save report: ${response.statusCode} - ${response.body}');
       }
 
+      if (response.body.isEmpty) {
+        debugPrint('post_demo_table: Empty response body for 200 status. Cannot get RecNo.');
+        throw Exception('API returned empty response, cannot confirm save.');
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('post_demo_table error: ${jsonData['message']}'); // Log
+        debugPrint('post_demo_table error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
 
       final backendRecNo = int.tryParse(jsonData['RecNo'].toString());
       return backendRecNo ?? recNo;
     } catch (e) {
-      print('post_demo_table exception: $e'); // Log
+      debugPrint('post_demo_table exception: $e'); // Log
       rethrow;
     }
   }
@@ -638,7 +696,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['post_database_server'];
     if (url == null) {
-      print('Error: POST API not found for post_database_server'); // Log
+      debugPrint('Error: POST API not found for post_database_server'); // Log
       throw Exception('POST API not found');
     }
 
@@ -648,7 +706,7 @@ class ReportAPIService {
         databaseName.isEmpty ||
         apiServerURL.isEmpty ||
         (parameters.isNotEmpty && apiName.isEmpty)) {
-      print('Validation Failed: serverIP=${serverIP.isEmpty ? "empty" : "non-empty"}, '
+      debugPrint('Validation Failed: serverIP=${serverIP.isEmpty ? "empty" : "non-empty"}, '
           'userName=${userName.isEmpty ? "empty" : "non-empty"}, '
           'password=${password.isEmpty ? "empty" : "non-empty"}, '
           'databaseName=${databaseName.isEmpty ? "empty" : "non-empty"}, '
@@ -679,17 +737,20 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('post_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('post_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to save database server: ${response.statusCode} - ${response.body}');
       }
-
+      if (response.body.isEmpty) { // Handle empty body for 200 OK
+        debugPrint('post_database_server: Empty response body for 200 status. Cannot verify save.');
+        return; // Treat as success if backend provides no confirmation.
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('post_database_server error: ${jsonData['message']}'); // Log
+        debugPrint('post_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
     } catch (e) {
-      print('post_database_server exception: $e'); // Log
+      debugPrint('post_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -697,7 +758,7 @@ class ReportAPIService {
   Future<void> saveFieldConfigs(List<Map<String, dynamic>> fields, int recNo) async {
     final url = _postEndpoints['post_demo_table2'];
     if (url == null) {
-      print('Error: POST API not found for post_demo_table2'); // Log
+      debugPrint('Error: POST API not found for post_demo_table2'); // Log
       throw Exception('POST API not found');
     }
 
@@ -715,12 +776,15 @@ class ReportAPIService {
         'Total': field['Total'] == true ? 1 : 0,
         'num_alignment': field['num_alignment']?.toString() ?? 'left',
         'time': field['time'] == true ? 1 : 0,
-        'indian_format': field['num_format'] == true ? 1 : 0,
+        'indian_format': field['num_format'] == true ? 1 : 0, // This is the field in question
         'decimal_points': field['decimal_points'] is int ? field['decimal_points'] : int.tryParse(field['decimal_points'].toString()) ?? 0,
         'Breakpoint': field['Breakpoint'] == true ? 1 : 0,
         'SubTotal': field['SubTotal'] == true ? 1 : 0,
         'image': field['image'] == true ? 1 : 0,
       };
+
+      // ADDED LOG for indian_format
+      debugPrint('Saving field config for ${field['Field_name']}: indian_format=${payload['indian_format']}');
 
       try {
         final response = await http.post(
@@ -730,17 +794,20 @@ class ReportAPIService {
         );
 
         if (response.statusCode != 200) {
-          print('post_demo_table2 failed for ${field['Field_name']}: status=${response.statusCode}, body=${response.body}'); // Log
+          debugPrint('post_demo_table2 failed for ${field['Field_name']}: status=${response.statusCode}, body=${response.body}'); // Log
           throw Exception('Failed to save field config for ${field['Field_name']}: ${response.statusCode} - ${response.body}');
         }
-
+        if (response.body.isEmpty) { // Handle empty body for 200 OK
+          debugPrint('post_demo_table2: Empty response body for 200 status. Cannot verify save for ${field['Field_name']}.');
+          continue; // Treat as success and continue to next field
+        }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] != 'success') {
-          print('post_demo_table2 error: ${jsonData['message']}'); // Log
+          debugPrint('post_demo_table2 error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');
         }
       } catch (e) {
-        print('post_demo_table2 exception for ${field['Field_name']}: $e'); // Log
+        debugPrint('post_demo_table2 exception for ${field['Field_name']}: $e'); // Log
         throw Exception('Failed to save field config for ${field['Field_name']}: $e');
       }
     }
@@ -749,7 +816,7 @@ class ReportAPIService {
   Future<void> deleteDatabaseServer(String id) async {
     final url = _postEndpoints['delete_database_server'];
     if (url == null) {
-      print('Error: POST API not found for delete_database_server'); // Log
+      debugPrint('Error: POST API not found for delete_database_server'); // Log
       throw Exception('POST API not found');
     }
 
@@ -765,17 +832,20 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('delete_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('delete_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to delete database server: ${response.statusCode} - ${response.body}');
       }
-
+      if (response.body.isEmpty) { // Handle empty body for 200 OK
+        debugPrint('delete_database_server: Empty response body for 200 status. Cannot verify delete.');
+        return; // Treat as success.
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('delete_database_server error: ${jsonData['message']}'); // Log
+        debugPrint('delete_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
     } catch (e) {
-      print('delete_database_server exception: $e'); // Log
+      debugPrint('delete_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -792,7 +862,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['edit_database_server'];
     if (url == null) {
-      print('Error: POST API not found for edit_database_server'); // Log
+      debugPrint('Error: POST API not found for edit_database_server'); // Log
       throw Exception('POST API not found');
     }
 
@@ -818,17 +888,20 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('edit_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('edit_database_server failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to edit database server: ${response.statusCode} - ${response.body}');
       }
-
+      if (response.body.isEmpty) { // Handle empty body for 200 OK
+        debugPrint('edit_database_server: Empty response body for 200 status. Cannot verify edit.');
+        return; // Treat as success.
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('edit_database_server error: ${jsonData['message']}'); // Log
+        debugPrint('edit_database_server error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
     } catch (e) {
-      print('edit_database_server exception: $e'); // Log
+      debugPrint('edit_database_server exception: $e'); // Log
       rethrow;
     }
   }
@@ -845,7 +918,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
     if (url == null) {
-      print('Error: POST API not found for edit_demo_tables'); // Log
+      debugPrint('Error: POST API not found for edit_demo_tables'); // Log
       throw Exception('POST API not found');
     }
 
@@ -873,7 +946,7 @@ class ReportAPIService {
           'time': field['time'] is int
               ? field['time']
               : (field['time'] == true ? 1 : 0),
-          'indian_format': field['num_format'] is int
+          'indian_format': field['num_format'] is int // This is the field in question
               ? field['num_format']
               : (field['num_format'] == true ? 1 : 0),
           'Breakpoint': field['Breakpoint'] is int
@@ -892,6 +965,12 @@ class ReportAPIService {
       }).toList(),
     };
 
+    // ADDED LOG for indian_format within fieldConfigs
+    debugPrint('Saving DemoTable2 fields for RecNo ${recNo}:');
+    for (var field in payload['Demo_table_2'] as List) {
+      debugPrint('  Field: ${field['Field_name']}, indian_format: ${field['indian_format']}');
+    }
+
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -903,17 +982,20 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('edit_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('edit_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to edit demo tables: ${response.statusCode} - ${response.body}');
       }
-
+      if (response.body.isEmpty) { // Handle empty body for 200 OK
+        debugPrint('edit_demo_tables: Empty response body for 200 status. Cannot verify edit.');
+        return; // Treat as success.
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('edit_demo_tables error: ${jsonData['message']}'); // Log
+        debugPrint('edit_demo_tables error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
     } catch (e) {
-      print('edit_demo_tables exception: $e'); // Log
+      debugPrint('edit_demo_tables exception: $e'); // Log
       rethrow;
     }
   }
@@ -923,7 +1005,7 @@ class ReportAPIService {
   }) async {
     final url = _postEndpoints['delete_demo_tables'];
     if (url == null) {
-      print('Error: POST API not found for delete_demo_tables'); // Log
+      debugPrint('Error: POST API not found for delete_demo_tables'); // Log
       throw Exception('POST API not found');
     }
 
@@ -939,18 +1021,21 @@ class ReportAPIService {
       );
 
       if (response.statusCode != 200) {
-        print('delete_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
+        debugPrint('delete_demo_tables failed: status=${response.statusCode}, body=${response.body}'); // Log
         throw Exception('Failed to delete demo tables: ${response.statusCode} - ${response.body}');
       }
-
+      if (response.body.isEmpty) { // Handle empty body for 200 OK
+        debugPrint('delete_demo_tables: Empty response body for 200 status. Cannot verify delete.');
+        return {'status': 'success', 'message': 'Operation completed but no response body.'}; // Provide a dummy success for empty body
+      }
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') {
-        print('delete_demo_tables error: ${jsonData['message']}'); // Log
+        debugPrint('delete_demo_tables error: ${jsonData['message']}'); // Log
         throw Exception('API returned error: ${jsonData['message']}');
       }
       return jsonData;
     } catch (e) {
-      print('delete_demo_tables exception: $e'); // Log
+      debugPrint('delete_demo_tables exception: $e'); // Log
       rethrow;
     }
   }

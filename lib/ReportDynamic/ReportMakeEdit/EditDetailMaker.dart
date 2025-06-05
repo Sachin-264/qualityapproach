@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart'; // Import for debugPrint
 
 import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/subtleloader.dart';
@@ -49,22 +50,25 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
 
-  // Controllers for actions, managed in maps by actionId
+// Controllers for actions, managed in maps by actionId
   final Map<String, TextEditingController> _actionNameControllers = {};
   final Map<String, TextEditingController> _actionApiControllers = {};
-  // REMOVED: final Map<String, TextEditingController> _tableActionReportLabelControllers = {};
-  final Map<String, Map<String, TextEditingController>> _actionParamValueControllers = {};
+  final Map<String, TextEditingController> _actionReportLabelControllers = {};
+  final Map<String,
+      Map<String, TextEditingController>> _actionParamValueControllers = {};
 
   final Uuid _uuid = const Uuid();
 
-  // GlobalKey to get the size of the Autocomplete's TextField for optionsViewBuilder
-  // This will store keys like {'actionId_1': GlobalKey(), 'actionId_2': GlobalKey()}
+// GlobalKey to get the size of the Autocomplete's TextField for optionsViewBuilder
+// This will store keys like {'actionId_1': GlobalKey(), 'actionId_2': GlobalKey()}
   final Map<String, GlobalKey> _autocompleteFieldKeys = {};
 
   @override
   void initState() {
     super.initState();
-    print('UI: EditDetailMaker initState: recNo=${widget.recNo}, apiName=${widget.apiName}');
+    debugPrint(
+        'UI: EditDetailMaker initState: recNo=${widget.recNo}, apiName=${widget
+            .apiName}');
     _reportNameController.text = widget.reportName;
     _reportLabelController.text = widget.reportLabel;
     _apiController.text = widget.apiName;
@@ -80,9 +84,12 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
 
+// General listener for text controllers to move cursor to end.
+// This is often not needed or can cause issues with Autocomplete,
+// but kept here for fields not in Autocomplete if you explicitly need it.
     for (var controller in [
       _reportNameController,
-      _reportLabelController,
+      _reportLabelController, // This one will be problematic if not careful
       _apiController,
       _fieldNameController,
       _fieldLabelController,
@@ -90,24 +97,35 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
       _widthController,
       _decimalPointsController
     ]) {
-      controller.addListener(() {
-        if (controller.text.isNotEmpty && controller.selection.baseOffset < controller.text.length) {
-          controller.selection = TextSelection.fromPosition(
-            TextPosition(offset: controller.text.length),
-          );
-        }
-      });
+      controller.addListener(_ensureCursorAtEnd(controller));
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      print('UI: Dispatching LoadPreselectedFields: recNo=${widget.recNo}, apiName=${widget.apiName}');
+      debugPrint('UI: Dispatching LoadPreselectedFields: recNo=${widget
+          .recNo}, apiName=${widget.apiName}');
       _bloc.add(LoadPreselectedFields(widget.recNo, widget.apiName));
     });
   }
 
+// Helper to ensure cursor is at the end for text controllers
+  VoidCallback _ensureCursorAtEnd(TextEditingController controller) {
+    return () {
+      if (controller.text.isNotEmpty &&
+          controller.selection.baseOffset < controller.text.length) {
+// Only update selection if it's not already at the end
+        if (controller.selection.baseOffset != controller.text.length ||
+            controller.selection.extentOffset != controller.text.length) {
+          controller.selection = TextSelection.fromPosition(
+            TextPosition(offset: controller.text.length),
+          );
+        }
+      }
+    };
+  }
+
   @override
   void dispose() {
-    print('UI: EditDetailMaker dispose');
+    debugPrint('UI: EditDetailMaker dispose');
     _reportNameController.dispose();
     _reportLabelController.dispose();
     _apiController.dispose();
@@ -119,10 +137,11 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     _animationController.dispose();
     _bloc.close();
 
-    // Dispose all controllers in the maps
+// Dispose all controllers in the maps
     _actionNameControllers.forEach((_, controller) => controller.dispose());
     _actionApiControllers.forEach((_, controller) => controller.dispose());
-    // REMOVED: _tableActionReportLabelControllers.forEach((_, controller) => controller.dispose());
+    _actionReportLabelControllers.forEach((_, controller) =>
+        controller.dispose());
     _actionParamValueControllers.forEach((_, paramMap) {
       paramMap.forEach((_, controller) => controller.dispose());
     });
@@ -130,7 +149,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _toggleConfigPanel() {
-    print('UI: Toggling config panel to show.');
+    debugPrint('UI: Toggling config panel to show.');
     setState(() {
       _showConfigPanel = true;
       _showMainReportDetails = false;
@@ -140,7 +159,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _returnToFieldSelection() {
-    print('UI: Returning to field selection: showConfigPanel=false');
+    debugPrint('UI: Returning to field selection: showConfigPanel=false');
     setState(() {
       _showConfigPanel = false;
       _animationController.reverse(from: 1.0);
@@ -148,7 +167,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _toggleMainReportDetails() {
-    print('UI: Toggling main report details visibility.');
+    debugPrint('UI: Toggling main report details visibility.');
     setState(() {
       _showMainReportDetails = !_showMainReportDetails;
       if (_showMainReportDetails) {
@@ -159,7 +178,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _toggleFieldsConfigurationContent() {
-    print('UI: Toggling fields configuration content visibility.');
+    debugPrint('UI: Toggling fields configuration content visibility.');
     setState(() {
       _showFieldsConfigurationContent = !_showFieldsConfigurationContent;
       if (_showFieldsConfigurationContent) {
@@ -170,81 +189,109 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
   }
 
   void _updateFieldConfigControllers(Map<String, dynamic>? field) {
-    print('UI: _updateFieldConfigControllers called with field=${field?['Field_name']}');
+    debugPrint(
+        'UI: _updateFieldConfigControllers called with field=${field?['Field_name']}');
     if (field == null) {
-      if (_fieldNameController.text.isNotEmpty || _fieldLabelController.text.isNotEmpty) {
+      if (_fieldNameController.text.isNotEmpty ||
+          _fieldLabelController.text.isNotEmpty) {
         _fieldNameController.clear();
         _fieldLabelController.clear();
         _sequenceController.clear();
         _widthController.clear();
         _decimalPointsController.clear();
-        print('UI: Cleared field config controllers (field is null).');
+        debugPrint('UI: Cleared field config controllers (field is null).');
       }
     } else {
-      // Only update if the value actually changes to avoid unnecessary re-renders
-      if (_fieldNameController.text != (field['Field_name']?.toString() ?? '')) {
+// Only update if the value actually changes to avoid unnecessary re-renders
+      if (_fieldNameController.text !=
+          (field['Field_name']?.toString() ?? '')) {
         _fieldNameController.text = field['Field_name']?.toString() ?? '';
       }
-      if (_fieldLabelController.text != (field['Field_label']?.toString() ?? '')) {
+      if (_fieldLabelController.text !=
+          (field['Field_label']?.toString() ?? '')) {
         _fieldLabelController.text = field['Field_label']?.toString() ?? '';
       }
-      if (_sequenceController.text != (field['Sequence_no']?.toString() ?? '')) {
+      if (_sequenceController.text !=
+          (field['Sequence_no']?.toString() ?? '')) {
         _sequenceController.text = field['Sequence_no']?.toString() ?? '';
       }
       if (_widthController.text != (field['width']?.toString() ?? '')) {
         _widthController.text = field['width']?.toString() ?? '';
       }
-      if (_decimalPointsController.text != (field['decimal_points']?.toString() ?? '')) {
-        _decimalPointsController.text = field['decimal_points']?.toString() ?? '';
+      if (_decimalPointsController.text !=
+          (field['decimal_points']?.toString() ?? '')) {
+        _decimalPointsController.text =
+            field['decimal_points']?.toString() ?? '';
       }
-      print('UI: Updated field config controllers for ${field['Field_name']}.');
+      debugPrint('UI: Updated field config controllers for ${field['Field_name']}.');
     }
   }
 
   void _updateActionControllers(List<Map<String, dynamic>> actions) {
-    // Collect IDs of actions that *should* exist after this update
-    final Set<String> existingActionIds = actions.map((a) => a['id'] as String).toSet();
+// Collect IDs of actions that *should* exist after this update
+    final Set<String> existingActionIds = actions
+        .map((a) => a['id'] as String)
+        .toSet();
 
-    // Dispose and remove controllers for actions that no longer exist
+// Dispose and remove controllers for actions that no longer exist
     _actionNameControllers.keys.toList().forEach((id) {
       if (!existingActionIds.contains(id)) {
         _actionNameControllers.remove(id)?.dispose();
         _actionApiControllers.remove(id)?.dispose();
-        // REMOVED: _tableActionReportLabelControllers.remove(id)?.dispose();
-        _actionParamValueControllers.remove(id)?.forEach((_, controller) => controller.dispose());
+// Dispose actionReportLabelControllers only if it exists and won't be reused
+        _actionReportLabelControllers.remove(id)?.dispose();
+        _actionParamValueControllers.remove(id)?.forEach((_, controller) =>
+            controller.dispose());
         _actionParamValueControllers.remove(id);
         _autocompleteFieldKeys.remove(id); // Also remove the GlobalKey
       }
     });
 
-    // Create or update controllers for existing/new actions
+// Create or update controllers for existing/new actions
     for (var action in actions) {
       final actionId = action['id'] as String;
       final actionType = action['type'] as String;
 
-      // Name controller
+// Name controller
       if (!_actionNameControllers.containsKey(actionId)) {
-        _actionNameControllers[actionId] = TextEditingController(text: action['name']?.toString() ?? '');
-      } else if (_actionNameControllers[actionId]!.text != (action['name']?.toString() ?? '')) {
-        _actionNameControllers[actionId]!.text = action['name']?.toString() ?? '';
+        _actionNameControllers[actionId] =
+            TextEditingController(text: action['name']?.toString() ?? '');
+      } else if (_actionNameControllers[actionId]!.text !=
+          (action['name']?.toString() ?? '')) {
+        _actionNameControllers[actionId]!.text =
+            action['name']?.toString() ?? '';
       }
 
-      // API controller
+// API controller
       if (!_actionApiControllers.containsKey(actionId)) {
-        _actionApiControllers[actionId] = TextEditingController(text: action['api']?.toString() ?? '');
-      } else if (_actionApiControllers[actionId]!.text != (action['api']?.toString() ?? '')) {
+        _actionApiControllers[actionId] =
+            TextEditingController(text: action['api']?.toString() ?? '');
+      } else if (_actionApiControllers[actionId]!.text !=
+          (action['api']?.toString() ?? '')) {
         _actionApiControllers[actionId]!.text = action['api']?.toString() ?? '';
       }
 
-      // For table actions, the Autocomplete will manage its own controller.
-      // We only need the GlobalKey for positioning the options view.
+// For table actions, manage reportLabel controller
       if (actionType == 'table') {
         _autocompleteFieldKeys.putIfAbsent(actionId, () => GlobalKey());
+        if (!_actionReportLabelControllers.containsKey(actionId)) {
+          _actionReportLabelControllers[actionId] = TextEditingController(
+              text: action['reportLabel']?.toString() ?? '');
+// ADDED listener for this specific controller
+          _actionReportLabelControllers[actionId]!.addListener(_ensureCursorAtEnd(_actionReportLabelControllers[actionId]!));
+        } else if (_actionReportLabelControllers[actionId]!.text !=
+            (action['reportLabel']?.toString() ?? '')) {
+          _actionReportLabelControllers[actionId]!.text =
+              action['reportLabel']?.toString() ?? '';
+        }
       } else {
         _autocompleteFieldKeys.remove(actionId);
+        _actionReportLabelControllers
+            .remove(actionId)
+            ?.dispose(); // Dispose if type changes from table
       }
 
-      // Parameter value controllers
+// Parameter value controllers
       if (actionType == 'print' || actionType == 'table') {
         final params = action['params'] as List<dynamic>? ?? [];
         if (!_actionParamValueControllers.containsKey(actionId)) {
@@ -252,25 +299,31 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         }
 
         final currentParamMap = _actionParamValueControllers[actionId]!;
-        // Remove params that no longer exist
+// Remove params that no longer exist
         currentParamMap.keys.toList().forEach((paramId) {
           if (!params.any((p) => p['id'] == paramId)) {
             currentParamMap.remove(paramId)?.dispose();
           }
         });
 
-        // Add or update params
+// Add or update params
         for (var param in params) {
           final paramId = param['id'] as String;
           if (!currentParamMap.containsKey(paramId)) {
-            currentParamMap[paramId] = TextEditingController(text: param['parameterValue']?.toString() ?? '');
-          } else if (currentParamMap[paramId]!.text != (param['parameterValue']?.toString() ?? '')) {
-            currentParamMap[paramId]!.text = param['parameterValue']?.toString() ?? '';
+            currentParamMap[paramId] = TextEditingController(
+                text: param['parameterValue']?.toString() ?? '');
+// ADDED listener for this specific controller
+            currentParamMap[paramId]!.addListener(_ensureCursorAtEnd(currentParamMap[paramId]!));
+          } else if (currentParamMap[paramId]!.text !=
+              (param['parameterValue']?.toString() ?? '')) {
+            currentParamMap[paramId]!.text =
+                param['parameterValue']?.toString() ?? '';
           }
         }
       } else {
         if (_actionParamValueControllers.containsKey(actionId)) {
-          _actionParamValueControllers[actionId]?.forEach((_, controller) => controller.dispose());
+          _actionParamValueControllers[actionId]?.forEach((_, controller) =>
+              controller.dispose());
           _actionParamValueControllers.remove(actionId);
         }
       }
@@ -279,23 +332,27 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
 
   @override
   Widget build(BuildContext context) {
-    print('UI: Building EditDetailMaker UI');
+    debugPrint('UI: Building EditDetailMaker UI');
     return BlocProvider.value(
       value: _bloc,
       child: Scaffold(
         appBar: AppBarWidget(
           title: 'Edit Report Details',
           onBackPress: () {
-            print('UI: AppBar back pressed');
+            debugPrint('UI: AppBar back pressed');
             Navigator.pop(context, true);
           },
         ),
         body: BlocListener<EditDetailMakerBloc, EditDetailMakerState>(
           listener: (context, state) {
-            print(
-                'UI: BlocListener: isLoading=${state.isLoading}, error=${state.error}, saveSuccess=${state.saveSuccess}, selectedFields=${state.selectedFields.length}, needsAction=${state.needsAction}, actions=${state.actions.length}');
+            debugPrint(
+                'UI: BlocListener: isLoading=${state.isLoading}, error=${state
+                    .error}, saveSuccess=${state
+                    .saveSuccess}, selectedFields=${state.selectedFields
+                    .length}, needsAction=${state.needsAction}, actions=${state
+                    .actions.length}');
             if (state.error != null) {
-              print('UI: Showing error SnackBar: ${state.error}');
+              debugPrint('UI: Showing error SnackBar: ${state.error}');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -305,42 +362,50 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                   backgroundColor: Colors.redAccent,
                   behavior: SnackBarBehavior.floating,
                   margin: const EdgeInsets.all(16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
                   duration: const Duration(seconds: 5),
                 ),
               );
             } else if (state.saveSuccess) {
-              print('UI: Showing success SnackBar');
+              debugPrint('UI: Showing success SnackBar');
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Report and field configurations updated successfully!'),
+                  content: const Text(
+                      'Report and field configurations updated successfully!'),
                   backgroundColor: Colors.green,
                   behavior: SnackBarBehavior.floating,
-                  margin: EdgeInsets.all(16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  duration: Duration(seconds: 5),
+                  margin: const EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  duration: const Duration(seconds: 5),
                 ),
               );
-              print('UI: Navigating back with refresh indicator');
+              debugPrint('UI: Navigating back with refresh indicator');
               Navigator.pop(context, true);
             }
             _updateFieldConfigControllers(state.currentField);
-            _updateActionControllers(state.actions); // This will update non-Autocomplete controllers and manage GlobalKeys
+            _updateActionControllers(state
+                .actions); // This will update non-Autocomplete controllers and manage GlobalKeys
           },
           child: BlocBuilder<EditDetailMakerBloc, EditDetailMakerState>(
             builder: (context, state) {
-              print(
-                  'UI: BlocBuilder: isLoading=${state.isLoading}, fields=${state.fields.length}, selectedFields=${state.selectedFields.length}, preselectedFields=${state.preselectedFields.length}');
+              debugPrint(
+                  'UI: BlocBuilder: isLoading=${state.isLoading}, fields=${state
+                      .fields.length}, selectedFields=${state.selectedFields
+                      .length}, preselectedFields=${state.preselectedFields
+                      .length}');
               return SingleChildScrollView(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      // Report Details Section
+// Report Details Section
                       Card(
                         color: Colors.white,
                         elevation: 6,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius
+                            .circular(12)),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: _toggleMainReportDetails,
@@ -350,21 +415,27 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment: MainAxisAlignment
+                                      .spaceBetween,
                                   children: [
                                     Text(
                                       'Report Details',
-                                      style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                                      style: GoogleFonts.poppins(fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87),
                                     ),
                                     Icon(
-                                      _showMainReportDetails ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      _showMainReportDetails ? Icons
+                                          .keyboard_arrow_up : Icons
+                                          .keyboard_arrow_down,
                                       color: Colors.grey[600],
                                     ),
                                   ],
                                 ),
                                 AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 300),
-                                  transitionBuilder: (Widget child, Animation<double> animation) {
+                                  transitionBuilder: (Widget child,
+                                      Animation<double> animation) {
                                     return SizeTransition(
                                       sizeFactor: animation,
                                       axisAlignment: -1.0,
@@ -416,22 +487,30 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                       ),
                                       const SizedBox(height: 20),
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.end,
+                                        mainAxisAlignment: MainAxisAlignment
+                                            .end,
                                         children: [
                                           _buildButton(
                                             text: 'Reset Form',
                                             color: Colors.redAccent,
                                             onPressed: () {
-                                              print('UI: Reset Form button pressed');
-                                              context.read<EditDetailMakerBloc>().add(ResetFields());
-                                              _reportNameController.text = widget.reportName;
-                                              _reportLabelController.text = widget.reportLabel;
-                                              _apiController.text = widget.apiName;
+                                              debugPrint(
+                                                  'UI: Reset Form button pressed');
+                                              context.read<
+                                                  EditDetailMakerBloc>().add(
+                                                  ResetFields());
+                                              _reportNameController.text =
+                                                  widget.reportName;
+                                              _reportLabelController.text =
+                                                  widget.reportLabel;
+                                              _apiController.text =
+                                                  widget.apiName;
                                               setState(() {
                                                 _selectedApi = widget.apiName;
                                                 _showConfigPanel = false;
                                                 _showMainReportDetails = true;
-                                                _showFieldsConfigurationContent = false;
+                                                _showFieldsConfigurationContent =
+                                                false;
                                               });
                                               _animationController.reset();
                                             },
@@ -441,19 +520,21 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                       ),
                                     ],
                                   )
-                                     : SizedBox.shrink(key: ValueKey('reportDetailsEmpty')),
+                                      : const SizedBox.shrink(
+                                      key: ValueKey('reportDetailsEmpty')),
                                 ),
-                              ],
-                            ),
+                              ], // Closing bracket for children list
+                            ), // Closing parenthesis for Column widget
                           ),
                         ),
                       ),
                       const SizedBox(height: 16),
-                      // Field Configuration Section Card
+// Field Configuration Section Card
                       Card(
                         color: Colors.white,
                         elevation: 6,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius
+                            .circular(12)),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
                           onTap: _toggleFieldsConfigurationContent,
@@ -463,21 +544,27 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment: MainAxisAlignment
+                                      .spaceBetween,
                                   children: [
                                     Text(
                                       'Fields Configuration',
-                                      style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                                      style: GoogleFonts.poppins(fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.black87),
                                     ),
                                     Icon(
-                                      _showFieldsConfigurationContent ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      _showFieldsConfigurationContent ? Icons
+                                          .keyboard_arrow_up : Icons
+                                          .keyboard_arrow_down,
                                       color: Colors.grey[600],
                                     ),
                                   ],
                                 ),
                                 AnimatedSwitcher(
                                   duration: const Duration(milliseconds: 300),
-                                  transitionBuilder: (Widget child, Animation<double> animation) {
+                                  transitionBuilder: (Widget child,
+                                      Animation<double> animation) {
                                     return SizeTransition(
                                       sizeFactor: animation,
                                       axisAlignment: -1.0,
@@ -491,52 +578,75 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                       ? Column(
                                     key: const ValueKey('fieldsConfigContent'),
                                     children: [
-                                      const Divider(height: 20, thickness: 1, color: Colors.grey),
+                                      const Divider(height: 20,
+                                          thickness: 1,
+                                          color: Colors.grey),
                                       if (state.isLoading)
-                                        const SizedBox(height: 200, child: SubtleLoader())
-                                      else if (state.error != null)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(vertical: 20),
-                                          alignment: Alignment.center,
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Text(
-                                                'Error loading fields: ${state.error}',
-                                                style: GoogleFonts.poppins(fontSize: 16, color: Colors.redAccent),
-                                                textAlign: TextAlign.center,
-                                              ),
-                                              const SizedBox(height: 16),
-                                              _buildButton(
-                                                text: 'Retry Load Fields',
-                                                color: Colors.blueAccent,
-                                                onPressed: () {
-                                                  print('UI: Retry button pressed for field loading.');
-                                                  context.read<EditDetailMakerBloc>().add(
-                                                    LoadPreselectedFields(widget.recNo, widget.apiName),
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        )
-                                      else if (state.fields.isEmpty && state.selectedFields.isEmpty)
+                                        const SizedBox(
+                                            height: 200, child: SubtleLoader())
+                                      else
+                                        if (state.error != null)
                                           Container(
-                                            padding: const EdgeInsets.symmetric(vertical: 20),
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 20),
                                             alignment: Alignment.center,
-                                            child: Text(
-                                              'No fields available from the API for this report. Check API response.',
-                                              style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
-                                              textAlign: TextAlign.center,
+                                            child: Column(
+                                              mainAxisAlignment: MainAxisAlignment
+                                                  .center,
+                                              children: [
+                                                Text(
+                                                  'Error loading fields: ${state
+                                                      .error}',
+                                                  style: GoogleFonts.poppins(
+                                                      fontSize: 16,
+                                                      color: Colors.redAccent),
+                                                  textAlign: TextAlign.center,
+                                                ),
+                                                const SizedBox(height: 16),
+                                                _buildButton(
+                                                  text: 'Retry Load Fields',
+                                                  color: Colors.blueAccent,
+                                                  onPressed: () {
+                                                    debugPrint(
+                                                        'UI: Retry button pressed for field loading.');
+                                                    context
+                                                        .read<
+                                                        EditDetailMakerBloc>()
+                                                        .add(
+                                                      LoadPreselectedFields(
+                                                          widget.recNo,
+                                                          widget.apiName),
+                                                    );
+                                                  },
+                                                ),
+                                              ],
                                             ),
                                           )
                                         else
-                                          _showConfigPanel
-                                              ? _buildFieldConfigPanel(context, state)
-                                              : _buildFieldSelection(context, state),
+                                          if (state.fields.isEmpty &&
+                                              state.selectedFields.isEmpty)
+                                            Container(
+                                              padding: const EdgeInsets
+                                                  .symmetric(vertical: 20),
+                                              alignment: Alignment.center,
+                                              child: Text(
+                                                'No fields available from the API for this report. Check API response.',
+                                                style: GoogleFonts.poppins(
+                                                    fontSize: 16,
+                                                    color: Colors.grey[600]),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            )
+                                          else
+                                            _showConfigPanel
+                                                ? _buildFieldConfigPanel(
+                                                context, state)
+                                                : _buildFieldSelection(
+                                                context, state),
                                     ],
                                   )
-                                      : const SizedBox.shrink(key: ValueKey('fieldsConfigEmpty')),
+                                      : const SizedBox.shrink(
+                                      key: ValueKey('fieldsConfigEmpty')),
                                 ),
                               ],
                             ),
@@ -544,10 +654,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                         ),
                       ),
                       const SizedBox(height: 16),
-                      // Action Section
+// Action Section
                       _buildActionSection(context, state),
                       const SizedBox(height: 16),
-                      // Save button
+// Save button
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -555,44 +665,57 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                             text: 'Save Changes',
                             color: Colors.green,
                             onPressed: () {
-                              print('UI: Save Changes button pressed');
+                              debugPrint('UI: Save Changes button pressed');
                               if (_reportNameController.text.isEmpty ||
                                   _reportLabelController.text.isEmpty ||
                                   _selectedApi == null ||
                                   state.selectedFields.isEmpty) {
-                                print('UI: Validation failed: showing SnackBar');
+                                debugPrint(
+                                    'UI: Validation failed: showing SnackBar');
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                    content: Text('Please fill all report details and select at least one field.'),
+                                    content: const Text(
+                                        'Please fill all report details and select at least one field.'),
                                     backgroundColor: Colors.redAccent,
                                     behavior: SnackBarBehavior.floating,
-                                    margin: EdgeInsets.all(16),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    duration: Duration(seconds: 3),
+                                    margin: const EdgeInsets.all(16),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(
+                                            12)),
+                                    duration: const Duration(seconds: 3),
                                   ),
                                 );
                                 return;
                               }
 
-                              if (state.currentField != null && _sequenceController.text.isNotEmpty) {
-                                final parsed = int.tryParse(_sequenceController.text);
-                                if (parsed != null && parsed > 0 && (state.currentField!['Sequence_no'] != parsed)) {
-                                  print('UI: Final Sequence_no update before save for current field.');
-                                  context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
+                              if (state.currentField != null &&
+                                  _sequenceController.text.isNotEmpty) {
+                                final parsed = int.tryParse(
+                                    _sequenceController.text);
+                                if (parsed != null && parsed > 0 &&
+                                    (state.currentField!['Sequence_no'] !=
+                                        parsed)) {
+                                  debugPrint(
+                                      'UI: Final Sequence_no update before save for current field.');
+                                  context.read<EditDetailMakerBloc>().add(
+                                      UpdateFieldConfig('Sequence_no', parsed));
                                 }
                               }
 
-                              Future.delayed(const Duration(milliseconds: 100), () {
-                                print('UI: Dispatching SaveReport event after potential field config update.');
-                                context.read<EditDetailMakerBloc>().add(SaveReport(
-                                  recNo: widget.recNo,
-                                  reportName: _reportNameController.text,
-                                  reportLabel: _reportLabelController.text,
-                                  apiName: _selectedApi!,
-                                  parameter: 'default',
-                                  needsAction: state.needsAction,
-                                  actions: state.actions,
-                                ));
+                              Future.delayed(
+                                  const Duration(milliseconds: 100), () {
+                                debugPrint(
+                                    'UI: Dispatching SaveReport event after potential field config update.');
+                                context.read<EditDetailMakerBloc>().add(
+                                    SaveReport(
+                                      recNo: widget.recNo,
+                                      reportName: _reportNameController.text,
+                                      reportLabel: _reportLabelController.text,
+                                      apiName: _selectedApi!,
+                                      parameter: 'default',
+                                      needsAction: state.needsAction,
+                                      actions: state.actions,
+                                    ));
                               });
                             },
                             icon: Icons.save,
@@ -629,8 +752,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
       style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
-        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22) : null,
+        labelStyle: GoogleFonts.poppins(
+            color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
+        prefixIcon: icon != null ? Icon(
+            icon, color: Colors.blueAccent, size: 22) : null,
         filled: true,
         fillColor: Colors.white.withOpacity(0.9),
         border: OutlineInputBorder(
@@ -645,7 +770,8 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
         ),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        contentPadding: const EdgeInsets.symmetric(
+            vertical: 16, horizontal: 16),
         floatingLabelBehavior: FloatingLabelBehavior.auto,
       ),
     );
@@ -686,8 +812,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     );
   }
 
-  Widget _buildFieldSelection(BuildContext context, EditDetailMakerState state) {
-    print('UI: Building field selection view. Fields count: ${state.fields.length}, Selected count: ${state.selectedFields.length}');
+  Widget _buildFieldSelection(BuildContext context,
+      EditDetailMakerState state) {
+    debugPrint('UI: Building field selection view. Fields count: ${state.fields
+        .length}, Selected count: ${state.selectedFields.length}');
     return Padding(
       padding: const EdgeInsets.all(20.0),
       child: Column(
@@ -696,7 +824,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         children: [
           Text(
             'Select Fields',
-            style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+            style: GoogleFonts.poppins(fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87),
           ),
           const SizedBox(height: 16),
           Flexible(
@@ -707,15 +837,18 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                 spacing: 12,
                 runSpacing: 12,
                 children: state.fields.map((field) {
-                  final isSelected = state.selectedFields.any((f) => f['Field_name'] == field);
-                  final isPreselected = state.preselectedFields.any((f) => f['Field_name'] == field);
+                  final isSelected = state.selectedFields.any((
+                      f) => f['Field_name'] == field);
+                  final isPreselected = state.preselectedFields.any((
+                      f) => f['Field_name'] == field);
 
                   return FilterChip(
                     label: Text(
                       field,
                       style: GoogleFonts.poppins(
                         fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: isSelected ? FontWeight.w600 : FontWeight
+                            .normal,
                         color: isSelected ? Colors.white : Colors.black87,
                       ),
                     ),
@@ -737,13 +870,17 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                       ),
                     ),
                     backgroundColor: Colors.white,
-                    labelPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    labelPadding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
                     onSelected: (selected) {
-                      print('UI: Chip tapped: field=$field, selected=$selected');
+                      debugPrint(
+                          'UI: Chip tapped: field=$field, selected=$selected');
                       if (selected) {
-                        context.read<EditDetailMakerBloc>().add(SelectField(field));
+                        context.read<EditDetailMakerBloc>().add(
+                            SelectField(field));
                       } else {
-                        context.read<EditDetailMakerBloc>().add(DeselectField(field));
+                        context.read<EditDetailMakerBloc>().add(
+                            DeselectField(field));
                       }
                     },
                   );
@@ -767,8 +904,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     );
   }
 
-  Widget _buildFieldConfigPanel(BuildContext context, EditDetailMakerState state) {
-    print('UI: Building field config panel. Selected fields count: ${state.selectedFields.length}');
+  Widget _buildFieldConfigPanel(BuildContext context,
+      EditDetailMakerState state) {
+    debugPrint('UI: Building field config panel. Selected fields count: ${state
+        .selectedFields.length}');
     final sortedFields = List<Map<String, dynamic>>.from(state.selectedFields)
       ..sort((a, b) {
         final aSeq = a['Sequence_no'] as int? ?? 9999;
@@ -776,7 +915,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         return aSeq.compareTo(bSeq);
       });
 
-    return IntrinsicHeight(
+    return ConstrainedBox( // Replaced IntrinsicHeight
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery
+            .of(context)
+            .size
+            .height * 0.6, // Sets max height to 60% of screen height
+        minHeight: 200, // Ensures a minimum height
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -784,7 +930,8 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             width: 220,
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: const BorderRadius.horizontal(left: Radius.circular(12)),
+              borderRadius: const BorderRadius.horizontal(
+                  left: Radius.circular(12)),
               boxShadow: [
                 BoxShadow(
                   color: Colors.grey.withOpacity(0.1),
@@ -795,34 +942,46 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             ),
             child: Column(
               children: [
-                Expanded(
+                Expanded( // This Expanded is now properly constrained by the parent Column's height
                   child: ListView.builder(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     itemCount: sortedFields.length,
                     itemBuilder: (context, index) {
                       final field = sortedFields[index];
-                      final isSelected = state.currentField?['Field_name'] == field['Field_name'];
+                      final isSelected = state.currentField?['Field_name'] ==
+                          field['Field_name'];
                       return Column(
                         children: [
                           Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 4),
                             child: Material(
-                              color: isSelected ? Colors.blueAccent.withOpacity(0.1) : Colors.transparent,
+                              color: isSelected ? Colors.blueAccent.withOpacity(
+                                  0.1) : Colors.transparent,
                               borderRadius: BorderRadius.circular(10),
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(10),
                                 onTap: () {
-                                  print('UI: Field tapped in list: ${field['Field_name']}');
-                                  if (state.currentField != null && _sequenceController.text.isNotEmpty) {
-                                    final parsed = int.tryParse(_sequenceController.text);
-                                    if (parsed != null && parsed > 0 && (state.currentField!['Sequence_no'] != parsed)) {
+                                  debugPrint(
+                                      'UI: Field tapped in list: ${field['Field_name']}');
+                                  if (state.currentField != null &&
+                                      _sequenceController.text.isNotEmpty) {
+                                    final parsed = int.tryParse(
+                                        _sequenceController.text);
+                                    if (parsed != null && parsed >= 0 && // Allow 0 for sequence
+                                        (state.currentField!['Sequence_no'] !=
+                                            parsed)) {
                                       context.read<EditDetailMakerBloc>().add(
-                                        UpdateFieldConfig('Sequence_no', parsed),
+                                        UpdateFieldConfig(
+                                            'Sequence_no', parsed),
                                       );
-                                      print('UI: Updating sequence for previous field (${state.currentField!['Field_name']}) before switching.');
+                                      debugPrint(
+                                          'UI: Updating sequence for previous field (${state
+                                              .currentField!['Field_name']}) before switching.');
                                     }
                                   }
-                                  context.read<EditDetailMakerBloc>().add(UpdateCurrentField(field));
+                                  context.read<EditDetailMakerBloc>().add(
+                                      UpdateCurrentField(field));
                                 },
                                 child: Padding(
                                   padding: const EdgeInsets.all(12),
@@ -830,11 +989,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                     children: [
                                       CircleAvatar(
                                         radius: 16,
-                                        backgroundColor: isSelected ? Colors.blueAccent : Colors.grey.shade300,
+                                        backgroundColor: isSelected ? Colors
+                                            .blueAccent : Colors.grey.shade300,
                                         child: Text(
                                           '${field['Sequence_no'] ?? 'N/A'}',
                                           style: GoogleFonts.poppins(
-                                            color: isSelected ? Colors.white : Colors.black87,
+                                            color: isSelected
+                                                ? Colors.white
+                                                : Colors.black87,
                                             fontWeight: FontWeight.w600,
                                             fontSize: 12,
                                           ),
@@ -846,17 +1008,24 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                           field['Field_name'],
                                           style: GoogleFonts.poppins(
                                             fontSize: 15,
-                                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                                            color: isSelected ? Colors.blueAccent : Colors.black87,
+                                            fontWeight: isSelected ? FontWeight
+                                                .w600 : FontWeight.w500,
+                                            color: isSelected ? Colors
+                                                .blueAccent : Colors.black87,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                       IconButton(
-                                        icon: const Icon(Icons.delete, color: Colors.redAccent, size: 20),
+                                        icon: const Icon(Icons.delete,
+                                            color: Colors.redAccent, size: 20),
                                         onPressed: () {
-                                          print('UI: Deleting field from list: ${field['Field_name']}');
-                                          context.read<EditDetailMakerBloc>().add(DeselectField(field['Field_name']));
+                                          debugPrint(
+                                              'UI: Deleting field from list: ${field['Field_name']}');
+                                          context
+                                              .read<EditDetailMakerBloc>()
+                                              .add(DeselectField(
+                                              field['Field_name']));
                                         },
                                       ),
                                     ],
@@ -884,15 +1053,18 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     onPressed: _returnToFieldSelection,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blueAccent,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 12),
                       elevation: 4,
                       shadowColor: Colors.blueAccent.withOpacity(0.3),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+                        const Icon(
+                            Icons.arrow_back, color: Colors.white, size: 20),
                         const SizedBox(width: 8),
                         Text(
                           'Back to Selection',
@@ -936,8 +1108,10 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     );
   }
 
-  List<Widget> _buildFieldConfigWidgets(BuildContext context, EditDetailMakerState state) {
-    print('UI: Building field config widgets for: ${state.currentField!['Field_name']}');
+  List<Widget> _buildFieldConfigWidgets(BuildContext context,
+      EditDetailMakerState state) {
+    debugPrint('UI: Building field config widgets for: ${state
+        .currentField!['Field_name']}');
     if (state.currentField == null) {
       return [];
     }
@@ -955,8 +1129,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         label: 'Field Label',
         icon: Icons.label_outline,
         onChanged: (value) {
-          print('UI: Field Label changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Field_label', value));
+          debugPrint('UI: Field Label changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('Field_label', value));
         },
       ),
       const SizedBox(height: 16),
@@ -967,18 +1142,18 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         keyboardType: TextInputType.number,
         onChanged: (value) {
           final parsed = int.tryParse(value);
-          if (parsed != null && parsed > 0) {
-            print('UI: Sequence No changed to: $parsed');
-            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
-            // Manually set selection to end to prevent cursor jump if input is valid
-            _sequenceController.text = parsed.toString();
-            _sequenceController.selection = TextSelection.fromPosition(
-              TextPosition(offset: _sequenceController.text.length),
-            );
-          } else {
-            print('UI: Invalid Sequence No input: $value');
-            // Optionally, clear the field or show an error for invalid input
+          if (parsed != null &&
+              parsed >= 0) { // Allow 0 for sequence if needed, otherwise > 0
+            debugPrint('UI: Sequence No changed to: $parsed');
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('Sequence_no', parsed));
+// Manually set selection to end to prevent cursor jump if input is valid
+// This is already done by the global listener
+          } else if (value.isEmpty) { // Allow clearing the field
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('Sequence_no', null));
           }
+// Do not update text for invalid input, let TextField keep invalid text
         },
       ),
       const SizedBox(height: 16),
@@ -989,8 +1164,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         keyboardType: TextInputType.number,
         onChanged: (value) {
           final parsed = int.tryParse(value);
-          print('UI: Width changed to: $parsed');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('width', parsed));
+          if (parsed != null && parsed >= 0) {
+            debugPrint('UI: Width changed to: $parsed');
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('width', parsed));
+          } else if (value.isEmpty) {
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('width', null));
+          }
         },
       ),
       const SizedBox(height: 16),
@@ -999,8 +1180,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         value: state.currentField!['Total'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          print('UI: Total checkbox changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Total', value!));
+          debugPrint('UI: Total checkbox changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('Total', value!));
         },
       ),
       const SizedBox(height: 16),
@@ -1009,8 +1191,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         value: state.currentField!['Breakpoint'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          print('UI: Breakpoint checkbox changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('Breakpoint', value!));
+          debugPrint('UI: Breakpoint checkbox changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('Breakpoint', value!));
         },
       ),
       if (state.currentField!['Total'] == true) ...[
@@ -1020,8 +1203,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
           value: state.currentField!['SubTotal'] ?? false,
           activeColor: Colors.blueAccent,
           onChanged: (value) {
-            print('UI: Subtotal checkbox changed to: $value');
-            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('SubTotal', value!));
+            debugPrint('UI: Subtotal checkbox changed to: $value');
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('SubTotal', value!));
           },
         ),
       ],
@@ -1031,8 +1215,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         value: state.currentField!['image'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          print('UI: Image checkbox changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('image', value!));
+          debugPrint('UI: Image checkbox changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('image', value!));
         },
       ),
       const Divider(
@@ -1058,22 +1243,33 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
           ),
-          contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          contentPadding: const EdgeInsets.symmetric(
+              vertical: 16, horizontal: 16),
         ),
         style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
-        value: (state.currentField!['num_alignment']?.toString().toLowerCase() ?? 'left')
-            .contains('left') ? 'left' : ((state.currentField!['num_alignment']?.toString().toLowerCase() ?? 'left').contains('center') ? 'center' : 'right'),
+        value: (state.currentField!['num_alignment']
+            ?.toString()
+            .toLowerCase() ?? 'left').contains('left')
+            ? 'left'
+            : ((state.currentField!['num_alignment']
+            ?.toString()
+            .toLowerCase() ?? 'left').contains('center')
+            ? 'center'
+            : 'right'),
         items: const [
           DropdownMenuItem(value: 'left', child: Text('Left')),
           DropdownMenuItem(value: 'center', child: Text('Center')),
           DropdownMenuItem(value: 'right', child: Text('Right')),
-        ].map((item) => DropdownMenuItem(
-          value: item.value,
-          child: Text(item.value!, style: GoogleFonts.poppins()),
-        )).toList(),
+        ].map((item) =>
+            DropdownMenuItem(
+              value: item.value,
+              child: Text(StringCasingExtension(item.value!).toCapitalized(),
+                  style: GoogleFonts.poppins()), // Capitalize dropdown item
+            )).toList(),
         onChanged: (value) {
-          print('UI: Number Alignment changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('num_alignment', value!));
+          debugPrint('UI: Number Alignment changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('num_alignment', value!));
         },
         dropdownColor: Colors.white,
       ),
@@ -1089,11 +1285,13 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             ),
           ],
         ),
+// Use 'num_format' from BLoC state, which maps to 'indian_format' in backend
         value: state.currentField!['num_format'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
-          print('UI: Indian Number Format changed to: $value');
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('num_format', value!));
+          debugPrint('UI: Indian Number Format changed to: $value');
+          context.read<EditDetailMakerBloc>().add(
+              UpdateFieldConfig('num_format', value!));
         },
       ),
       const SizedBox(height: 16),
@@ -1103,23 +1301,28 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
         icon: Icons.numbers,
         keyboardType: TextInputType.number,
         onChanged: (value) {
-          print('UI: Decimal Points changed to: $value');
           final parsed = int.tryParse(value);
-          context.read<EditDetailMakerBloc>().add(UpdateFieldConfig(
-            'decimal_points',
-            parsed != null && parsed >= 0 ? parsed : 0,
-          ));
+          if (parsed != null && parsed >= 0) { // Allow 0 for decimal points
+            debugPrint('UI: Decimal Points changed to: $parsed');
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('decimal_points', parsed));
+          } else if (value.isEmpty) {
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('decimal_points', null));
+          }
         },
       ),
-      if (state.currentField!['Field_name'].toString().toLowerCase().contains('date')) ...[
+      if (state.currentField!['Field_name'].toString().toLowerCase().contains(
+          'date')) ...[
         const SizedBox(height: 16),
         CheckboxListTile(
           title: Text('Time', style: GoogleFonts.poppins()),
           value: state.currentField!['time'] ?? false,
           activeColor: Colors.blueAccent,
           onChanged: (value) {
-            print('UI: Time checkbox changed to: $value');
-            context.read<EditDetailMakerBloc>().add(UpdateFieldConfig('time', value!));
+            debugPrint('UI: Time checkbox changed to: $value');
+            context.read<EditDetailMakerBloc>().add(
+                UpdateFieldConfig('time', value!));
           },
         ),
       ],
@@ -1142,13 +1345,16 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             CheckboxListTile(
               title: Text(
                 'Do you need actions?',
-                style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                style: GoogleFonts.poppins(fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87),
               ),
               value: state.needsAction,
               onChanged: (value) {
-                print('UI: Needs Action checkbox changed to: $value');
-                context.read<EditDetailMakerBloc>().add(ToggleNeedsActionEvent(value!));
-                // Hide main report details and fields config when action section is enabled/used
+                debugPrint('UI: Needs Action checkbox changed to: $value');
+                context.read<EditDetailMakerBloc>().add(
+                    ToggleNeedsActionEvent(value!));
+// Hide main report details and fields config when action section is enabled/used
                 setState(() {
                   _showMainReportDetails = false;
                   _showFieldsConfigurationContent = false;
@@ -1160,7 +1366,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
               const Divider(height: 30, thickness: 1),
               Text(
                 'Add Actions (Max 5)',
-                style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                style: GoogleFonts.poppins(fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87),
               ),
               const SizedBox(height: 12),
               Wrap(
@@ -1172,7 +1380,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     color: Colors.purple,
                     icon: Icons.assignment,
                     onPressed: canAddMoreActions && !formExists
-                        ? () => context.read<EditDetailMakerBloc>().add(AddAction('form', _uuid.v4()))
+                        ? () =>
+                        context.read<EditDetailMakerBloc>().add(
+                            AddAction('form', _uuid.v4()))
                         : null,
                   ),
                   _buildButton(
@@ -1180,7 +1390,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     color: Colors.orange,
                     icon: Icons.print,
                     onPressed: canAddMoreActions
-                        ? () => context.read<EditDetailMakerBloc>().add(AddAction('print', _uuid.v4()))
+                        ? () =>
+                        context.read<EditDetailMakerBloc>().add(
+                            AddAction('print', _uuid.v4()))
                         : null,
                   ),
                   _buildButton(
@@ -1188,7 +1400,9 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     color: Colors.teal,
                     icon: Icons.table_chart,
                     onPressed: canAddMoreActions
-                        ? () => context.read<EditDetailMakerBloc>().add(AddAction('table', _uuid.v4()))
+                        ? () =>
+                        context.read<EditDetailMakerBloc>().add(
+                            AddAction('table', _uuid.v4()))
                         : null,
                   ),
                 ],
@@ -1211,7 +1425,8 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     padding: const EdgeInsets.only(top: 20.0),
                     child: Text(
                       'No actions added yet.',
-                      style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
+                      style: GoogleFonts.poppins(
+                          fontSize: 16, color: Colors.grey[600]),
                     ),
                   ),
                 ),
@@ -1222,20 +1437,42 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     );
   }
 
-  Widget _buildActionConfigCard(
-      BuildContext context,
+  Widget _buildActionConfigCard(BuildContext context,
       EditDetailMakerState state,
-      Map<String, dynamic> action,
-      ) {
+      Map<String, dynamic> action,) {
     final actionId = action['id'] as String;
     final actionType = action['type'] as String;
     final List<dynamic> params = action['params'] as List<dynamic>? ?? [];
     final bool isPrintOrTable = actionType == 'print' || actionType == 'table';
     final bool isTableAction = actionType == 'table';
     final List<String> apiParameters = state.apiParametersCache[actionId] ?? [];
-    final bool isFetchingParams = state.isFetchingApiParams && state.currentActionIdFetching == actionId;
+    final bool isFetchingParams = state.isFetchingApiParams &&
+        state.currentActionIdFetching == actionId;
 
     final List<String> reportLabels = state.allReportLabels;
+// FIX: Changed to use state.fields (all API fields)
+    final List<String> allApiFieldNames = state.fields;
+
+
+    IconData typeIcon;
+    Color typeColor;
+    switch (actionType) {
+      case 'form':
+        typeIcon = Icons.assignment;
+        typeColor = Colors.purple;
+        break;
+      case 'print':
+        typeIcon = Icons.print;
+        typeColor = Colors.orange;
+        break;
+      case 'table':
+        typeIcon = Icons.table_chart;
+        typeColor = Colors.teal;
+        break;
+      default:
+        typeIcon = Icons.help_outline;
+        typeColor = Colors.grey;
+    }
 
     return Card(
       color: Colors.white,
@@ -1251,14 +1488,24 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${StringCasingExtension(actionType).toCapitalized()} Action',
-                  style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.blueGrey),
+                Row(
+                  children: [
+                    Icon(typeIcon, color: typeColor, size: 24),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${StringCasingExtension(actionType)
+                          .toCapitalized()} Action',
+                      style: GoogleFonts.poppins(fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: typeColor),
+                    ),
+                  ],
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete, color: Colors.redAccent),
                   onPressed: () {
-                    context.read<EditDetailMakerBloc>().add(RemoveAction(actionId));
+                    context.read<EditDetailMakerBloc>().add(
+                        RemoveAction(actionId));
                   },
                 ),
               ],
@@ -1267,58 +1514,78 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
             const SizedBox(height: 8),
             _buildTextField(
               controller: _actionNameControllers[actionId]!,
-              label: '${StringCasingExtension(actionType).toCapitalized()} Name',
+              label: '${StringCasingExtension(actionType)
+                  .toCapitalized()} Name',
               icon: Icons.title,
               onChanged: (value) {
-                context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'name', value));
+                context.read<EditDetailMakerBloc>().add(
+                    UpdateActionConfig(actionId, 'name', value));
               },
             ),
             const SizedBox(height: 16),
             if (isTableAction) ...[
               Autocomplete<String>(
-                key: _autocompleteFieldKeys.putIfAbsent(actionId, () => GlobalKey()),
-                // Set the initial value for Autocomplete from the BLoC state
-                initialValue: TextEditingValue(text: action['reportLabel']?.toString() ?? ''),
+                key: _autocompleteFieldKeys.putIfAbsent(
+                    actionId, () => GlobalKey()),
                 optionsBuilder: (TextEditingValue textEditingValue) {
-                  print('UI: Autocomplete optionsBuilder - current text: ${textEditingValue.text}');
+                  debugPrint(
+                      'UI: Autocomplete optionsBuilder - current text: ${textEditingValue
+                          .text}, reportLabels: ${reportLabels.length}');
                   if (textEditingValue.text.isEmpty) {
                     return const Iterable<String>.empty();
                   }
                   return reportLabels.where((String option) {
-                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  });
+                    return option.toLowerCase().contains(textEditingValue.text
+                        .toLowerCase());
+                  }).toList();
                 },
                 onSelected: (String selection) {
-                  FocusScope.of(context).unfocus();
-                  print('UI: Autocomplete onSelected: Selected Report Label: $selection');
-                  // Dispatch the event to update the action, resolve API, and fetch parameters
-                  context.read<EditDetailMakerBloc>().add(UpdateTableActionReport(actionId, selection));
+// This is called when a user taps an option.
+// Update the managed controller's text immediately.
+                  _actionReportLabelControllers[actionId]!.text = selection;
+// Dispatch the event to update the action, resolve API, and fetch parameters
+                  context.read<EditDetailMakerBloc>().add(
+                      UpdateTableActionReport(actionId, selection));
                 },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  // Use the TextEditingController provided by Autocomplete for the TextField
+                fieldViewBuilder: (BuildContext context,
+                    TextEditingController textEditingController, // Autocomplete's internal controller
+                    FocusNode focusNode, VoidCallback onFieldSubmitted) {
+// FIX 2: Use Autocomplete's internal controller directly
+// and initialize it with the current BLoC state value.
+// This ensures Autocomplete is the source of truth for the TextField.
+                  textEditingController.text = _actionReportLabelControllers[actionId]!.text;
+                  textEditingController.selection = _actionReportLabelControllers[actionId]!.selection;
+
                   return _buildTextField(
-                    controller: textEditingController, // <--- Use Autocomplete's provided controller
+                    controller: textEditingController, // <-- Use Autocomplete's controller
                     label: 'Select Report Label',
                     icon: Icons.description,
                     focusNode: focusNode,
                     onChanged: (value) {
-                      // Only update the 'reportLabel' string in BLoC as the user types.
-                      // Do NOT trigger API resolution here, that's for onSelected.
-                      context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'reportLabel', value));
+// Update our managed controller (for BLoC sync and potential future re-initialization)
+                      _actionReportLabelControllers[actionId]!.text = value;
+// Dispatch to BLoC. Do NOT trigger API resolution here, that's for onSelected.
+                      context.read<EditDetailMakerBloc>().add(
+                          UpdateActionConfig(actionId, 'reportLabel', value));
                     },
                   );
                 },
-                optionsViewBuilder: (BuildContext context, AutocompleteOnSelected<String> onSelected, Iterable<String> options) {
+                optionsViewBuilder: (BuildContext context,
+                    AutocompleteOnSelected<String> onSelected,
+                    Iterable<String> options) {
                   return LayoutBuilder(
                     builder: (context, constraints) {
-                      final RenderBox? renderBox = _autocompleteFieldKeys[actionId]?.currentContext?.findRenderObject() as RenderBox?;
-                      final double width = renderBox?.size.width ?? constraints.maxWidth;
+                      final RenderBox? renderBox = _autocompleteFieldKeys[actionId]
+                          ?.currentContext?.findRenderObject() as RenderBox?;
+                      final double width = renderBox?.size.width ??
+                          constraints.maxWidth;
 
                       return Align(
                         alignment: Alignment.topLeft,
                         child: Material(
                           elevation: 4.0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8)),
                           child: SizedBox(
                             width: width,
                             child: ListView.builder(
@@ -1328,7 +1595,8 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                               itemBuilder: (BuildContext context, int index) {
                                 final String option = options.elementAt(index);
                                 return ListTile(
-                                  title: Text(option, style: GoogleFonts.poppins()),
+                                  title: Text(
+                                      option, style: GoogleFonts.poppins()),
                                   onTap: () {
                                     onSelected(option);
                                   },
@@ -1347,40 +1615,56 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                 controller: _actionApiControllers[actionId]!,
                 label: 'Resolved API URL',
                 icon: Icons.link,
-                readOnly: true, // This URL is now resolved, not user-editable for table action
-                onChanged: (value) {}, // Keep this onChanged as it's readOnly, won't affect anything
+                readOnly: true,
+// This URL is now resolved, not user-editable for table action
+                onChanged: (
+                    value) {}, // Keep this onChanged as it's readOnly, won't affect anything
               ),
-            ] else if (actionType == 'print') ...[ // Only 'print' allows direct URL input
-              _buildTextField(
-                controller: _actionApiControllers[actionId]!,
-                label: 'API URL',
-                icon: Icons.link,
-                onChanged: (value) {
-                  context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'api', value));
-                  if (value.isNotEmpty && Uri.tryParse(value)?.isAbsolute == true) {
+            ] else
+              if (actionType == 'print') ...[
+// Only 'print' allows direct URL input
+                _buildTextField(
+                  controller: _actionApiControllers[actionId]!,
+                  label: 'API URL',
+                  icon: Icons.link,
+                  onChanged: (value) {
+                    context.read<EditDetailMakerBloc>().add(
+                        UpdateActionConfig(actionId, 'api', value));
+// Debounce the API parameter extraction
                     Future.delayed(const Duration(milliseconds: 700), () {
-                      context.read<EditDetailMakerBloc>().add(ExtractParametersFromUrl(actionId, value));
+// Only dispatch if the value hasn't changed since the delay started
+                      if (_actionApiControllers[actionId]?.text == value &&
+                          value.isNotEmpty && Uri
+                          .tryParse(value)
+                          ?.isAbsolute == true) {
+                        context.read<EditDetailMakerBloc>().add(
+                            ExtractParametersFromUrl(actionId, value));
+                      } else if (value.isEmpty) { // If cleared, remove params
+                        final currentAction = state.actions.firstWhere((
+                            element) => element['id'] == actionId);
+                        if (currentAction['params'] != null &&
+                            currentAction['params'].isNotEmpty) {
+                          context.read<EditDetailMakerBloc>().add(
+                              UpdateActionConfig(actionId, 'params', []));
+                        }
+                      }
                     });
-                  } else {
-                    final currentAction = state.actions.firstWhere((element) => element['id'] == actionId);
-                    if (currentAction['params'] != null && currentAction['params'].isNotEmpty) {
-                      // If the API URL becomes invalid or empty, clear existing parameters
-                      context.read<EditDetailMakerBloc>().add(UpdateActionConfig(actionId, 'params', []));
-                    }
-                  }
-                },
-              ),
-            ],
+                  },
+                ),
+              ],
             if (isPrintOrTable) ...[
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Text('Dynamic Parameters:', style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500)),
+                  Text('Dynamic Parameters:', style: GoogleFonts.poppins(
+                      fontSize: 16, fontWeight: FontWeight.w500)),
                   const Spacer(),
                   IconButton(
-                    icon: const Icon(Icons.add_circle_outline, color: Colors.green),
+                    icon: const Icon(
+                        Icons.add_circle_outline, color: Colors.green),
                     onPressed: () {
-                      context.read<EditDetailMakerBloc>().add(AddActionParameter(actionId, _uuid.v4()));
+                      context.read<EditDetailMakerBloc>().add(
+                          AddActionParameter(actionId, _uuid.v4()));
                     },
                   ),
                 ],
@@ -1393,27 +1677,34 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     children: [
                       SubtleLoader(),
                       SizedBox(width: 8),
-                      Text('Fetching parameters...', style: TextStyle(color: Colors.grey)),
+                      Text('Fetching parameters...',
+                          style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 )
-              else if (action['api']?.isNotEmpty == true && apiParameters.isEmpty && !isFetchingParams)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
-                  child: Text(
-                    'No parameters found for this API, or API is invalid.',
-                    style: GoogleFonts.poppins(color: Colors.redAccent),
+              else
+                if (action['api']?.isNotEmpty == true &&
+                    apiParameters.isEmpty && !isFetchingParams)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Text(
+                      'No parameters found for this API, or API is invalid.',
+                      style: GoogleFonts.poppins(color: Colors.redAccent),
+                    ),
                   ),
-                ),
               Column(
                 children: params.map<Widget>((param) {
                   final paramId = param['id'] as String;
-                  // Ensure the controller exists before using it
-                  if (!_actionParamValueControllers.containsKey(actionId) || !_actionParamValueControllers[actionId]!.containsKey(paramId)) {
-                    // This should ideally not happen if _updateActionControllers is robust,
-                    // but as a fallback, create one.
+// Ensure the controller exists before using it
+                  if (!_actionParamValueControllers.containsKey(actionId) ||
+                      !_actionParamValueControllers[actionId]!.containsKey(
+                          paramId)) {
+// This should ideally not happen if _updateActionControllers is robust,
+// but as a fallback, create one.
                     _actionParamValueControllers[actionId] ??= {};
-                    _actionParamValueControllers[actionId]![paramId] = TextEditingController(text: param['parameterValue']?.toString() ?? '');
+                    _actionParamValueControllers[actionId]![paramId] =
+                        TextEditingController(text: param['parameterValue']
+                            ?.toString() ?? '');
                   }
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -1426,11 +1717,17 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                             decoration: InputDecoration(
                               labelText: 'Parameter Name',
                               labelStyle: GoogleFonts.poppins(),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8)),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 16, horizontal: 12),
                             ),
-                            style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
-                            value: apiParameters.contains(param['parameterName']) ? param['parameterName'] : null,
+                            style: GoogleFonts.poppins(
+                                fontSize: 14, color: Colors.black87),
+                            value: apiParameters.contains(
+                                param['parameterName'])
+                                ? param['parameterName']
+                                : null,
                             items: apiParameters.map((String name) {
                               return DropdownMenuItem<String>(
                                 value: name,
@@ -1439,12 +1736,13 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                             }).toList(),
                             onChanged: (String? newValue) {
                               if (newValue != null) {
-                                context.read<EditDetailMakerBloc>().add(UpdateActionParameter(
-                                  actionId,
-                                  paramId,
-                                  'parameterName',
-                                  newValue,
-                                ));
+                                context.read<EditDetailMakerBloc>().add(
+                                    UpdateActionParameter(
+                                      actionId,
+                                      paramId,
+                                      'parameterName',
+                                      newValue,
+                                    ));
                               }
                             },
                           ),
@@ -1452,23 +1750,136 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                         const SizedBox(width: 8),
                         Expanded(
                           flex: 2,
-                          child: _buildTextField(
-                            controller: _actionParamValueControllers[actionId]![paramId]!,
-                            label: 'Value',
-                            onChanged: (value) {
-                              context.read<EditDetailMakerBloc>().add(UpdateActionParameter(
-                                actionId,
-                                paramId,
-                                'parameterValue',
-                                value,
-                              ));
+                          child: Autocomplete<String>(
+                            optionsBuilder: (
+                                TextEditingValue textEditingValue) {
+                              if (textEditingValue.text.isEmpty) {
+                                return const Iterable<String>.empty();
+                              }
+// FIX 3: Suggest ALL field names from the API, not just selected ones
+                              return allApiFieldNames.where((String option) {
+                                return option.toLowerCase().contains(
+                                    textEditingValue.text.toLowerCase());
+                              }).toList();
+                            },
+                            onSelected: (String selection) {
+                              FocusScope
+                                  .of(context)
+                                  .unfocus(); // Dismiss keyboard
+                              _actionParamValueControllers[actionId]![paramId]!
+                                  .text = selection; // Update controller
+                              context.read<EditDetailMakerBloc>().add(
+                                  UpdateActionParameter(
+                                    actionId,
+                                    paramId,
+                                    'parameterValue',
+                                    selection,
+                                  ));
+                            },
+                            fieldViewBuilder: (BuildContext context,
+                                TextEditingController textEditingController,
+                                FocusNode focusNode,
+                                VoidCallback onFieldSubmitted) {
+// Ensure our managed controller is used and kept in sync
+                              final managedController = _actionParamValueControllers[actionId]![paramId]!;
+                              textEditingController.text = managedController.text;
+                              textEditingController.selection = managedController.selection;
+
+                              return TextField(
+                                controller: textEditingController,
+                                focusNode: focusNode,
+                                style: GoogleFonts.poppins(
+                                    fontSize: 16, color: Colors.black87),
+                                decoration: InputDecoration(
+                                  labelText: 'Value',
+                                  labelStyle: GoogleFonts.poppins(
+                                      color: Colors.grey[700],
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600),
+                                  filled: true,
+                                  fillColor: Colors.white.withOpacity(0.9),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey[500]!, width: 1),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(
+                                        color: Colors.grey[500]!, width: 1),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(
+                                        color: Colors.blueAccent, width: 1.5),
+                                  ),
+                                  contentPadding: const EdgeInsets.symmetric(
+                                      vertical: 16, horizontal: 16),
+                                  floatingLabelBehavior: FloatingLabelBehavior
+                                      .auto,
+                                ),
+                                onChanged: (value) {
+// Update our managed controller and dispatch to BLoC
+                                  managedController.text = value;
+                                  context.read<EditDetailMakerBloc>().add(
+                                      UpdateActionParameter(
+                                        actionId,
+                                        paramId,
+                                        'parameterValue',
+                                        value,
+                                      ));
+                                },
+                              );
+                            },
+                            optionsViewBuilder: (BuildContext context,
+                                AutocompleteOnSelected<String> onSelected,
+                                Iterable<String> options) {
+// Use the GlobalKey for positioning (if available, though not strictly needed here)
+                              final RenderBox? renderBox = context
+                                  .findRenderObject() as RenderBox?;
+                              final double width = renderBox?.size.width ??
+                                  MediaQuery
+                                      .of(context)
+                                      .size
+                                      .width * 0.4; // Fallback width
+
+                              return Align(
+                                alignment: Alignment.topLeft,
+                                child: Material(
+                                  elevation: 4.0,
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8)),
+                                  child: SizedBox(
+                                    width: width,
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      shrinkWrap: true,
+                                      itemCount: options.length,
+                                      itemBuilder: (BuildContext context,
+                                          int index) {
+                                        final String option = options.elementAt(
+                                            index);
+                                        return ListTile(
+                                          title: Text(option,
+                                              style: GoogleFonts.poppins()),
+                                          onTap: () {
+                                            onSelected(option);
+                                          },
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
                             },
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                          icon: const Icon(Icons.remove_circle_outline,
+                              color: Colors.redAccent),
                           onPressed: () {
-                            context.read<EditDetailMakerBloc>().add(RemoveActionParameter(actionId, paramId));
+                            context.read<EditDetailMakerBloc>().add(
+                                RemoveActionParameter(actionId, paramId));
                           },
                         ),
                       ],

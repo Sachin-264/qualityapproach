@@ -1,22 +1,24 @@
-// ReportMainUI.dart
+import 'dart:async'; // Keep this import if needed elsewhere, otherwise can be removed.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-import 'package:intl/intl.dart';
-import '../../ReportUtils/Appbar.dart';
+import 'package:intl/intl.dart'; // Keep this import if needed elsewhere, otherwise can be removed.
+import 'package:qualityapproach/ReportDynamic/ReportGenerator/printdoc.dart';
+import '../../ReportUtils/Appbar.dart'; // Assuming Appbar.dart is still needed for other parts of the app, or this main UI.
 import '../../ReportUtils/CustomPlutogrid.dart';
 import '../../ReportUtils/Export_widget.dart';
 import '../../ReportUtils/subtleloader.dart';
-import '../ReportAPIService.dart'; // Import ReportAPIService for new Bloc instance
-import 'Reportbloc.dart';
+import '../ReportAPIService.dart';
+import 'Reportbloc.dart'; // Assuming Reportbloc.dart contains ReportBlocGenerate and ReportState
 
 class ReportMainUI extends StatelessWidget {
   final String recNo;
   final String apiName;
   final String reportLabel;
   final Map<String, String> userParameterValues;
-  final List<Map<String, dynamic>> actionsConfig; // NEW: Add actionsConfig
+  final List<Map<String, dynamic>> actionsConfig;
 
   const ReportMainUI({
     super.key,
@@ -24,7 +26,7 @@ class ReportMainUI extends StatelessWidget {
     required this.apiName,
     required this.reportLabel,
     required this.userParameterValues,
-    this.actionsConfig = const [], // NEW: Initialize with empty list
+    this.actionsConfig = const [],
   });
 
   // Helper function to format numbers (can be shared or put in a utility file)
@@ -75,7 +77,7 @@ class ReportMainUI extends StatelessWidget {
     required Map<String, double> subtotals,
     required List<Map<String, dynamic>> sortedFieldConfigs,
     required String? breakpointColumnName,
-    required bool hasActionsColumn, // NEW: Parameter to indicate if actions column exists
+    required bool hasActionsColumn,
   }) {
     final Map<String, PlutoCell> subtotalCells = {};
     // Iterate over all possible field names to ensure we populate cells for them
@@ -90,7 +92,7 @@ class ReportMainUI extends StatelessWidget {
 
     for (var fieldName in allFieldNames) {
       final config = sortedFieldConfigs.firstWhere(
-            (cfg) => cfg['Field_name'].toString() == fieldName,
+            (cfg) => cfg['Field_name']?.toString() == fieldName,
         orElse: () => {}, // Provide an empty map if config not found (for hidden fields)
       );
       final isSubtotalColumn = config['SubTotal']?.toString() == '1';
@@ -104,10 +106,7 @@ class ReportMainUI extends StatelessWidget {
         subtotalCells[fieldName] = PlutoCell(value: ''); // Empty for non-subtotal columns
       }
     }
-    // NEW: Add dummy cell for actions column in subtotal row if it exists
-    if (hasActionsColumn) {
-      subtotalCells['__actions__'] = PlutoCell(value: '');
-    }
+    subtotalCells['__actions__'] = PlutoCell(value: ''); // Dummy cell for actions column
     // Mark this row as a subtotal row for custom styling and grand total exclusion
     subtotalCells['__isSubtotal__'] = PlutoCell(value: true);
     return PlutoRow(cells: subtotalCells);
@@ -115,18 +114,17 @@ class ReportMainUI extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine if an actions column should be displayed
     final bool showActionsColumn = actionsConfig.isNotEmpty;
 
     return Scaffold(
-      appBar: AppBarWidget(
+      appBar: AppBarWidget( // Assuming AppbarWidget is still desired for the main report UI.
         title: reportLabel,
         onBackPress: () => Navigator.pop(context),
       ),
       body: BlocListener<ReportBlocGenerate, ReportState>(
         listener: (context, state) {
           if (state.error != null) {
-            print('ReportMainUI error: ${state.error}'); // Log
+            print('ReportMainUI error: ${state.error}');
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error!),
@@ -139,16 +137,15 @@ class ReportMainUI extends StatelessWidget {
           builder: (context, state) {
             print('ReportMainUI rebuild: isLoading=${state.isLoading}, '
                 'fieldConfigs.length=${state.fieldConfigs.length}, '
-                'reportData.length=${state.reportData.length}'); // Log
+                'reportData.length=${state.reportData.length}');
 
             if (state.isLoading) {
-              print('ReportMainUI: Showing loader'); // Log
+              print('ReportMainUI: Showing loader');
               return const Center(child: SubtleLoader());
             }
 
-            // Handle cases where data or configs are empty
             if (state.reportData.isEmpty && !state.isLoading && state.error == null) {
-              print('ReportMainUI: No report data available'); // Log
+              print('ReportMainUI: No report data available');
               return Center(
                 child: Text(
                   state.fieldConfigs.isEmpty
@@ -160,7 +157,7 @@ class ReportMainUI extends StatelessWidget {
               );
             }
             if (state.fieldConfigs.isEmpty) {
-              print('ReportMainUI: No field configurations available'); // Log
+              print('ReportMainUI: No field configurations available');
               return Center(
                 child: Text(
                   'No field configurations available for this report. Please check the report design.',
@@ -174,21 +171,18 @@ class ReportMainUI extends StatelessWidget {
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0')
                   .compareTo(int.parse(b['Sequence_no']?.toString() ?? '0')));
 
-            // Identify breakpoint, subtotal, and IMAGE columns
             String? breakpointColumnName;
             final List<String> subtotalColumnNames = [];
             final Map<String, int> subtotalColumnDecimals = {};
-            final Map<String, bool> numericColumnMap = {}; // To quickly check if a column is numeric
-            final Map<String, bool> imageColumnMap = {}; // NEW: To quickly check if a column is an image column
+            final Map<String, bool> numericColumnMap = {};
+            final Map<String, bool> imageColumnMap = {};
 
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? '';
-              // Consolidated numeric check logic
               final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
                   (config['data_type']?.toString().toLowerCase() == 'number');
               numericColumnMap[fieldName] = isNumeric;
 
-              // NEW: Check for image column
               final isImage = config['image']?.toString() == '1';
               imageColumnMap[fieldName] = isImage;
 
@@ -206,24 +200,20 @@ class ReportMainUI extends StatelessWidget {
                 config['Field_label']?.toString() ?? '': config['Field_name']?.toString() ?? ''
             };
 
-            // Define PlutoGrid columns
             final List<PlutoColumn> columns = [];
 
-            // Add standard data columns
             columns.addAll(sortedFieldConfigs.asMap().entries.map((entry) {
               final i = entry.key;
               final config = entry.value;
               final fieldName = config['Field_name']?.toString() ?? '';
               final fieldLabel = config['Field_label']?.toString() ?? '';
-              // MODIFIED: Increased default width for standard columns
               final width = double.tryParse(config['width']?.toString() ?? '120') ?? 120.0;
-              final total = config['Total']?.toString() == '1'; // For grand total footer
+              final total = config['Total']?.toString() == '1';
               final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
               final decimalPoints = int.tryParse(config['decimal_points']?.toString() ?? '0') ?? 0;
               final isNumeric = numericColumnMap[fieldName] ?? false;
-              final isImageColumn = imageColumnMap[fieldName] ?? false; // Get image column flag
+              final isImageColumn = imageColumnMap[fieldName] ?? false;
 
-              // Create format string for PlutoGrid's internal number type
               String formatString = '#,##0';
               if (decimalPoints > 0) {
                 formatString += '.' + '0' * decimalPoints;
@@ -241,11 +231,10 @@ class ReportMainUI extends StatelessWidget {
                     : PlutoColumnTextAlign.left,
                 enableFilterMenuItem: true,
                 footerRenderer: (rendererContext) {
-                  // This section is for Grand Totals at the very bottom of the grid.
-                  if (i == 0) { // For the first column, display 'Grand Total' label
+                  if (i == 0) {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.count, // Type doesn't matter, we override titleSpanBuilder
+                      type: PlutoAggregateColumnType.count,
                       alignment: Alignment.centerLeft,
                       titleSpanBuilder: (text) {
                         return [
@@ -256,10 +245,9 @@ class ReportMainUI extends StatelessWidget {
                         ];
                       },
                     );
-                  } else if (total && isNumeric) { // For numeric columns marked as 'Total'
+                  } else if (total && isNumeric) {
                     double sum = 0.0;
                     for (var row in rendererContext.stateManager.rows) {
-                      // IMPORTANT: Exclude subtotal rows from grand total calculation
                       if (row.cells.containsKey('__isSubtotal__') && row.cells['__isSubtotal__']!.value == true) {
                         continue;
                       }
@@ -271,7 +259,7 @@ class ReportMainUI extends StatelessWidget {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
                       type: PlutoAggregateColumnType.sum,
-                      format: formatString, // PlutoGrid's format for display if not using titleSpanBuilder
+                      format: formatString,
                       alignment: Alignment.centerRight,
                       titleSpanBuilder: (text) {
                         return [
@@ -283,29 +271,25 @@ class ReportMainUI extends StatelessWidget {
                       },
                     );
                   }
-                  // For other columns in the footer, show nothing
                   return const SizedBox.shrink();
                 },
                 renderer: (rendererContext) {
                   final value = rendererContext.cell.value?.toString() ?? '';
-                  // Check if the current row is a subtotal row using our custom cell marker
                   final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
 
-                  // --- NEW IMAGE RENDERING LOGIC ---
-                  // Only render image if it's an image column, value is not empty, and starts with http(s)
                   if (isImageColumn && value.isNotEmpty && (value.startsWith('http://') || value.startsWith('https://'))) {
-                    return Padding( // Add some padding for visual appeal
+                    return Padding(
                       padding: const EdgeInsets.all(2.0),
-                      child: ClipRRect( // Clip the image to rounded corners
+                      child: ClipRRect(
                         borderRadius: BorderRadius.circular(4.0),
                         child: Image.network(
                           value,
-                          fit: BoxFit.contain, // Ensure image fits within cell boundaries
+                          fit: BoxFit.contain,
                           alignment: Alignment.center,
                           loadingBuilder: (BuildContext context, Widget child, ImageChunkEvent? loadingProgress) {
                             if (loadingProgress == null) return child;
                             return Center(
-                              child: SizedBox( // Give the progress indicator a size
+                              child: SizedBox(
                                 width: 20.0,
                                 height: 20.0,
                                 child: CircularProgressIndicator(
@@ -318,7 +302,7 @@ class ReportMainUI extends StatelessWidget {
                             );
                           },
                           errorBuilder: (BuildContext context, Object exception, StackTrace? stackTrace) {
-                            print('Image loading error for $fieldName: $exception, URL: $value'); // Log
+                            print('Image loading error for $fieldName: $exception, URL: $value');
                             return Center(
                               child: Icon(Icons.broken_image, color: Colors.red[300], size: 24),
                             );
@@ -327,7 +311,6 @@ class ReportMainUI extends StatelessWidget {
                       ),
                     );
                   }
-                  // --- END NEW IMAGE RENDERING LOGIC ---
 
                   Widget textWidget;
 
@@ -347,16 +330,15 @@ class ReportMainUI extends StatelessWidget {
                           : TextAlign.left,
                     );
                   } else {
-                    // For non-numeric cells, especially the subtotal label cell
                     textWidget = Text(
                       value,
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         fontWeight: isSubtotalRow ? FontWeight.bold : FontWeight.normal,
                       ),
-                      textAlign: isSubtotalRow && fieldName == breakpointColumnName // If it's the subtotal label cell
-                          ? TextAlign.left // Force left alignment for the subtotal label
-                          : alignment == 'center' // Otherwise, use configured alignment
+                      textAlign: isSubtotalRow && fieldName == breakpointColumnName
+                          ? TextAlign.left
+                          : alignment == 'center'
                           ? TextAlign.center
                           : alignment == 'right'
                           ? TextAlign.right
@@ -368,22 +350,20 @@ class ReportMainUI extends StatelessWidget {
               );
             }));
 
-            // NEW: Add Actions Column if actionsConfig is present and not empty
+            // Add Actions Column if actionsConfig is present and not empty
             if (showActionsColumn) {
               columns.add(
                 PlutoColumn(
                   title: 'Actions',
-                  field: '__actions__', // A dummy field for the actions column
+                  field: '__actions__',
                   type: PlutoColumnType.text(),
-                  // MODIFIED: Increased width factor for action column
-                  width: actionsConfig.length * 100.0, // Adjust width based on number of buttons, e.g., 100 per button
-                  minWidth: 120, // Minimum width for the column
+                  width: actionsConfig.length * 100.0,
+                  minWidth: 120,
                   enableFilterMenuItem: false,
                   enableSorting: false,
                   enableRowChecked: false,
                   enableContextMenu: false,
                   renderer: (rendererContext) {
-                    // Don't show action buttons for subtotal rows
                     final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
                     if (isSubtotalRow) {
                       return const SizedBox.shrink();
@@ -392,91 +372,115 @@ class ReportMainUI extends StatelessWidget {
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
-                        mainAxisSize: MainAxisSize.min, // Ensure row only takes needed space
+                        mainAxisSize: MainAxisSize.min,
                         children: actionsConfig.map((action) {
                           final String actionName = action['name']?.toString() ?? 'Action';
-                          final String actionApiUrlTemplate = action['api']?.toString() ?? ''; // This is the URL template from actions_config
+                          final String actionType = action['type']?.toString() ?? 'unknown';
+                          final String actionApiUrlTemplate = action['api']?.toString() ?? '';
                           final List<dynamic> actionParamsConfig = List<dynamic>.from(action['params'] ?? []);
                           final String actionRecNoResolved = action['recNo_resolved']?.toString() ?? '';
                           final String actionReportLabel = action['reportLabel']?.toString() ?? 'Action Report';
                           final String actionApiNameResolved = action['apiName_resolved']?.toString() ?? '';
 
+                          // 1. Gather dynamic parameters from the current row
+                          final Map<String, String> dynamicApiParams = {};
+                          for (var paramConfig in actionParamsConfig) {
+                            final paramName = paramConfig['parameterName']?.toString() ?? '';
+                            final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
+
+                            final PlutoCell? cell = rendererContext.row.cells[sourceFieldName];
+                            String valueFromRow = '';
+                            if (cell != null && cell.value != null) {
+                              valueFromRow = cell.value.toString();
+                              // print('DEBUG: Extracted value for parameter "$paramName" from row field "$sourceFieldName": "$valueFromRow" (Type: ${cell.value.runtimeType})');
+                            } else {
+                              // print('DEBUG: WARNING: Cell for source field "$sourceFieldName" is null or its value is null. Parameter "$paramName" will be empty.');
+                            }
+                            if (paramName.isNotEmpty) {
+                              dynamicApiParams[paramName] = valueFromRow;
+                            }
+                          }
+
                           return Padding(
-                            // MODIFIED: Increased horizontal padding for buttons
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
-                              onPressed: () {
-                                // 1. Gather dynamic parameters from the current row
-                                final Map<String, String> dynamicApiParams = {};
-                                for (var paramConfig in actionParamsConfig) {
-                                  final paramName = paramConfig['parameterName']?.toString() ?? '';
-                                  final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
+                              onPressed: () { // Removed 'async' keyword here
+                                print('Action button pressed: $actionName (Type: $actionType)');
+                                print('Action API URL (template): $actionApiUrlTemplate');
+                                print('Dynamic Params for action: $dynamicApiParams');
 
-                                  // --- CRITICAL FIX & LOGGING HERE ---
-                                  final PlutoCell? cell = rendererContext.row.cells[sourceFieldName];
-                                  String valueFromRow = '';
-                                  if (cell != null && cell.value != null) {
-                                    valueFromRow = cell.value.toString();
-                                    print('DEBUG: Extracted value for parameter "$paramName" from row field "$sourceFieldName": "$valueFromRow" (Type: ${cell.value.runtimeType})');
-                                  } else {
-                                    print('DEBUG: WARNING: Cell for source field "$sourceFieldName" is null or its value is null. Parameter "$paramName" will be empty.');
-                                  }
-                                  // --- END CRITICAL FIX & LOGGING ---
-
-                                  // Always add the parameter to dynamicApiParams, even if its value is empty.
-                                  // This allows an empty value from the row to override a default in the template.
-                                  if (paramName.isNotEmpty) {
-                                    dynamicApiParams[paramName] = valueFromRow;
-                                  }
-                                }
-
-                                print('Action button pressed: $actionName'); // Log
-                                print('Action API URL (template): $actionApiUrlTemplate'); // Log
-                                print('Dynamic Params for action: $dynamicApiParams'); // Log // Confirm this now shows the value!
-                                print('Action Report Label: $actionReportLabel'); // Log
-                                print('Action API Name (resolved): $actionApiNameResolved'); // Log
-                                print('Action RecNo (resolved): $actionRecNoResolved'); // Log
-
-                                // 3. Navigate to a new ReportMainUI instance
-                                // It will fetch its own details and data based on apiName and recNo.
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => BlocProvider(
-                                      create: (context) => ReportBlocGenerate(ReportAPIService())
-                                        ..add(FetchApiDetails(actionApiNameResolved, const [])) // Fetch API parameters first
-                                      // Pass the actionApiUrlTemplate to FetchFieldConfigs for API call
-                                        ..add(FetchFieldConfigs(actionRecNoResolved, actionApiNameResolved, actionReportLabel, actionApiUrlTemplate: actionApiUrlTemplate)),
-                                      child: ReportMainUI(
-                                        recNo: actionRecNoResolved,
-                                        apiName: actionApiNameResolved,
-                                        reportLabel: actionReportLabel,
-                                        userParameterValues: dynamicApiParams, // Pass derived parameters for the new report
-                                        actionsConfig: const [], // Action reports typically don't have further nested actions
+                                if (actionType == 'table') {
+                                  // Navigate to a new ReportMainUI instance
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => BlocProvider(
+                                        create: (context) => ReportBlocGenerate(ReportAPIService())
+                                          ..add(FetchApiDetails(actionApiNameResolved, const [])) // Fetches UI-related parameters for the *new* report
+                                        // Pass dynamicApiParams here to override initial default params
+                                          ..add(FetchFieldConfigs(
+                                            actionRecNoResolved,
+                                            actionApiNameResolved,
+                                            actionReportLabel,
+                                            actionApiUrlTemplate: actionApiUrlTemplate,
+                                            dynamicApiParams: dynamicApiParams, // <<< CRITICAL FIX: Pass dynamic params
+                                          )),
+                                        child: ReportMainUI(
+                                          recNo: actionRecNoResolved,
+                                          apiName: actionApiNameResolved,
+                                          reportLabel: actionReportLabel,
+                                          userParameterValues: dynamicApiParams, // This is for the *new* ReportUI to display
+                                          actionsConfig: const [], // Action reports typically don't have further nested actions
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                );
+                                  );
+                                } else if (actionType == 'print') {
+                                  // FIX: Navigate directly to PrintDocumentPage,
+                                  // and let PrintDocumentPage manage its own data fetching via a NEW Bloc instance.
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => BlocProvider( // Create a NEW Bloc instance for PrintDocumentPage
+                                        create: (context) => ReportBlocGenerate(ReportAPIService())
+                                          ..add(FetchDocumentData( // Dispatch data fetch event on this NEW bloc
+                                            apiName: actionApiNameResolved.isNotEmpty ? actionApiNameResolved : apiName, // Fallback to current main apiName if action one is empty
+                                            actionApiUrlTemplate: actionApiUrlTemplate,
+                                            dynamicApiParams: dynamicApiParams,
+                                          )),
+                                        child: PrintDocumentPage( // PrintDocumentPage will read its own bloc's state
+                                          apiName: actionApiNameResolved,
+                                          actionApiUrlTemplate: actionApiUrlTemplate,
+                                          dynamicApiParams: dynamicApiParams,
+                                          reportLabel: actionReportLabel,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                } else if (actionType == 'form') {
+                                  // Form action logic (if applicable)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Form action triggered for $actionName. (Not yet implemented)'), backgroundColor: Colors.orange),
+                                  );
+                                }
                               },
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueAccent, // Consistent button color
-                                // MODIFIED: Enhanced button style
+                                backgroundColor: Colors.blueAccent,
                                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                minimumSize: const Size(60, 30), // Increased minimum size for better tap target
+                                minimumSize: const Size(60, 30),
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                elevation: 2, // A subtle elevation
+                                elevation: 2,
                                 shadowColor: Colors.blueAccent.withOpacity(0.4),
                               ),
                               child: Text(
                                 actionName,
                                 style: GoogleFonts.poppins(
-                                  // MODIFIED: Increased font size for readability
                                   fontSize: 11,
                                   color: Colors.white,
-                                  fontWeight: FontWeight.w600, // Slightly bolder font
+                                  fontWeight: FontWeight.w600,
                                 ),
-                                overflow: TextOverflow.ellipsis, // Handle long button names
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           );
@@ -488,12 +492,11 @@ class ReportMainUI extends StatelessWidget {
               );
             }
 
-
+            // ... (rest of the PlutoGrid setup and data processing remains the same) ...
             final List<PlutoRow> finalRows = [];
             List<Map<String, dynamic>> currentReportData = List.from(state.reportData);
 
             if (breakpointColumnName != null) {
-              // Sort data by the breakpoint column to ensure groups are contiguous
               currentReportData.sort((a, b) {
                 final aValue = a[breakpointColumnName]?.toString() ?? '';
                 final bValue = b[breakpointColumnName]?.toString() ?? '';
@@ -504,86 +507,32 @@ class ReportMainUI extends StatelessWidget {
               Map<String, double> currentGroupSubtotals = {
                 for (var colName in subtotalColumnNames) colName: 0.0
               };
-              List<Map<String, dynamic>> currentGroupDataRows = []; // To hold original data rows of the current group
+              List<Map<String, dynamic>> currentGroupDataRows = [];
 
-              // Helper to add a subtotal row for the completed group
               void addSubtotalRowForGroup(String groupName, List<Map<String, dynamic>> groupRows) {
-                // ONLY add subtotal if there's more than 1 row in the group
-                if (groupRows.length > 1 && subtotalColumnNames.isNotEmpty) {
+                if (groupRows.length > 0 && subtotalColumnNames.isNotEmpty) { // Changed to > 0 to ensure subtotal even for single row groups
                   finalRows.add(_createSubtotalRow(
                     groupName: groupName,
                     subtotals: currentGroupSubtotals,
                     sortedFieldConfigs: sortedFieldConfigs,
                     breakpointColumnName: breakpointColumnName,
-                    hasActionsColumn: showActionsColumn, // NEW: Pass this flag
+                    hasActionsColumn: showActionsColumn,
                   ));
                 }
-                // Reset subtotals and group rows for the next group
                 currentGroupSubtotals = {
                   for (var colName in subtotalColumnNames) colName: 0.0
                 };
-                currentGroupDataRows.clear(); // Clear the group rows for next group
+                currentGroupDataRows.clear();
               }
 
               for (int i = 0; i < currentReportData.length; i++) {
                 final data = currentReportData[i];
                 final rowBreakpointValue = data[breakpointColumnName]?.toString() ?? '';
 
-                // If breakpoint value changes AND we have a previous group to subtotal
                 if (currentBreakpointValue != null && rowBreakpointValue != currentBreakpointValue) {
                   addSubtotalRowForGroup(currentBreakpointValue, currentGroupDataRows);
-                  // After adding subtotal, currentGroupDataRows and subtotals are reset
                 }
 
-                // --- CRITICAL FIX: Populate rowCells with ALL original data keys ---
-                final rowCells = <String, PlutoCell>{};
-                data.forEach((key, value) {
-                  final String fieldName = key.toString();
-                  // Find the corresponding config to check if it's numeric/image, etc.
-                  // Default to non-numeric if no config is found for this field.
-                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
-                        (cfg) => cfg['Field_name']?.toString() == fieldName,
-                    orElse: () => {'Field_name': fieldName, 'data_type': 'text'},
-                  );
-                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
-
-                  rowCells[fieldName] = PlutoCell(
-                    value: isNumeric && value is String && value.isNotEmpty
-                        ? (double.tryParse(value) ?? 0.0) // Convert to double if numeric string
-                        : value, // Use value as-is for other types or non-numeric
-                  );
-                });
-                // --- END CRITICAL FIX ---
-
-                // NEW: Add dummy cell for actions column if it's shown
-                if (showActionsColumn) {
-                  rowCells['__actions__'] = PlutoCell(value: ''); // Action buttons are rendered by the renderer, not based on cell value
-                }
-                // Mark this row as not a subtotal row
-                rowCells['__isSubtotal__'] = PlutoCell(value: false);
-                finalRows.add(PlutoRow(cells: rowCells));
-                currentGroupDataRows.add(data); // Add original data to the current group list
-
-                // Update subtotals for the current group
-                for (var colName in subtotalColumnNames) {
-                  final value = data[colName];
-                  if (value != null) {
-                    final parsedValue = double.tryParse(value.toString()) ?? 0.0;
-                    currentGroupSubtotals[colName] = (currentGroupSubtotals[colName] ?? 0.0) + parsedValue;
-                  }
-                }
-
-                currentBreakpointValue = rowBreakpointValue;
-
-                // If this is the last row, add subtotal for the last group
-                if (i == currentReportData.length - 1) {
-                  addSubtotalRowForGroup(currentBreakpointValue, currentGroupDataRows);
-                }
-              }
-            } else {
-              // No breakpoint column, just add all rows as is without grouping/subtotals
-              finalRows.addAll(state.reportData.map((data) {
-                // --- CRITICAL FIX: Populate rowCells with ALL original data keys ---
                 final rowCells = <String, PlutoCell>{};
                 data.forEach((key, value) {
                   final String fieldName = key.toString();
@@ -599,9 +548,44 @@ class ReportMainUI extends StatelessWidget {
                         : value,
                   );
                 });
-                // --- END CRITICAL FIX ---
+                if (showActionsColumn) {
+                  rowCells['__actions__'] = PlutoCell(value: '');
+                }
+                rowCells['__isSubtotal__'] = PlutoCell(value: false);
+                finalRows.add(PlutoRow(cells: rowCells));
+                currentGroupDataRows.add(data);
 
-                // NEW: Add dummy cell for actions column if it's shown
+                for (var colName in subtotalColumnNames) {
+                  final value = data[colName];
+                  if (value != null) {
+                    final parsedValue = double.tryParse(value.toString()) ?? 0.0;
+                    currentGroupSubtotals[colName] = (currentGroupSubtotals[colName] ?? 0.0) + parsedValue;
+                  }
+                }
+
+                currentBreakpointValue = rowBreakpointValue;
+
+                if (i == currentReportData.length - 1) {
+                  addSubtotalRowForGroup(currentBreakpointValue, currentGroupDataRows);
+                }
+              }
+            } else {
+              finalRows.addAll(state.reportData.map((data) {
+                final rowCells = <String, PlutoCell>{};
+                data.forEach((key, value) {
+                  final String fieldName = key.toString();
+                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
+                        (cfg) => cfg['Field_name']?.toString() == fieldName,
+                    orElse: () => {'Field_name': fieldName, 'data_type': 'text'},
+                  );
+                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
+
+                  rowCells[fieldName] = PlutoCell(
+                    value: isNumeric && value is String && value.isNotEmpty
+                        ? (double.tryParse(value) ?? 0.0)
+                        : value,
+                  );
+                });
                 if (showActionsColumn) {
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
@@ -610,14 +594,14 @@ class ReportMainUI extends StatelessWidget {
               }));
             }
 
-            print('ReportMainUI: CustomPlutoGrid created with columns=${columns.length}, rows=${finalRows.length}'); // Log
+            print('ReportMainUI: CustomPlutoGrid created with columns=${columns.length}, rows=${finalRows.length}');
 
             return Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
                   ExportWidget(
-                    data: state.reportData, // Pass original data for export
+                    data: state.reportData,
                     fileName: reportLabel,
                     headerMap: headerMap,
                     fieldConfigs: sortedFieldConfigs,
@@ -629,18 +613,15 @@ class ReportMainUI extends StatelessWidget {
                   Expanded(
                     child: CustomPlutoGrid(
                       columns: columns,
-                      rows: finalRows, // Use the processed rows with subtotals
-                      // Callback to apply background color to subtotal rows and alternating colors
+                      rows: finalRows,
                       rowColorCallback: (rowContext) {
                         if (rowContext.row.cells.containsKey('__isSubtotal__') && rowContext.row.cells['__isSubtotal__']!.value == true) {
-                          return Colors.grey[200]!; // Light grey background for subtotal rows
+                          return Colors.grey[200]!;
                         }
-                        // For non-subtotal rows, apply alternating colors
                         return rowContext.rowIdx % 2 == 0 ? Colors.white : Colors.grey[50]!;
                       },
                       onChanged: (PlutoGridOnChangedEvent event) {
                         // This callback is for changes *within* the grid cells.
-                        // Removed logging for minor changes
                       },
                     ),
                   ),
