@@ -1,39 +1,35 @@
-// ReportDynamic/ReportGenerator/ReportMainUI.dart
+// ReportDynamic/TableGenerator/TableMainUI.dart
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-
-// ORIGINAL IMPORTS FROM YOUR OLD WORKING CODE
-import '../../ReportUtils/Appbar.dart';
-import '../../ReportUtils/CustomPlutogrid.dart';
-import '../../ReportUtils/Export_widget.dart';
-import '../../ReportUtils/subtleloader.dart';
-import '../ReportAPIService.dart';
-import 'PrintTemp/print_template_selection.dart';
-import 'PrintTemp/printpreview.dart';
-import 'PrintTemp/printservice.dart';
-import 'Reportbloc.dart';
-import 'TableGenerate/TableBLoc.dart' as TableBlocEvents;
-import 'TableGenerate/TableMainUI.dart';
+import 'package:intl/intl.dart'; // Add this import for DateFormat if it's not there
+import 'package:qualityapproach/ReportDynamic/ReportGenerator/PrintTemp/printpreview.dart'; // Ensure this path is correct
 
 
-class ReportMainUI extends StatelessWidget {
+import '../../../ReportUtils/Appbar.dart';
+import '../../../ReportUtils/CustomPlutogrid.dart';
+import '../../../ReportUtils/Export_widget.dart';
+import '../../../ReportUtils/subtleloader.dart';
+import '../../ReportAPIService.dart'; // Adjust path
+import 'TableBLoc.dart';
+
+
+class TableMainUI extends StatelessWidget {
   final String recNo;
   final String apiName;
   final String reportLabel;
   final Map<String, String> userParameterValues;
-  final List<Map<String, dynamic>> actionsConfig;
+  final List<Map<String, dynamic>> actionsConfig; // Actions specific to this table UI
 
-  const ReportMainUI({
+  const TableMainUI({
     super.key,
     required this.recNo,
     required this.apiName,
     required this.reportLabel,
     required this.userParameterValues,
-    this.actionsConfig = const [],
+    this.actionsConfig = const [], // This TableMainUI instance will use the actions it's configured with
   });
 
   // Helper function to format numbers (can be shared or put in a utility file)
@@ -53,7 +49,7 @@ class ReportMainUI extends StatelessWidget {
       if (decimalPoints > 0 && decimalPart.isNotEmpty) {
         result += '.$decimalPart';
       }
-      return isNegative ? '-$result' : '$result'; // Added ₹ symbol for consistency
+      return isNegative ? '-$result' : result;
     }
 
     String lastThree = integerPart.substring(integerPart.length - 3);
@@ -75,7 +71,7 @@ class ReportMainUI extends StatelessWidget {
       result += '.$decimalPart';
     }
 
-    return isNegative ? '-$result' : '$result'; // Added ₹ symbol for consistency
+    return isNegative ? '-$result' : result;
   }
 
   // Helper function to create a subtotal row
@@ -122,17 +118,24 @@ class ReportMainUI extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool showActionsColumn = actionsConfig.isNotEmpty;
+    debugPrint('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
+    // IMPORTANT: Now we use the `actionsConfig` that was passed to this specific instance's constructor.
+    // The BLoC's state will contain the actions for the currently loaded API, but this widget instance
+    // will operate on the actions it was configured with. This is the correct behavior for nested
+    // reports, as the nested report should display its own actions, not its parent's.
+    // However, for the nested TableMainUI, its actionsConfig from the constructor is typically empty,
+    // and its BLoC will fetch its actions from the API definition.
+    final bool showActionsColumnFromConstructor = actionsConfig.isNotEmpty; // Renamed for clarity
 
     return Scaffold(
       appBar: AppBarWidget(
         title: reportLabel,
         onBackPress: () => Navigator.pop(context),
       ),
-      body: BlocListener<ReportBlocGenerate, ReportState>(
+      body: BlocListener<TableBlocGenerate, ReportState>( // Use TableBlocGenerate
         listener: (context, state) {
           if (state.error != null) {
-            debugPrint('ReportMainUI error: ${state.error}');
+            debugPrint('TableMainUI Listener error: ${state.error}');
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error!),
@@ -141,24 +144,26 @@ class ReportMainUI extends StatelessWidget {
             );
           }
         },
-        child: BlocBuilder<ReportBlocGenerate, ReportState>(
+        child: BlocBuilder<TableBlocGenerate, ReportState>( // Use TableBlocGenerate
           builder: (context, state) {
-            debugPrint('ReportMainUI rebuild: isLoading=${state.isLoading}, '
+            debugPrint('TableMainUI BlocBuilder rebuild for "${reportLabel}": isLoading=${state.isLoading}, '
                 'fieldConfigs.length=${state.fieldConfigs.length}, '
-                'reportData.length=${state.reportData.length}');
-            debugPrint('ReportMainUI: actionsConfig in constructor for "$reportLabel": ${actionsConfig.length} items.');
+                'reportData.length=${state.reportData.length}, '
+                'state.actionsConfig.length=${state.actionsConfig.length}'); // Log state's actions
+            debugPrint('TableMainUI BlocBuilder: Actions in BLoC state for "$reportLabel": ${state.actionsConfig.length} items.');
+
 
             // --- IMPROVEMENT START: Reorder rendering conditions to prevent flicker ---
 
             // 1. If currently loading, always show the loader.
             if (state.isLoading) {
-              debugPrint('ReportMainUI: Showing loader');
+              debugPrint('TableMainUI: Showing loader for "${reportLabel}"');
               return const Center(child: SubtleLoader());
             }
 
             // 2. If not loading but there's an error, show the error.
             if (state.error != null) {
-              debugPrint('ReportMainUI: Showing error: ${state.error}');
+              debugPrint('TableMainUI: Showing error for "${reportLabel}": ${state.error}');
               return Center(
                 child: Text(
                   'Error: ${state.error}',
@@ -170,7 +175,7 @@ class ReportMainUI extends StatelessWidget {
 
             // 3. If not loading, no error, but field configurations are empty, it's a configuration issue.
             if (state.fieldConfigs.isEmpty) {
-              debugPrint('ReportMainUI: No field configurations available');
+              debugPrint('TableMainUI: No field configurations available for "${reportLabel}"');
               return Center(
                 child: Text(
                   'No field configurations available for this report. Please check the report design.',
@@ -182,7 +187,7 @@ class ReportMainUI extends StatelessWidget {
 
             // 4. If not loading, no error, field configurations exist, but report data is empty.
             if (state.reportData.isEmpty) {
-              debugPrint('ReportMainUI: No report data available for selected parameters.');
+              debugPrint('TableMainUI: No report data available for "${reportLabel}" for selected parameters.');
               return Center(
                 child: Text(
                   'No report data available for the selected parameters.',
@@ -207,19 +212,33 @@ class ReportMainUI extends StatelessWidget {
 
             bool hasGrandTotals = false;
 
-            // --- Diagnostic Log for Field Configs ---
-            debugPrint('--- ReportMainUI: Field Configs for "$reportLabel" (RecNo: $recNo) ---');
+            // --- Diagnostic Log for Field Configurations ---
+            debugPrint('--- TableMainUI: Field Configs for "$reportLabel" (RecNo: $recNo) ---');
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? 'N/A';
+              final fieldLabel = config['Field_label']?.toString() ?? 'N/A';
+              final dataType = config['data_type']?.toString().toLowerCase();
 
-              // ******* FIX START *******
-              // Extend the hardcoded list for numeric identification
-              final bool isNumeric = [
-                'VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount',
-                'Excise', 'Cess', 'HSCess', 'Freight', 'TCS' // Added these based on log
-              ].contains(fieldName) || (config['data_type']?.toString().toLowerCase() == 'number');
-              numericColumnMap[fieldName] = isNumeric;
-              // ******* FIX END *******
+              // --- IMPROVED ISNUMERIC DETECTION LOGIC ---
+              bool currentFieldIsNumeric = false;
+              if (dataType == 'number' || dataType == 'decimal' || dataType == 'integer') {
+                currentFieldIsNumeric = true;
+              } else if (
+              config['Total']?.toString() == '1' || // If it has 'Total' flag, assume numeric for aggregation
+                  config['SubTotal']?.toString() == '1' || // If it has 'SubTotal' flag, assume numeric for aggregation
+                  ['vq_grandtotal', 'qty', 'rate', 'grandtotal', 'value', 'amount'].contains(fieldName.toLowerCase()) ||
+                  fieldName.toLowerCase().contains('qty') ||
+                  fieldName.toLowerCase().contains('rate') ||
+                  fieldName.toLowerCase().contains('total') ||
+                  fieldName.toLowerCase().contains('value') ||
+                  fieldName.toLowerCase().contains('amount') ||
+                  fieldName.toLowerCase().contains('no') // Added for InvoiceNo etc.
+              ) {
+                currentFieldIsNumeric = true;
+              }
+              numericColumnMap[fieldName] = currentFieldIsNumeric;
+              // --- END IMPROVED ISNUMERIC DETECTION LOGIC ---
+
 
               final isImage = config['image']?.toString() == '1';
               imageColumnMap[fieldName] = isImage;
@@ -227,16 +246,16 @@ class ReportMainUI extends StatelessWidget {
               if (config['Breakpoint']?.toString() == '1') {
                 breakpointColumnName = fieldName;
               }
-              if (config['SubTotal']?.toString() == '1' && isNumeric) {
+              if (config['SubTotal']?.toString() == '1' && currentFieldIsNumeric) {
                 subtotalColumnNames.add(fieldName);
                 subtotalColumnDecimals[fieldName] = int.tryParse(config['decimal_points']?.toString() ?? '0') ?? 0;
               }
-              if (config['Total']?.toString() == '1' && isNumeric) {
+              if (config['Total']?.toString() == '1' && currentFieldIsNumeric) {
                 hasGrandTotals = true;
               }
-              debugPrint('  Field: $fieldName, Label: ${config['Field_label']}, Type: ${config['data_type']}, '
+              debugPrint('  Field: $fieldName, Label: $fieldLabel, Type: $dataType, '
                   'Total: ${config['Total']}, SubTotal: ${config['SubTotal']}, Breakpoint: ${config['Breakpoint']}, '
-                  'Decimal: ${config['decimal_points']}, Width: ${config['width']}');
+                  'Decimal: ${config['decimal_points']}, Width: ${config['width']}, DetectedNumeric: ${numericColumnMap[fieldName]}');
             }
             debugPrint('  Calculated Properties: hasGrandTotals=$hasGrandTotals, breakpointColumnName=$breakpointColumnName, subtotalColumns=$subtotalColumnNames');
             debugPrint('----------------------------------------------------');
@@ -258,7 +277,7 @@ class ReportMainUI extends StatelessWidget {
               final total = config['Total']?.toString() == '1';
               final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
               final decimalPoints = int.tryParse(config['decimal_points']?.toString() ?? '0') ?? 0;
-              final isNumeric = numericColumnMap[fieldName] ?? false; // Use the value determined earlier
+              final isNumeric = numericColumnMap[fieldName] ?? false; // Use the map here
               final isImageColumn = imageColumnMap[fieldName] ?? false;
 
               String formatString = '#,##0';
@@ -282,12 +301,10 @@ class ReportMainUI extends StatelessWidget {
                     return const SizedBox.shrink();
                   }
 
-                  // The "Grand Total" label should ideally be on a non-numeric column, or the first column.
-                  // This condition places the 'Grand Total' label on the first column (index 0).
                   if (i == 0) {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.count, // Type count just to get the aggregate footer layout
+                      type: PlutoAggregateColumnType.count,
                       alignment: Alignment.centerLeft,
                       titleSpanBuilder: (text) {
                         return [
@@ -298,7 +315,7 @@ class ReportMainUI extends StatelessWidget {
                         ];
                       },
                     );
-                  } else if (total && isNumeric) { // This condition correctly applies to other numeric total columns
+                  } else if (total && isNumeric) { // Use isNumeric here
                     double sum = 0.0;
                     for (var row in rendererContext.stateManager.rows) {
                       // Exclude subtotal rows from grand total calculation
@@ -313,11 +330,9 @@ class ReportMainUI extends StatelessWidget {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
                       type: PlutoAggregateColumnType.sum,
-                      // The 'format' here is for PlutoGrid's internal formatting if not using titleSpanBuilder
                       format: formatString,
                       alignment: Alignment.centerRight,
                       titleSpanBuilder: (text) {
-                        // Custom rendering to apply your Indian number format
                         return [
                           TextSpan(
                             text: formattedTotal,
@@ -406,14 +421,17 @@ class ReportMainUI extends StatelessWidget {
               );
             }));
 
-            // Add Actions Column if actionsConfig is present and not empty
-            if (showActionsColumn) {
+            // Use the actions from the BLoC state for rendering the actions column
+            final bool showActionsColumnFromState = state.actionsConfig.isNotEmpty;
+            debugPrint('TableMainUI: Will render actions column: $showActionsColumnFromState (from BLoC state)');
+
+            if (showActionsColumnFromState) {
               columns.add(
                 PlutoColumn(
                   title: 'Actions',
                   field: '__actions__',
                   type: PlutoColumnType.text(),
-                  width: actionsConfig.length * 100.0,
+                  width: state.actionsConfig.length * 100.0, // Use BLoC state's actions for width
                   minWidth: 120,
                   enableFilterMenuItem: false,
                   enableSorting: false,
@@ -429,16 +447,15 @@ class ReportMainUI extends StatelessWidget {
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: actionsConfig.map((action) {
+                        children: state.actionsConfig.map((action) { // Use BLoC state's actions here
                           final String actionName = action['name']?.toString() ?? 'Action';
                           final String actionType = action['type']?.toString() ?? 'unknown';
                           final String actionApiUrlTemplate = action['api']?.toString() ?? '';
                           final List<dynamic> actionParamsConfig = List<dynamic>.from(action['params'] ?? []);
                           final String actionRecNoResolved = action['recNo_resolved']?.toString() ?? '';
                           final String actionReportLabel = action['reportLabel']?.toString() ?? 'Action Report';
-                          // Removed actionApiNameResolved as it's not needed by PrintPreviewPage anymore
+                          final String actionApiNameResolved = action['apiName_resolved']?.toString() ?? '';
 
-                          // 1. Gather dynamic parameters from the current row
                           final Map<String, String> dynamicApiParams = {};
                           for (var paramConfig in actionParamsConfig) {
                             final paramName = paramConfig['parameterName']?.toString() ?? '';
@@ -457,65 +474,56 @@ class ReportMainUI extends StatelessWidget {
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
-                              onPressed: () async { // Keep async as we await dialog
-                                debugPrint('Action button pressed: $actionName (Type: $actionType)');
-                                debugPrint('Action API URL (template): $actionApiUrlTemplate');
-                                debugPrint('Dynamic Params for action: $dynamicApiParams');
+                              onPressed: () {
+                                debugPrint('TableMainUI Action button pressed: $actionName (Type: $actionType)');
+                                debugPrint('TableMainUI Action API URL (template): $actionApiUrlTemplate');
+                                debugPrint('TableMainUI Dynamic Params for action: $dynamicApiParams');
 
                                 if (actionType == 'table') {
-                                  // Navigate to a new ReportMainUI instance
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) => BlocProvider(
-                                        create: (context) => TableBlocEvents.TableBlocGenerate(ReportAPIService())
-                                          ..add(TableBlocEvents.FetchApiDetails(actionReportLabel, const [])) // Pass a logical name for ApiDetails, not a URL
-                                          ..add(TableBlocEvents.FetchFieldConfigs(
+                                        create: (context) => TableBlocGenerate(ReportAPIService())
+                                          ..add(FetchApiDetails(actionApiNameResolved, const []))
+                                          ..add(FetchFieldConfigs(
                                             actionRecNoResolved,
-                                            actionReportLabel, // Use label as the API name identifier here if it's unique enough for your config system
+                                            actionApiNameResolved,
                                             actionReportLabel,
                                             actionApiUrlTemplate: actionApiUrlTemplate,
                                             dynamicApiParams: dynamicApiParams,
                                           )),
                                         child: TableMainUI(
                                           recNo: actionRecNoResolved,
-                                          apiName: actionReportLabel, // Use label as the API name identifier here
+                                          apiName: actionApiNameResolved,
                                           reportLabel: actionReportLabel,
                                           userParameterValues: dynamicApiParams,
-                                          actionsConfig: const [],
+                                          actionsConfig: const [], // Actions will be fetched by the nested TableBloc
                                         ),
                                       ),
                                     ),
                                   );
-                                }else if (actionType == 'print') {
-                                  // Show template and color selection dialog
-                                  final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(
-                                    context: context,
-                                    builder: (BuildContext dialogContext) {
-                                      return const ReportTemplateSelectionDialog();
-                                    },
-                                  );
-
-                                  if (result != null) {
-                                    debugPrint('Selected print template: ${result.template.displayName}, Color: ${result.color}');
-                                    // Navigate to PrintPreviewPage
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => PrintPreviewPage(
-                                          actionApiUrlTemplate: actionApiUrlTemplate,
-                                          dynamicApiParams: dynamicApiParams,
-                                          reportLabel: actionReportLabel,
-                                          selectedTemplate: result.template,
-                                          selectedColor: result.color,
-                                        ),
+                                } else if (actionType == 'print') {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => BlocProvider(
+                                        create: (context) => TableBlocGenerate(ReportAPIService()) // Assuming PrintDocumentPage also uses TableBloc for consistency
+                                          ..add(FetchDocumentData(
+                                            apiName: actionApiNameResolved.isNotEmpty ? actionApiNameResolved : apiName,
+                                            actionApiUrlTemplate: actionApiUrlTemplate,
+                                            dynamicApiParams: dynamicApiParams,
+                                          )),
+                                        // child: PrintDocumentPage(
+                                        //   apiName: actionApiNameResolved,
+                                        //   actionApiUrlTemplate: actionApiUrlTemplate,
+                                        //   dynamicApiParams: dynamicApiParams,
+                                        //   reportLabel: actionReportLabel,
+                                        // ),
                                       ),
-                                    );
-                                  } else {
-                                    debugPrint('No print template or color selected.');
-                                  }
+                                    ),
+                                  );
                                 } else if (actionType == 'form') {
-                                  // Form action logic (if applicable)
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(content: Text('Form action triggered for $actionName. (Not yet implemented)'), backgroundColor: Colors.orange),
                                   );
@@ -572,8 +580,8 @@ class ReportMainUI extends StatelessWidget {
                     subtotals: currentGroupSubtotals,
                     sortedFieldConfigs: sortedFieldConfigs,
                     breakpointColumnName: breakpointColumnName,
-                    hasActionsColumn: showActionsColumn,
-                    actionsConfigForSubtotalRow: actionsConfig,
+                    hasActionsColumn: showActionsColumnFromState, // Use BLoC state's actions
+                    actionsConfigForSubtotalRow: state.actionsConfig, // Pass this to the helper
                   ));
                 }
                 currentGroupSubtotals = {
@@ -593,11 +601,8 @@ class ReportMainUI extends StatelessWidget {
                 final rowCells = <String, PlutoCell>{};
                 data.forEach((key, value) {
                   final String fieldName = key.toString();
-                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
-                        (cfg) => cfg['Field_name']?.toString() == fieldName,
-                    orElse: () => {'Field_name': fieldName, 'data_type': 'text'},
-                  );
-                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
+                  // Use the determined numeric status from the map
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false;
 
                   rowCells[fieldName] = PlutoCell(
                     value: isNumeric && value is String && value.isNotEmpty
@@ -605,7 +610,7 @@ class ReportMainUI extends StatelessWidget {
                         : value,
                   );
                 });
-                if (showActionsColumn) {
+                if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
@@ -631,11 +636,8 @@ class ReportMainUI extends StatelessWidget {
                 final rowCells = <String, PlutoCell>{};
                 data.forEach((key, value) {
                   final String fieldName = key.toString();
-                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
-                        (cfg) => cfg['Field_name']?.toString() == fieldName,
-                    orElse: () => {'Field_name': fieldName, 'data_type': 'text'},
-                  );
-                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
+                  // Use the determined numeric status from the map
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false;
 
                   rowCells[fieldName] = PlutoCell(
                     value: isNumeric && value is String && value.isNotEmpty
@@ -643,7 +645,7 @@ class ReportMainUI extends StatelessWidget {
                         : value,
                   );
                 });
-                if (showActionsColumn) {
+                if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
@@ -651,7 +653,7 @@ class ReportMainUI extends StatelessWidget {
               }));
             }
 
-            debugPrint('ReportMainUI: CustomPlutoGrid created with columns=${columns.length}, rows=${finalRows.length}');
+            debugPrint('TableMainUI: CustomPlutoGrid created for "${reportLabel}" with columns=${columns.length}, rows=${finalRows.length}');
 
             return Padding(
               padding: const EdgeInsets.all(16.0),

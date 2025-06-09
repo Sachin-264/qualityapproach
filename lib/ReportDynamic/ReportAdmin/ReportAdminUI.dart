@@ -461,7 +461,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
       create: (context) => _bloc,
       child: Scaffold(
         appBar: AppBarWidget(
-          title: 'Database Server Configuration',
+          title: 'Sachin Database',
           onBackPress: () => Navigator.pop(context),
         ),
         body: BlocConsumer<ReportAdminBloc, ReportAdminState>(

@@ -1,18 +1,19 @@
-// ReportBloc.dart
+// ReportDynamic/TableGenerator/Tablebloc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
-import '../ReportAPIService.dart';
+import '../../ReportAPIService.dart'; // Adjust path
 import 'package:flutter/foundation.dart'; // For debugPrint
 
 // --- Events ---
+// Keep ReportEvent and ReportState as they are generic enough
 abstract class ReportEvent {}
 
 class LoadReports extends ReportEvent {}
 
 class FetchApiDetails extends ReportEvent {
   final String apiName;
-  final List<Map<String, dynamic>> actionsConfig; // Kept as requested
+  final List<Map<String, dynamic>> actionsConfig; // Kept for consistency, but often empty for nested calls
 
   FetchApiDetails(this.apiName, this.actionsConfig);
 }
@@ -161,10 +162,10 @@ class ReportState {
 }
 
 // --- BLoC Implementation ---
-class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
+class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from ReportBlocGenerate
   final ReportAPIService apiService;
 
-  ReportBlocGenerate(this.apiService) : super(ReportState()) {
+  TableBlocGenerate(this.apiService) : super(ReportState()) {
     on<LoadReports>(_onLoadReports);
     on<FetchApiDetails>(_onFetchApiDetails);
     on<UpdateParameter>(_onUpdateParameter);
@@ -179,10 +180,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     try {
       final reports = await apiService.fetchDemoTable();
       emit(state.copyWith(isLoading: false, reports: reports));
-      debugPrint('Bloc: Loaded ${reports.length} reports for selection.');
+      debugPrint('TableBloc: Loaded ${reports.length} reports for selection.');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to load reports: $e'));
-      debugPrint('Bloc: LoadReports error: $e');
+      debugPrint('TableBloc: LoadReports error: $e');
     }
   }
 
@@ -200,10 +201,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       userName: null,
       password: null,
       databaseName: null,
-      // Do NOT clear actionsConfig here using `[]` as it will be explicitly set below
       documentData: null,
       reportData: [],
       fieldConfigs: [],
+      actionsConfig: [], // Clear actions here to ensure a fresh fetch
     ));
     try {
       final apiDetails = await apiService.getApiDetails(event.apiName);
@@ -218,15 +219,9 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       final String? password = apiDetails['password']?.toString();
       final String? databaseName = apiDetails['databaseName']?.toString();
 
-      // Determine the final actions config for the state:
-      // Prefer actions from the API response for this specific API.
-      List<Map<String, dynamic>> finalActionsConfig = List<Map<String, dynamic>>.from(apiDetails['actions'] ?? []);
-
-      // Fallback: If API did not provide actions, but the event did (e.g., from main UI's metadata), use event's actions.
-      // This ensures that the main report's actions, which might be sourced from its initial metadata fetch, are preserved.
-      if (finalActionsConfig.isEmpty && event.actionsConfig.isNotEmpty) {
-        finalActionsConfig = event.actionsConfig;
-      }
+      // **IMPORTANT CHANGE HERE:** Directly use actions from the API response
+      List<Map<String, dynamic>> fetchedActions = List<Map<String, dynamic>>.from(apiDetails['actions'] ?? []);
+      debugPrint('TableBloc: API "${event.apiName}" returned ${fetchedActions.length} actions.');
 
 
       for (var param in fetchedParameters) {
@@ -239,7 +234,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
               final DateTime parsedDate = DateTime.parse(paramValue);
               paramValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
             } catch (e) {
-              debugPrint('Bloc: Warning: Failed to parse initial date parameter $paramName: $paramValue. Error: $e');
+              debugPrint('TableBloc: Warning: Failed to parse initial date parameter $paramName: $paramValue. Error: $e');
             }
           }
           initialUserParameterValues[paramName] = paramValue;
@@ -256,13 +251,13 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         userName: userName,
         password: password,
         databaseName: databaseName,
-        actionsConfig: finalActionsConfig, // Set the actionsConfig in BLoC state
+        actionsConfig: fetchedActions, // Set the actionsConfig in BLoC state based on THIS API's details
         error: null,
       ));
-      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${finalActionsConfig.isNotEmpty ? finalActionsConfig.length : 'empty'} items.');
+      debugPrint('TableBloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${fetchedActions.length} items.');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to fetch API details: $e'));
-      debugPrint('Bloc: FetchApiDetails error: $e');
+      debugPrint('TableBloc: FetchApiDetails error: $e');
     }
   }
 
@@ -270,14 +265,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     final updatedUserParams = Map<String, String>.from(state.userParameterValues);
     updatedUserParams[event.paramName] = event.value;
     emit(state.copyWith(userParameterValues: updatedUserParams));
-    debugPrint('Bloc: Updated parameter ${event.paramName} to: ${event.value}');
+    debugPrint('TableBloc: Updated parameter ${event.paramName} to: ${event.value}');
   }
 
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, reportData: [])); // Clear previous report data
 
-    debugPrint('Bloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
-    debugPrint('Bloc: FetchFieldConfigs: Dynamic parameters provided for API call: ${event.dynamicApiParams}');
+    debugPrint('TableBloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
+    debugPrint('TableBloc: FetchFieldConfigs: Dynamic parameters provided for API call: ${event.dynamicApiParams}');
 
     try {
       final fieldConfigs = await apiService.fetchDemoTable2(event.recNo);
@@ -292,10 +287,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
       if (apiResponse['status'] == 200) {
         reportData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
-        debugPrint('Bloc: Fetched ${reportData.length} rows for grid report.');
+        debugPrint('TableBloc: Fetched ${reportData.length} rows for grid report.');
       } else {
         errorMessage = apiResponse['error'] ?? 'Unexpected error occurred. Please try again.';
-        debugPrint('Bloc: API response status not 200 for grid report: $errorMessage');
+        debugPrint('TableBloc: API response status not 200 for grid report: $errorMessage');
       }
 
       final newState = state.copyWith(
@@ -309,13 +304,13 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         documentData: null,
       );
       emit(newState);
-      debugPrint('Bloc: FetchFieldConfigs success.');
+      debugPrint('TableBloc: FetchFieldConfigs success.');
     } catch (e) {
       List<Map<String, dynamic>> fieldConfigsFallback = [];
       try {
         fieldConfigsFallback = await apiService.fetchDemoTable2(event.recNo);
       } catch (e2) {
-        debugPrint('Bloc: Error fetching field configs fallback: $e2');
+        debugPrint('TableBloc: Error fetching field configs fallback: $e2');
       }
 
       final newState = state.copyWith(
@@ -331,15 +326,15 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         documentData: null,
       );
       emit(newState);
-      debugPrint('Bloc: FetchFieldConfigs: Error, error=$e');
+      debugPrint('TableBloc: FetchFieldConfigs: Error, error=$e');
     }
   }
 
   Future<void> _onFetchDocumentData(FetchDocumentData event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, documentData: null));
 
-    debugPrint('Bloc: FetchDocumentData: Starting for API=${event.apiName}, URL=${event.actionApiUrlTemplate}');
-    debugPrint('Bloc: FetchDocumentData: Dynamic parameters for API call: ${event.dynamicApiParams}');
+    debugPrint('TableBloc: FetchDocumentData: Starting for API=${event.apiName}, URL=${event.actionApiUrlTemplate}');
+    debugPrint('TableBloc: FetchDocumentData: Dynamic parameters for API call: ${event.dynamicApiParams}');
 
     try {
       final apiResponse = await apiService.fetchApiDataWithParams(
@@ -355,14 +350,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         final List<Map<String, dynamic>> rawData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
         if (rawData.isNotEmpty) {
           fetchedDocumentData = rawData.first;
-          debugPrint('Bloc: Fetched document data successfully.');
+          debugPrint('TableBloc: Fetched document data successfully.');
         } else {
           errorMessage = 'No data returned for document view.';
-          debugPrint('Bloc: No data for document view.');
+          debugPrint('TableBloc: No data for document view.');
         }
       } else {
         errorMessage = apiResponse['error'] ?? 'Unexpected error occurred while fetching document data.';
-        debugPrint('Bloc: API response status not 200 for document data: $errorMessage');
+        debugPrint('TableBloc: API response status not 200 for document data: $errorMessage');
       }
 
       emit(state.copyWith(
@@ -370,7 +365,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         documentData: fetchedDocumentData,
         error: errorMessage,
       ));
-      debugPrint('Bloc: FetchDocumentData success/failure handled.');
+      debugPrint('TableBloc: FetchDocumentData success/failure handled.');
     } catch (e) {
       final newState = state.copyWith(
         isLoading: false,
@@ -380,19 +375,19 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
             : 'Failed to fetch document data: $e',
       );
       emit(newState);
-      debugPrint('Bloc: FetchDocumentData error: $e');
+      debugPrint('TableBloc: FetchDocumentData error: $e');
     }
   }
 
   Future<void> _onFetchPickerOptions(FetchPickerOptions event, Emitter<ReportState> emit) async {
     if (state.pickerOptions.containsKey(event.paramName) && state.pickerOptions[event.paramName]!.isNotEmpty) {
-      debugPrint('Bloc: Picker options for ${event.paramName} already loaded. Skipping re-fetch.');
+      debugPrint('TableBloc: Picker options for ${event.paramName} already loaded. Skipping re-fetch.');
       return;
     }
 
     emit(state.copyWith(isLoading: true, error: null));
     try {
-      debugPrint('Bloc: Fetching picker values for param: ${event.paramName}, masterTable: ${event.masterTable}, masterField: ${event.masterField}, displayField: ${event.displayField}');
+      debugPrint('TableBloc: Fetching picker values for param: ${event.paramName}, masterTable: ${event.masterTable}, masterField: ${event.masterField}, displayField: ${event.displayField}');
       final List<Map<String, dynamic>> fetchedData = await apiService.fetchPickerData(
         server: event.serverIP!,
         UID: event.userName!,
@@ -414,10 +409,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       updatedPickerOptions[event.paramName] = mappedOptions;
 
       emit(state.copyWith(isLoading: false, pickerOptions: updatedPickerOptions, error: null));
-      debugPrint('Bloc: FetchPickerOptions success for ${event.paramName}.');
+      debugPrint('TableBloc: FetchPickerOptions success for ${event.paramName}.');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to load options for ${event.paramName}: $e'));
-      debugPrint('Bloc: Error fetching picker options for ${event.paramName}: $e');
+      debugPrint('TableBloc: Error fetching picker options for ${event.paramName}: $e');
     }
   }
 
@@ -441,6 +436,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       actionsConfig: [], // Clear actions config on a full reset
       error: null,
     ));
-    debugPrint('Bloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');
+    debugPrint('TableBloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');
   }
 }

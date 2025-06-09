@@ -64,37 +64,18 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         for (var i = 0; i < parameters.length; i++) {
           _paramControllers[i] ??= TextEditingController(); // Ensure controller is created
 
-          // Determine the display value for picker fields using master_table, master_field, display_field
           final param = parameters[i];
           String valueToDisplay = param['value']?.toString() ?? ''; // Default to actual value
           final String? masterTable = param['master_table']?.toString();
           final String? masterField = param['master_field']?.toString();
-          final String? displayField = param['display_field']?.toString(); // Get display_field
+          final String? displayField = param['display_field']?.toString();
 
-          if (masterTable != null && masterTable.isNotEmpty &&
-              masterField != null && masterField.isNotEmpty &&
-              displayField != null && displayField.isNotEmpty &&
-              valueToDisplay.isNotEmpty &&
-              context.read<EditDetailAdminBloc>().state.serverIP != null &&
-              context.read<EditDetailAdminBloc>().state.userName != null &&
-              context.read<EditDetailAdminBloc>().state.password != null &&
-              context.read<EditDetailAdminBloc>().state.databaseName != null
-          ) {
-            // For simplicity, I'm NOT trying to fetch picker options here to populate
-            // the display_field initially as that would make initState async.
-            // The _SelectFieldValuesModal is where the display field logic is truly important.
-            // If a user has pre-selected "E" for Branch, and "EAST" is its display,
-            // when this page loads, it might show "E" first.
-            // This can be enhanced by fetching display labels for *all* picker params in bloc init,
-            // or allowing UI to update when the `_SelectFieldValuesModal` sends back.
-            // For now, the text controller gets the "value" directly from API, and modal interaction
-            // correctly sets it.
-            // If you want initial loading of actual display values in the main form for previously
-            // selected pickers, it needs to be part of EditDetailAdminBloc's state as well.
-            // Given the context of a new `_SelectFieldValuesModal` showing, this approach is more isolated.
-
-          }
-
+          // If it's a picker field and has a display_field, try to set the initial text to the display value
+          // This requires fetching the display value if only the master value is known,
+          // which is typically done by the BLoC or by the modal itself.
+          // For simplicity and to avoid making initState async for every param,
+          // the controller initially gets the raw `value` from the API.
+          // The modal interaction correctly updates it with the display_label.
           _paramControllers[i]!.text = valueToDisplay; // Set the text field content
 
           if (!_paramControllers[i]!.hasListeners) { // Avoid adding duplicate listeners
@@ -287,7 +268,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     required IconData icon,
   }) {
     return ElevatedButton(
-      onPressed: onPressed,
+      onPressed: onPressed, // The onPressed is directly passed, handling null/empty for disabled state
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -462,18 +443,15 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         // Only update if the text is different to avoid infinite loops or cursor issues
         final currentText = _paramControllers[index]!.text;
         final newValueFromBloc = param['value']?.toString() ?? '';
+        // If a display_label exists in state, it might be better to set the controller text to that.
+        // For this specific setup, the `_SelectFieldValuesModal` returns `display_label`
+        // which updates the controller directly, so the value from bloc's `parameters[i]['value']`
+        // is the *master* value. We rely on the modal to update the controller.
+        // If the bloc needs to hold the display_label too, it should be added to the state.
+        // For now, _paramControllers[index]!.text reflects the actual value from the API,
+        // and the modal will update it with the 'display_label' if chosen.
         if (currentText != newValueFromBloc) {
           _paramControllers[index]!.text = newValueFromBloc;
-          // IMPORTANT: If we also have a `display_field`, we need to get its label from the modal result.
-          // This would ideally come from the modal, but here we just pass the raw value from the bloc.
-          // If the selected parameter from the modal has a display_field, the controller's text
-          // would be the *display* value (e.g. "EAST") while the bloc parameter value is the *master* value ("E").
-          // The current setup uses 'value' directly from state for _paramControllers text.
-          // This means if "E" is saved, the field shows "E".
-          // If you want "EAST" to show when "E" is selected, the bloc state for 'parameters'
-          // needs to hold BOTH the master value (for API) AND the display label (for UI).
-          // Or, when the modal returns a result, we update _paramControllers[index].text with the display label.
-          // Let's modify the modal to return the display value to update the controller.
         }
       }
 
@@ -643,8 +621,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
           return Stack(
             children: [
               SingleChildScrollView(
+                // Adjusted padding to reduce left (and right) space
                 child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 16.0),
                   child: Card(
                     color: Colors.white,
                     elevation: 6,
@@ -695,7 +674,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               ),
                               const SizedBox(width: 16),
                               Expanded(
-                                child: state.isLoading && state.availableDatabases.isEmpty
+                                child: state.isLoading && state.availableDatabases.isEmpty // Only show loader if no databases are fetched yet
                                     ? const Center(
                                   child: Padding(
                                     padding: EdgeInsets.symmetric(horizontal: 20.0),
@@ -767,8 +746,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               _buildButton(
                                 text: 'Save',
                                 color: Colors.blueAccent,
+                                // Disable button when isLoading is true
                                 onPressed: state.isLoading
-                                    ? () {}
+                                    ? () {} // Empty function disables the button
                                     : () {
                                   context.read<EditDetailAdminBloc>().add(SaveChanges());
                                 },
@@ -778,7 +758,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               _buildButton(
                                 text: 'Cancel',
                                 color: Colors.grey,
-                                onPressed: () => Navigator.pop(context),
+                                // Also disable cancel during save to prevent navigation mid-operation
+                                onPressed: state.isLoading
+                                    ? () {}
+                                    : () => Navigator.pop(context),
                                 icon: Icons.cancel,
                               ),
                             ],
@@ -789,6 +772,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                   ),
                 ),
               ),
+              // Show loader on top of the content when isLoading is true
               if (state.isLoading)
                 const Center(
                   child: SubtleLoader(),
@@ -1339,7 +1323,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                     if (!context.mounted) return;
                     Navigator.pop(context); // Pop without result
                   },
-                  child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.redAccent)),
+                  child: Text('Close', style: GoogleFonts.poppins(color: Colors.redAccent)),
                 ),
               ),
             ],

@@ -89,7 +89,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
 // but kept here for fields not in Autocomplete if you explicitly need it.
     for (var controller in [
       _reportNameController,
-      _reportLabelController, // This one will be problematic if not careful
+      _reportLabelController,
       _apiController,
       _fieldNameController,
       _fieldLabelController,
@@ -140,6 +140,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
 // Dispose all controllers in the maps
     _actionNameControllers.forEach((_, controller) => controller.dispose());
     _actionApiControllers.forEach((_, controller) => controller.dispose());
+// Dispose actionReportLabelControllers only if it exists and won't be reused
     _actionReportLabelControllers.forEach((_, controller) =>
         controller.dispose());
     _actionParamValueControllers.forEach((_, paramMap) {
@@ -272,7 +273,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
       }
 
 // For table actions, manage reportLabel controller
-      if (actionType == 'table') {
+      if (actionType == 'table') { // Still 'table' type
         _autocompleteFieldKeys.putIfAbsent(actionId, () => GlobalKey());
         if (!_actionReportLabelControllers.containsKey(actionId)) {
           _actionReportLabelControllers[actionId] = TextEditingController(
@@ -1396,13 +1397,13 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                         : null,
                   ),
                   _buildButton(
-                    text: 'Add Table',
+                    text: 'Add Report', // Renamed from 'Add Table'
                     color: Colors.teal,
                     icon: Icons.table_chart,
                     onPressed: canAddMoreActions
                         ? () =>
                         context.read<EditDetailMakerBloc>().add(
-                            AddAction('table', _uuid.v4()))
+                            AddAction('table', _uuid.v4())) // Underlying type remains 'table' for logic
                         : null,
                   ),
                 ],
@@ -1444,7 +1445,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
     final actionType = action['type'] as String;
     final List<dynamic> params = action['params'] as List<dynamic>? ?? [];
     final bool isPrintOrTable = actionType == 'print' || actionType == 'table';
-    final bool isTableAction = actionType == 'table';
+    final bool isTableAction = actionType == 'table'; // Still checking for 'table' type for specific fields
     final List<String> apiParameters = state.apiParametersCache[actionId] ?? [];
     final bool isFetchingParams = state.isFetchingApiParams &&
         state.currentActionIdFetching == actionId;
@@ -1456,22 +1457,27 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
 
     IconData typeIcon;
     Color typeColor;
+    String headerText; // Added to control header text
     switch (actionType) {
       case 'form':
         typeIcon = Icons.assignment;
         typeColor = Colors.purple;
+        headerText = 'Form Action';
         break;
       case 'print':
         typeIcon = Icons.print;
         typeColor = Colors.orange;
+        headerText = 'Print Action';
         break;
       case 'table':
         typeIcon = Icons.table_chart;
         typeColor = Colors.teal;
+        headerText = 'Report Action'; // Renamed from 'Table Action'
         break;
       default:
         typeIcon = Icons.help_outline;
         typeColor = Colors.grey;
+        headerText = 'Unknown Action';
     }
 
     return Card(
@@ -1493,8 +1499,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                     Icon(typeIcon, color: typeColor, size: 24),
                     const SizedBox(width: 8),
                     Text(
-                      '${StringCasingExtension(actionType)
-                          .toCapitalized()} Action',
+                      headerText, // Using the new headerText variable
                       style: GoogleFonts.poppins(fontSize: 18,
                           fontWeight: FontWeight.w600,
                           color: typeColor),
@@ -1558,7 +1563,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
 
                   return _buildTextField(
                     controller: textEditingController, // <-- Use Autocomplete's controller
-                    label: 'Select Report Label',
+                    label: 'Select Report Name', // Renamed from 'Select Report Label' / 'Table Name'
                     icon: Icons.description,
                     focusNode: focusNode,
                     onChanged: (value) {
@@ -1593,12 +1598,14 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                               shrinkWrap: true,
                               itemCount: options.length,
                               itemBuilder: (BuildContext context, int index) {
-                                final String option = options.elementAt(index);
+                                final String originalOption = options.elementAt(index);
+                                // Apply a display-only transformation: "Table 1" -> "Report 1"
+                                final String displayedOption = originalOption.replaceAll(RegExp(r'\bTable\b', caseSensitive: false), 'Report');
+
                                 return ListTile(
-                                  title: Text(
-                                      option, style: GoogleFonts.poppins()),
+                                  title: Text(displayedOption, style: GoogleFonts.poppins()),
                                   onTap: () {
-                                    onSelected(option);
+                                    onSelected(originalOption); // Pass original option back to onSelected
                                   },
                                 );
                               },

@@ -1,13 +1,13 @@
-// lib/ReportAPIService.dart
+// lib/ReportDynamic/ReportAPIService.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart'; // Import for debugPrint
 
 class ReportAPIService {
-  final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
-  final String _databaseFetchUrl = 'http://localhost/reportBuilder/DatabaseFetch.php';
-  final String _databaseFieldUrl = 'http://localhost/reportBuilder/DatabaseField.php';
+  final String _baseUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DemoTables.php';
+  final String _databaseFetchUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseFetch.php';
+  final String _databaseFieldUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseField.php';
   late final Map<String, String> _postEndpoints;
   late final Map<String, String> _getEndpoints;
 
@@ -53,6 +53,7 @@ class ReportAPIService {
         'user': userName.trim(),
         'password': password.trim(),
       };
+      debugPrint('DatabaseFetch URL: $url, Payload: $payload'); // ADDED LOG
       final response = await http.post(
         Uri.parse(url),
         headers: {
@@ -106,6 +107,7 @@ class ReportAPIService {
       'Database': database.trim(),
       'action': 'table',
     };
+    debugPrint('FetchTables URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -160,6 +162,7 @@ class ReportAPIService {
       'action': 'fields',
       'table': table.trim(),
     };
+    debugPrint('FetchFields URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -218,6 +221,7 @@ class ReportAPIService {
       'master_field': masterField.trim(),
       'display_field': displayField.trim(),
     };
+    debugPrint('FetchPickerData URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -274,6 +278,7 @@ class ReportAPIService {
       'table': table.trim(),
       'field': field.trim(),
     };
+    debugPrint('FetchFieldValues URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -314,6 +319,7 @@ class ReportAPIService {
       throw Exception('GET API not found');
     }
 
+    debugPrint('ReportAPIService: Fetching available APIs from URL: $url'); // ADDED LOG
     try {
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
@@ -345,6 +351,7 @@ class ReportAPIService {
                     ? jsonDecode(item['actions_config'])
                     : [],
               };
+              debugPrint('ReportAPIService: Cached API details for ${item['APIName']}: URL=${item['APIServerURl']}, Parameter=${item['Parameter']}'); // ADDED LOG
             }
           }
           return uniqueApis.toList();
@@ -365,6 +372,7 @@ class ReportAPIService {
   Future<Map<String, dynamic>> getApiDetails(String apiName) async {
     // Attempt to retrieve from cache first
     if (_apiDetails.isNotEmpty && _apiDetails.containsKey(apiName)) {
+      debugPrint('ReportAPIService: Retrieved API details for $apiName from cache: ${_apiDetails[apiName]}'); // ADDED LOG
       return _apiDetails[apiName]!;
     }
 
@@ -377,9 +385,12 @@ class ReportAPIService {
       debugPrint('Error: API details not found for apiName=$apiName after fetch.'); // Log
       throw Exception('API details not found for "$apiName".');
     }
+    debugPrint('ReportAPIService: Retrieved API details for $apiName after re-fetch: $apiDetail'); // ADDED LOG
     return apiDetail;
   }
 
+  // MODIFIED: This method now explicitly constructs the URI using queryParameters map.
+  // It relies on getApiDetails to provide the base URL and default parameters.
   Future<List<Map<String, dynamic>>> fetchApiData(String apiName) async {
     final apiDetail = await getApiDetails(apiName);
     String baseUrl = apiDetail['url'];
@@ -387,20 +398,52 @@ class ReportAPIService {
 
     Map<String, String> queryParams = {};
     for (var param in parameters) {
-      queryParams[param['name']] = param['value'].toString();
+      // Ensure param['name'] and param['value'] are handled safely
+      final String paramName = param['name']?.toString() ?? '';
+      final String paramValue = param['value']?.toString() ?? '';
+      if (paramName.isNotEmpty) {
+        queryParams[paramName] = paramValue;
+      }
     }
 
+    // Construct the URI properly from base URL and query parameters
     final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
+    debugPrint('ReportAPIService: Fetching API data from URL: $uri'); // ADDED LOG
 
     try {
       final response = await http.get(uri);
-      debugPrint('ApiData response: status=${response.statusCode}, body=${response.body}'); // Log
+      debugPrint('ApiData response: status=${response.statusCode}, body=${response.body.length}'); // Log body length instead of full body
       return _parseApiResponse(response);
     } catch (e) {
       debugPrint('ApiData exception: $e'); // Log
       rethrow;
     }
   }
+
+  // NEW METHOD: For fetching data when you already have a full URL (like for print actions)
+  Future<dynamic> fetchDataFromFullUrl(String fullUrl) async {
+    debugPrint('ReportAPIService: Fetching data from full URL: $fullUrl');
+    try {
+      final response = await http.get(Uri.parse(fullUrl)).timeout(
+        const Duration(seconds: 30), // Increased timeout for potentially larger print data
+        onTimeout: () {
+          debugPrint('ReportAPIService: Full URL fetch timed out for $fullUrl');
+          throw TimeoutException('Request to $fullUrl timed out');
+        },
+      );
+      debugPrint('ReportAPIService: Full URL response: status=${response.statusCode}, body length=${response.body.length}');
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body); // Directly decode the body
+      } else {
+        throw Exception('Failed to fetch data from $fullUrl: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('ReportAPIService: Exception fetching data from full URL: $e');
+      rethrow;
+    }
+  }
+
 
   Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams, {String? actionApiUrlTemplate}) async {
     String effectiveBaseUrl; // The URL string that contains base path and its inherent query parameters
@@ -416,7 +459,7 @@ class ReportAPIService {
       });
       debugPrint('ReportAPIService: Initializing params from actionApiUrlTemplate: $effectiveBaseUrl');
     } else {
-      final apiDetail = await getApiDetails(apiName);
+      final apiDetail = await getApiDetails(apiName); // This is where getApiDetails is properly used with an apiName
       effectiveBaseUrl = apiDetail['url'];
       final Uri tempUri = Uri.parse(effectiveBaseUrl);
       tempUri.queryParameters.forEach((key, value) {
@@ -491,24 +534,47 @@ class ReportAPIService {
     };
   }
 
+  // MODIFIED: This method is updated to handle nested lists and maps within the 'data' field.
   List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
     try {
       if (response.body.trim().isEmpty) {
-        // If the body is empty but status is 200, return an empty list
         if (response.statusCode == 200) {
           debugPrint('ParseApiResponse: Empty response body for 200 status. Returning empty list.');
           return [];
         } else {
-          // If body is empty and status is not 200, it's an error.
           debugPrint('ParseApiResponse: Empty response body for non-200 status (${response.statusCode}).');
           throw Exception('Empty response body: ${response.statusCode}');
         }
       }
 
-      final jsonData = jsonDecode(response.body);
+      final dynamic jsonData = jsonDecode(response.body);
 
       if (jsonData is List) {
-        return List<Map<String, dynamic>>.from(jsonData);
+        if (jsonData.isNotEmpty) {
+          // Check if the first element of the list is also a list (e.g., [[{...}],[{...}]])
+          if (jsonData[0] is List) {
+            // This suggests multiple result sets, like from a stored procedure.
+            // For document views or primary data, we typically care about the first inner list.
+            debugPrint('ParseApiResponse: Detected List of Lists. Taking the first inner list.');
+            if (jsonData[0].isNotEmpty && jsonData[0][0] is Map<String, dynamic>) {
+              // Ensure the inner list actually contains maps.
+              return List<Map<String, dynamic>>.from(jsonData[0]);
+            } else {
+              debugPrint('ParseApiResponse: First inner list is empty or does not contain maps. Returning empty list.');
+              return [];
+            }
+          } else if (jsonData[0] is Map<String, dynamic>) {
+            // This is a direct list of maps, e.g., [{"id":1}, {"id":2}]
+            debugPrint('ParseApiResponse: Detected List of Maps directly. Returning as is.');
+            return List<Map<String, dynamic>>.from(jsonData);
+          } else {
+            debugPrint('ParseApiResponse: List contains unexpected element type: ${jsonData[0].runtimeType}. Throwing error.');
+            throw Exception('List contains unexpected element type: ${jsonData[0].runtimeType}');
+          }
+        } else {
+          debugPrint('ParseApiResponse: Empty list returned from API.');
+          return [];
+        }
       } else if (jsonData is Map<String, dynamic>) {
         final status = jsonData['status'];
         final isSuccess = status == 'success' || status == 200 || status == '200';
@@ -516,34 +582,39 @@ class ReportAPIService {
         if (isSuccess && jsonData['data'] != null) {
           final data = jsonData['data'];
           if (data is List) {
+            debugPrint('ParseApiResponse: Detected Map with "data" field as List. Returning data list.');
             return List<Map<String, dynamic>>.from(data);
+          } else if (data is Map<String, dynamic>) {
+            // Handle case where 'data' is a single map (e.g., for some document APIs returning single object)
+            debugPrint('ParseApiResponse: Detected Map with "data" field as single Map. Wrapping in List.');
+            return [Map<String, dynamic>.from(data)];
           } else {
-            debugPrint('ParseApiResponse: Data field is not a list: $data'); // Log
-            throw Exception('Data field must be a list');
+            debugPrint('ParseApiResponse: Data field is not a list or map: $data. Throwing error.');
+            throw Exception('Data field must be a list or a map');
           }
         } else if (!isSuccess && jsonData['message'] != null) {
-          debugPrint('ParseApiResponse: API error: ${jsonData['message']}'); // Log
+          debugPrint('ParseApiResponse: API error: ${jsonData['message']}. Throwing error.');
           throw Exception('API returned error: ${jsonData['message']}');
         } else {
-          debugPrint('ParseApiResponse: Unexpected response format: ${response.body}'); // Log
+          debugPrint('ParseApiResponse: Unexpected response format (Map, but no success or data). Throwing error. Response: ${response.body}');
           throw Exception('Unexpected response format: ${response.body}');
         }
       } else {
-        debugPrint('ParseApiResponse: Invalid response format: ${response.body}'); // Log
-        throw Exception('Invalid response format: ${response.body}');
+        debugPrint('ParseApiResponse: Invalid outermost response format. Throwing error. Response: ${response.body}');
+        throw Exception('Invalid outermost response format: ${response.body}');
       }
     } on FormatException catch (e) {
-      debugPrint('ParseApiResponse FormatException: $e, response body: "${response.body}"'); // Log the body causing the error
+      debugPrint('ParseApiResponse FormatException: $e, response body: "${response.body}"');
       if (response.statusCode != 200) {
         throw Exception('Failed to load data: ${response.statusCode} - Invalid JSON from server.');
       }
       throw Exception('Failed to parse response JSON: $e. Response was: "${response.body}".');
     } catch (e) {
-      debugPrint('ParseApiResponse generic error: $e, response: ${response.body}'); // Log
+      debugPrint('ParseApiResponse generic error: $e, response: ${response.body}');
       if (response.statusCode != 200) {
         throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
       }
-      throw Exception('Failed to parse response: $e');
+      rethrow; // Re-throw to allow higher-level catch to handle specific errors like TimeoutException.
     }
   }
 
@@ -654,6 +725,7 @@ class ReportAPIService {
       'Parameter': parameter,
       'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
     };
+    debugPrint('SaveReport URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -725,6 +797,7 @@ class ReportAPIService {
       'APIName': apiName.trim(),
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
+    debugPrint('SaveDatabaseServer URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -785,6 +858,7 @@ class ReportAPIService {
 
       // ADDED LOG for indian_format
       debugPrint('Saving field config for ${field['Field_name']}: indian_format=${payload['indian_format']}');
+      debugPrint('SaveFieldConfigs URL: $url, Payload for ${field['Field_name']}: $payload'); // ADDED LOG
 
       try {
         final response = await http.post(
@@ -821,6 +895,7 @@ class ReportAPIService {
     }
 
     final payload = {'id': id};
+    debugPrint('DeleteDatabaseServer URL: $url, Payload: $payload'); // ADDED LOG
     try {
       final response = await http.post(
         Uri.parse(url),
@@ -876,6 +951,7 @@ class ReportAPIService {
       'APIName': apiName.trim(),
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
     };
+    debugPrint('EditDatabaseServer URL: $url, Payload: $payload'); // ADDED LOG
 
     try {
       final response = await http.post(
@@ -965,6 +1041,8 @@ class ReportAPIService {
       }).toList(),
     };
 
+    debugPrint('EditDemoTables URL: $url, Payload: ${jsonEncode(payload)}'); // ADDED LOG
+
     // ADDED LOG for indian_format within fieldConfigs
     debugPrint('Saving DemoTable2 fields for RecNo ${recNo}:');
     for (var field in payload['Demo_table_2'] as List) {
@@ -1010,6 +1088,7 @@ class ReportAPIService {
     }
 
     final payload = {'RecNo': recNo};
+    debugPrint('DeleteDemoTables URL: $url, Payload: $payload'); // ADDED LOG
     try {
       final response = await http.post(
         Uri.parse(url),

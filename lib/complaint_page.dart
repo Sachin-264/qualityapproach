@@ -10,6 +10,7 @@ import 'package:file_picker/file_picker.dart'; // For file picking
 import 'package:flutter/material.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
+import 'package:qualityapproach/APIgenerator/api_generator.dart';
 import 'package:qualityapproach/CustomerRetail/RetailBloc.dart';
 import 'package:qualityapproach/Dashboard/Dashboard.bloc.dart';
 import 'package:qualityapproach/Dashboard/Dashboard.dart';
@@ -260,16 +261,13 @@ class ComplaintPage extends StatelessWidget {
                 ),
                 _createDrawerItem(
                   icon: Icons.dynamic_feed,
-                  text: 'dynamic',
+                  text: 'API Generator',
                   onTap: () {
                     Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (context) => BlocProvider.value(
-                            value: context.read<DynamicAllBloc>(),
-                            child:DynamicAll(),
+                          builder: (context) => const ApiGeneratorPage(),
                           ),
-                        )
                     );
                   },
                 ),

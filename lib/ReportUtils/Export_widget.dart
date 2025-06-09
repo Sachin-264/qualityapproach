@@ -1,5 +1,4 @@
-// Export_widget.dart (Final Corrected Version including _exportToPDFWithLoading)
-import 'dart:async'; // Import for Timer
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -11,9 +10,9 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart';
-import 'package:http_parser/http_parser.dart' show MediaType; // Import for MediaType
-import 'package:printing/printing.dart'; // Import the printing package
-import 'dart:html' as html; // NEW: Import dart:html for web-specific functionality
+import 'package:http_parser/http_parser.dart' show MediaType;
+import 'package:printing/printing.dart';
+import 'dart:html' as html;
 
 // Global export lock to prevent multiple exports
 class ExportLock {
@@ -30,20 +29,19 @@ class ExportLock {
   }
 }
 
-// Simple debouncer class - UPDATED TO SUPPORT ASYNC CALLBACKS
+// Simple debouncer class
 class Debouncer {
   final Duration duration;
   Timer? _timer;
 
   Debouncer(this.duration);
 
-  // Changed callback type to FutureOr<void> Function() to support async callbacks
   Future<void> debounce(FutureOr<void> Function() callback) async {
     if (_timer != null && _timer!.isActive) {
       _timer!.cancel();
     }
     _timer = Timer(duration, () async {
-      await callback(); // Await the callback if it's async
+      await callback();
     });
   }
 }
@@ -64,7 +62,8 @@ class ExportWidget extends StatefulWidget {
   final List<Map<String, dynamic>>? fieldConfigs; // Detailed field configurations
   final String reportLabel; // Actual report label for display
   final Map<String, String> parameterValues; // Selected parameter values
-  final List<Map<String, dynamic>>? apiParameters; // NEW: API parameter configurations for filtering
+  final List<Map<String, dynamic>>? apiParameters; // API parameter configurations for filtering
+  final Map<String, List<Map<String, String>>>? pickerOptions; // Picker options for display labels
 
   const ExportWidget({
     required this.data,
@@ -73,7 +72,8 @@ class ExportWidget extends StatefulWidget {
     this.fieldConfigs,
     required this.reportLabel,
     required this.parameterValues,
-    required this.apiParameters, // NEW
+    this.apiParameters,
+    this.pickerOptions,
     super.key,
   });
 
@@ -84,11 +84,10 @@ class ExportWidget extends StatefulWidget {
 class _ExportWidgetState extends State<ExportWidget> {
   bool _isExporting = false;
   int _clickCount = 0;
-  // Updated debouncer instantiation with const Duration
   final _excelDebouncer = Debouncer(const Duration(milliseconds: 1000));
   final _pdfDebouncer = Debouncer(const Duration(milliseconds: 1000));
   final _emailDebouncer = Debouncer(const Duration(milliseconds: 1000));
-  final _printDebouncer = Debouncer(const Duration(milliseconds: 1000)); // NEW: Debouncer for print button
+  final _printDebouncer = Debouncer(const Duration(milliseconds: 1000));
   String _exportId = UniqueKey().toString();
 
   @override
@@ -107,9 +106,9 @@ class _ExportWidgetState extends State<ExportWidget> {
         children: [
           ElevatedButton(
             onPressed: widget.data.isNotEmpty && !_isExporting && !ExportLock.isExporting
-                ? () async { // Mark onPressed callback as async
+                ? () async {
               print('ExportWidget: Excel button clicked, clickCount=${++_clickCount}, exportId=$_exportId, stack: ${StackTrace.current}');
-              await _excelDebouncer.debounce(() async { // Mark debounce callback as async and await
+              await _excelDebouncer.debounce(() async {
                 await _exportToExcel(context);
               });
             }
@@ -126,9 +125,9 @@ class _ExportWidgetState extends State<ExportWidget> {
           const SizedBox(width: 20),
           ElevatedButton(
             onPressed: widget.data.isNotEmpty && !ExportLock.isExporting
-                ? () async { // Mark onPressed callback as async
+                ? () async {
               print('ExportWidget: PDF button clicked, exportId=$_exportId, stack: ${StackTrace.current}');
-              await _pdfDebouncer.debounce(() async { // Mark debounce callback as async and await
+              await _pdfDebouncer.debounce(() async {
                 await _exportToPDFWithLoading(context);
               });
             }
@@ -145,9 +144,9 @@ class _ExportWidgetState extends State<ExportWidget> {
           const SizedBox(width: 20),
           ElevatedButton(
             onPressed: widget.data.isNotEmpty && !ExportLock.isExporting
-                ? () async { // Mark onPressed callback as async
+                ? () async {
               print('ExportWidget: Email button clicked, exportId=$_exportId, stack: ${StackTrace.current}');
-              await _emailDebouncer.debounce(() async { // Mark debounce callback as async and await
+              await _emailDebouncer.debounce(() async {
                 await _sendToEmail(context);
               });
             }
@@ -161,8 +160,8 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
-          const SizedBox(width: 20), // NEW: Spacer for Print button
-          ElevatedButton( // NEW: Print button
+          const SizedBox(width: 20),
+          ElevatedButton(
             onPressed: widget.data.isNotEmpty && !ExportLock.isExporting
                 ? () async {
               print('ExportWidget: Print button clicked, exportId=$_exportId, stack: ${StackTrace.current}');
@@ -192,7 +191,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     try {
       if (widget.data.isEmpty) {
         print('ExportToExcel: No data to export, exportId=$_exportId');
-        if (context.mounted) { // Check if widget is still mounted before showing SnackBar
+        if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('No data to export!')),
           );
@@ -224,7 +223,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         );
       }
 
-
       print('ExportToExcel: Generating Excel file, exportId=$_exportId');
       final excelStartTime = DateTime.now();
       final excelBytes = await compute(_generateExcel, {
@@ -234,7 +232,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
         'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters, // NEW: Pass apiParameters
+        'apiParameters': widget.apiParameters,
+        'pickerOptions': widget.pickerOptions,
       });
       final excelEndTime = DateTime.now();
       print('ExportToExcel: Excel generation took ${excelEndTime.difference(excelStartTime).inMilliseconds} ms, exportId=$_exportId');
@@ -251,8 +250,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         print('ExportToExcel: File saved with result: $result, fileName: $fileName, exportId=$_exportId');
         DownloadTracker.trackDownload(fileName, 'file_saver', _exportId);
       } else {
-        // This is a placeholder for non-web platforms. Actual implementation would
-        // involve path_provider and dart:io for saving the file to device storage.
         print('ExportToExcel: Platform is not web, showing not implemented message, exportId=$_exportId');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -261,7 +258,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
       }
 
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
 
@@ -272,7 +269,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     } catch (e) {
       print('ExportToExcel: Exception caught: $e, exportId=$_exportId');
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       if (context.mounted) {
@@ -294,7 +291,6 @@ class _ExportWidgetState extends State<ExportWidget> {
 
   // --- Static Helper for Number Formatting (Used by Excel and PDF) ---
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
-    // Round the number to the specified decimal points first
     String numStr = number.toStringAsFixed(decimalPoints);
     List<String> parts = numStr.split('.');
     String integerPart = parts[0];
@@ -306,7 +302,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
 
     if (indianFormat) {
-      // Apply Indian comma separation
       if (integerPart.length <= 3) {
         String result = integerPart;
         if (decimalPoints > 0 && decimalPart.isNotEmpty) {
@@ -334,13 +329,11 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
       return isNegative ? '-$result' : result;
     } else {
-      // Use standard US comma separation (or just fixed digits)
       final formatter = NumberFormat.currency(
-        locale: 'en_US', // Use US locale for standard comma separation
+        locale: 'en_US',
         symbol: '',
         decimalDigits: decimalPoints,
       );
-      // Remove any thousand separators if decimalPoints is 0 and integer is small
       return formatter.format(number).trim();
     }
   }
@@ -353,60 +346,77 @@ class _ExportWidgetState extends State<ExportWidget> {
     final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
     final reportLabel = params['reportLabel'] as String;
     final parameterValues = params['parameterValues'] as Map<String, String>;
-    final apiParameters = params['apiParameters'] as List<Map<String, dynamic>>?; // NEW: Get apiParameters
+    final apiParameters = params['apiParameters'] as List<Map<String, dynamic>>?;
+    final pickerOptions = params['pickerOptions'] as Map<String, List<Map<String, String>>>?;
 
     print('GenerateExcel: Starting Excel generation, exportId=$exportId');
     var excel = Excel.createExcel();
     var sheet = excel['Sheet1'];
 
-    // Determine the max columns for merging the title
     int maxCols = 0;
     if (headerMap != null && headerMap.isNotEmpty) {
       maxCols = headerMap.length;
     } else if (data.isNotEmpty) {
       maxCols = data.first.keys.length;
     } else {
-      maxCols = 1; // Default to 1 column if no data/headers
+      maxCols = 1;
     }
-    maxCols = maxCols > 0 ? maxCols : 1; // Ensure it's at least 1
+    maxCols = maxCols > 0 ? maxCols : 1;
 
     // Add Report Label as a heading
     sheet.appendRow([TextCellValue(reportLabel)]);
-    // Corrected merge call: use sheet.maxRows -1 for the just-added row
     sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
         CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
     sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
-      fontFamily: 'Calibri', // Correct: Pass as String
+      fontFamily: 'Calibri',
       fontSize: 18,
       bold: true,
       horizontalAlign: HorizontalAlign.Center,
       verticalAlign: VerticalAlign.Center,
     );
-    sheet.appendRow([]); // Empty row for spacing
+    sheet.appendRow([]);
 
-    // Add Parameters (FILTERED)
-    final visibleParameters = <String, String>{};
+    // Add Parameters (FILTERED and with display labels, NO "Report Parameters:" heading)
+    final Map<String, String> visibleAndFormattedParameters = {};
     if (apiParameters != null) {
       for (var param in apiParameters) {
         final paramName = param['name']?.toString();
         if (paramName != null && param['show'] == true && parameterValues.containsKey(paramName)) {
           final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
-          visibleParameters[paramLabel] = parameterValues[paramName]!;
+          final String rawValue = parameterValues[paramName]!;
+
+          String displayValue = rawValue;
+
+          final isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
+              param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
+              param['display_field'] != null && param['display_field'].toString().isNotEmpty;
+
+          if (isPickerField && pickerOptions != null && pickerOptions.containsKey(paramName)) {
+            final foundOption = pickerOptions[paramName]?.firstWhere(
+                  (opt) => opt['value'] == rawValue,
+              orElse: () => {'label': rawValue, 'value': rawValue},
+            );
+            displayValue = foundOption!['label']!;
+          } else if ((param['type']?.toString().toLowerCase() == 'date') && rawValue.isNotEmpty) {
+            try {
+              final DateTime parsedDate = DateTime.parse(rawValue);
+              displayValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
+            } catch (e) {
+              // If parsing fails, use the rawValue as is
+            }
+          }
+          visibleAndFormattedParameters[paramLabel] = displayValue;
         }
       }
     } else {
-      // Fallback if apiParameters not provided, show all as they are
-      visibleParameters.addAll(parameterValues);
+      // Fallback if apiParameters not provided, show all as they are (raw values)
+      visibleAndFormattedParameters.addAll(parameterValues);
     }
 
-    if (visibleParameters.isNotEmpty) {
-      sheet.appendRow([TextCellValue('Report Parameters:')]);
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
-        fontFamily: 'Calibri',
-        fontSize: 12,
-        bold: true,
-      );
-      for (var entry in visibleParameters.entries) { // Use visibleParameters
+    if (visibleAndFormattedParameters.isNotEmpty) {
+      // Removed: sheet.appendRow([TextCellValue('Report Parameters:')]);
+      // Removed: sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = ...;
+      for (var entry in visibleAndFormattedParameters.entries) {
         sheet.appendRow([TextCellValue('${entry.key}: ${entry.value}')]);
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
@@ -436,7 +446,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     final headerRowIndex = sheet.maxRows - 1;
     for (int i = 0; i < headers.length; i++) {
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: headerRowIndex)).cellStyle = CellStyle(
-        fontFamily: 'Calibri', // Correct: Pass as String
+        fontFamily: 'Calibri',
         bold: true,
         horizontalAlign: HorizontalAlign.Center,
         verticalAlign: VerticalAlign.Center,
@@ -475,18 +485,20 @@ class _ExportWidgetState extends State<ExportWidget> {
           orElse: () => {},
         );
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-        // Recreate CellStyle with alignment in constructor
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: dataRowIndex)).cellStyle = CellStyle(
-          horizontalAlign: alignment == 'center' ? HorizontalAlign.Center : alignment == 'right' ? HorizontalAlign.Right : HorizontalAlign.Left,
+          horizontalAlign: alignment == 'center'
+              ? HorizontalAlign.Center
+              : alignment == 'right'
+              ? HorizontalAlign.Right
+              : HorizontalAlign.Left,
         );
       }
     }
-    print('GenerateExcel: Added ${data.length} data rows, exportId=$exportId');
 
     // Add total row if fieldConfigs is provided and contains totals
     if (fieldConfigs != null && fieldConfigs.any((config) => config['Total']?.toString() == '1')) {
       final totalRowValues = headers.map((header) {
-        final fieldName = headerMap != null ? headerMap[header] ?? header : header; // Correct 'header' scope
+        final fieldName = headerMap != null ? headerMap[header] ?? header : header;
         final config = fieldConfigs.firstWhere(
               (cfg) => cfg['Field_name']?.toString() == fieldName,
           orElse: () => {},
@@ -497,7 +509,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         final decimalPoints = int.tryParse(config['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config['indian_format']?.toString() == '1';
 
-        if (headers.indexOf(header) == 0) { // First column
+        if (headers.indexOf(header) == 0) {
           return TextCellValue('Total');
         } else if (total && isNumeric) {
           final sum = data.fold<double>(0.0, (sum, row) {
@@ -506,7 +518,7 @@ class _ExportWidgetState extends State<ExportWidget> {
           });
           return TextCellValue(_formatNumber(sum, decimalPoints, indianFormat: indianFormat));
         }
-        return TextCellValue(''); // Empty for non-total columns
+        return TextCellValue('');
       }).toList();
       sheet.appendRow(totalRowValues);
       print('GenerateExcel: Added total row: $totalRowValues, exportId=$exportId');
@@ -524,15 +536,14 @@ class _ExportWidgetState extends State<ExportWidget> {
             (config['data_type']?.toString().toLowerCase() == 'number');
         final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
 
-        // Recreate CellStyle with all properties in constructor
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: totalRowIndex)).cellStyle = CellStyle(
-          fontFamily: 'Calibri', // Correct: Pass as String
+          fontFamily: 'Calibri',
           bold: true,
           horizontalAlign: i == 0
-              ? HorizontalAlign.Left // 'Total' text alignment
-              : (total && isNumeric // Numeric total alignment
+              ? HorizontalAlign.Left
+              : (total && isNumeric
               ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right)
-              : HorizontalAlign.Left), // Default for non-total/non-numeric cells in total row
+              : HorizontalAlign.Left),
         );
       }
     }
@@ -544,8 +555,8 @@ class _ExportWidgetState extends State<ExportWidget> {
             (cfg) => cfg['Field_name']?.toString() == fieldName,
         orElse: () => {},
       );
-      final width = double.tryParse(config?['width']?.toString() ?? '15') ?? 15.0; // Default to 15
-      sheet.setColumnWidth(i, width / 6); // Adjust PlutoGrid width to Excel column width approx
+      final width = double.tryParse(config?['width']?.toString() ?? '15') ?? 15.0;
+      sheet.setColumnWidth(i, width / 6);
     }
 
     final excelBytes = Uint8List.fromList(excel.encode() ?? []);
@@ -556,8 +567,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     return excelBytes;
   }
 
-  // --- _exportToPDFWithLoading function (static for compute) ---
-  // THIS WAS THE MISSING FUNCTION
   Future<void> _exportToPDFWithLoading(BuildContext context) async {
     print('ExportToPDF: Starting PDF export, exportId=$_exportId');
     final startTime = DateTime.now();
@@ -571,35 +580,6 @@ class _ExportWidgetState extends State<ExportWidget> {
           );
         }
         return;
-      }
-
-      print('ExportToPDF: Data length: ${widget.data.length} rows, exportId=$_exportId');
-      if (widget.data.length > 500) {
-        print('ExportToPDF: Data exceeds 500 rows, prompting user, exportId=$_exportId');
-        final shouldProceed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Large Data Warning'),
-            content: Text(
-              'The dataset contains ${widget.data.length} rows, which may take a long time to export to PDF or fail. Do you want to proceed with the first 500 rows only?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Proceed'),
-              ),
-            ],
-          ),
-        );
-        if (shouldProceed != true) {
-          print('ExportToPDF: User cancelled due to large data, exportId=$_exportId');
-          return;
-        }
-        print('ExportToPDF: Proceeding with first 500 rows, exportId=$_exportId');
       }
 
       print('ExportToPDF: Acquiring global lock, exportId=$_exportId');
@@ -616,14 +596,15 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('ExportToPDF: Calling compute to generate PDF, exportId=$_exportId');
       final pdfStartTime = DateTime.now();
       final pdfBytes = await compute(_generatePDF, {
-        'data': widget.data.length > 500 ? widget.data.sublist(0, 500) : widget.data,
+        'data': widget.data, // Export all data, no truncation
         'fileName': widget.fileName,
         'headerMap': widget.headerMap,
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
         'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters, // NEW: Pass apiParameters
+        'apiParameters': widget.apiParameters,
+        'pickerOptions': widget.pickerOptions,
       });
       final pdfEndTime = DateTime.now();
       print('ExportToPDF: PDF generation took ${pdfEndTime.difference(pdfStartTime).inMilliseconds} ms, exportId=$_exportId');
@@ -647,7 +628,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
       }
 
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       print('ExportToPDF: PDF export completed successfully, exportId=$_exportId');
@@ -658,7 +639,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     } catch (e) {
       print('ExportToPDF: Error during PDF export: $e, exportId=$_exportId');
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       if (context.mounted) {
@@ -680,12 +661,13 @@ class _ExportWidgetState extends State<ExportWidget> {
     final exportId = params['exportId'] as String;
     print('GeneratePDF: Starting PDF generation in isolate, exportId=$exportId');
     final data = params['data'] as List<Map<String, dynamic>>;
-    final fileName = params['fileName'] as String;
+    final fileName = params['fileName'] as String; // Not directly used in PDF content, but good to keep
     final headerMap = params['headerMap'] as Map<String, String>?;
     final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
     final reportLabel = params['reportLabel'] as String;
     final parameterValues = params['parameterValues'] as Map<String, String>;
-    final apiParameters = params['apiParameters'] as List<Map<String, dynamic>>?; // NEW: Get apiParameters
+    final apiParameters = params['apiParameters'] as List<Map<String, dynamic>>?;
+    final pickerOptions = params['pickerOptions'] as Map<String, List<Map<String, String>>>?;
 
     // Validate data
     if (data.isEmpty) {
@@ -707,10 +689,10 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('GeneratePDF: Headers (count: ${headers.length}): $headers, exportId=$exportId');
 
     final pdf = pw.Document();
-    const fontSize = 8.0; // Adjusted for better readability in PDF
+    const fontSize = 8.0;
     const headerFontSize = 10.0;
     const reportLabelFontSize = 14.0;
-    const rowsPerPage = 20; // Keep fixed for now
+    const rowsPerPage = 20; // This is a pagination setting, not a hard limit for export
 
     // Load font
     print('GeneratePDF: Loading font, exportId=$exportId');
@@ -723,39 +705,44 @@ class _ExportWidgetState extends State<ExportWidget> {
       font = pw.Font.helvetica(); // Fallback to built-in font
     }
 
+    // Create a map for quick lookup of field configurations by field name
+    final Map<String, Map<String, dynamic>> fieldConfigMap = {
+      for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
+    };
+
     // Calculate column widths (dynamic based on PlutoGrid config width)
-    double totalConfiguredWidth = fieldConfigs?.fold<double>(0.0, (sum, config) => sum + (double.tryParse(config['width']?.toString() ?? '100') ?? 100.0)) ?? 0.0;
-    if (totalConfiguredWidth == 0 && headers.isNotEmpty) {
-      totalConfiguredWidth = headers.length * 100.0; // Fallback if no widths are configured
+    double totalConfiguredWidth = 0.0;
+    for (var headerLabel in headers) {
+      final fieldName = headerMap != null ? headerMap[headerLabel] ?? headerLabel : headerLabel;
+      final config = fieldConfigMap[fieldName];
+      totalConfiguredWidth += double.tryParse(config?['width']?.toString() ?? '100') ?? 100.0;
     }
-    // Ensure totalConfiguredWidth is not zero to prevent division by zero
+
+    if (totalConfiguredWidth == 0 && headers.isNotEmpty) {
+      totalConfiguredWidth = headers.length * 100.0;
+    }
     totalConfiguredWidth = totalConfiguredWidth > 0 ? totalConfiguredWidth : (headers.isNotEmpty ? headers.length * 100.0 : 100.0);
 
 
     final Map<int, pw.TableColumnWidth> columnWidths = {};
     for (int i = 0; i < headers.length; i++) {
-      final fieldName = headerMap != null ? headerMap[headers[i]] ?? headers[i] : headers[i];
-      final config = fieldConfigs?.firstWhere(
-            (cfg) => cfg['Field_name']?.toString() == fieldName,
-        orElse: () => {},
-      );
+      final headerLabel = headers[i];
+      final fieldName = headerMap != null ? headerMap[headerLabel] ?? headerLabel : headerLabel;
+      final config = fieldConfigMap[fieldName];
       final width = double.tryParse(config?['width']?.toString() ?? '100') ?? 100.0;
       columnWidths[i] = pw.FlexColumnWidth(width / totalConfiguredWidth);
     }
 
     // Calculate total row
-    final totalRowValues = fieldConfigs != null && fieldConfigs.any((config) => config['Total']?.toString() == '1')
+    final List<String>? totalRowValues = fieldConfigs != null && fieldConfigs.any((config) => config['Total']?.toString() == '1')
         ? headers.map((header) {
       final fieldName = headerMap != null ? headerMap[header] ?? header : header;
-      final config = fieldConfigs.firstWhere(
-            (cfg) => cfg['Field_name']?.toString() == fieldName,
-        orElse: () => {},
-      );
-      final total = config['Total']?.toString() == '1';
+      final config = fieldConfigMap[fieldName];
+      final total = config?['Total']?.toString() == '1';
       final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
-          (config['data_type']?.toString().toLowerCase() == 'number');
-      final decimalPoints = int.tryParse(config['decimal_points']?.toString() ?? '0') ?? 0;
-      final indianFormat = config['indian_format']?.toString() == '1';
+          (config?['data_type']?.toString().toLowerCase() == 'number');
+      final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
+      final indianFormat = config?['indian_format']?.toString() == '1';
 
       if (headers.indexOf(header) == 0) {
         return 'Total';
@@ -773,19 +760,40 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('GeneratePDF: Total row: $totalRowValues, exportId=$exportId');
     }
 
-    // Add Parameters (FILTERED) - THIS WAS THE MISSING LOGIC
-    final visibleParameters = <String, String>{};
+    // Add Parameters (FILTERED and with display labels)
+    final Map<String, String> visibleAndFormattedParameters = <String, String>{};
     if (apiParameters != null) {
       for (var param in apiParameters) {
         final paramName = param['name']?.toString();
         if (paramName != null && param['show'] == true && parameterValues.containsKey(paramName)) {
           final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
-          visibleParameters[paramLabel] = parameterValues[paramName]!;
+          final String rawValue = parameterValues[paramName]!;
+
+          String displayValue = rawValue;
+
+          final isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
+              param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
+              param['display_field'] != null && param['display_field'].toString().isNotEmpty;
+
+          if (isPickerField && pickerOptions != null && pickerOptions.containsKey(paramName)) {
+            final foundOption = pickerOptions[paramName]?.firstWhere(
+                  (opt) => opt['value'] == rawValue,
+              orElse: () => {'label': rawValue, 'value': rawValue},
+            );
+            displayValue = foundOption!['label']!;
+          } else if ((param['type']?.toString().toLowerCase() == 'date') && rawValue.isNotEmpty) {
+            try {
+              final DateTime parsedDate = DateTime.parse(rawValue);
+              displayValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
+            } catch (e) {
+              // If parsing fails, use the rawValue as is
+            }
+          }
+          visibleAndFormattedParameters[paramLabel] = displayValue;
         }
       }
     } else {
-      // Fallback if apiParameters not provided, show all as they are
-      visibleParameters.addAll(parameterValues);
+      visibleAndFormattedParameters.addAll(parameterValues);
     }
 
     // Split data into pages
@@ -802,30 +810,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     for (int pageIndex = 0; pageIndex < pages.length; pageIndex++) {
       final pageData = pages[pageIndex];
       print('GeneratePDF: Adding page ${pageIndex + 1} with ${pageData.length} rows, exportId=$exportId');
-
-      final tableData = pageData.map((row) {
-        return headers.map((header) {
-          final fieldName = headerMap != null ? headerMap[header] ?? header : header;
-          final config = fieldConfigs?.firstWhere(
-                (cfg) => cfg['Field_name']?.toString() == fieldName,
-            orElse: () => {},
-          );
-          final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
-              (config?['data_type']?.toString().toLowerCase() == 'number');
-          final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
-          final indianFormat = config?['indian_format']?.toString() == '1';
-
-          final rawValue = row[fieldName];
-          if (isNumeric && rawValue != null && rawValue.toString().isNotEmpty) {
-            final doubleValue = double.tryParse(rawValue.toString()) ?? 0.0;
-            return _formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat);
-          } else {
-            // Truncate long values to prevent rendering issues if needed
-            final value = rawValue?.toString() ?? '';
-            return value.length > 100 ? '${value.substring(0, 100)}...' : value; // Adjusted length
-          }
-        }).toList();
-      }).toList();
 
       pdf.addPage(
         pw.Page(
@@ -851,10 +835,9 @@ class _ExportWidgetState extends State<ExportWidget> {
                 ),
               ),
               pw.SizedBox(height: 5),
-              // Parameters (FILTERED)
-              if (visibleParameters.isNotEmpty) ...[
-                pw.Text('Report Parameters:', style: pw.TextStyle(font: font, fontSize: headerFontSize, fontWeight: pw.FontWeight.bold)),
-                for (var entry in visibleParameters.entries)
+              // Parameters
+              if (visibleAndFormattedParameters.isNotEmpty) ...[
+                for (var entry in visibleAndFormattedParameters.entries)
                   pw.Text(
                     '${entry.key}: ${entry.value}',
                     style: pw.TextStyle(font: font, fontSize: fontSize),
@@ -870,45 +853,143 @@ class _ExportWidgetState extends State<ExportWidget> {
               ),
               pw.SizedBox(height: 10),
               // Main data table
-              pw.Table.fromTextArray(
-                headers: headers,
-                data: tableData,
-                headerStyle: pw.TextStyle(
-                  font: font,
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: headerFontSize,
-                ),
-                cellStyle: pw.TextStyle(font: font, fontSize: fontSize),
+              pw.Table(
                 columnWidths: columnWidths,
-                cellPadding: const pw.EdgeInsets.all(2),
-                cellAlignment: pw.Alignment.centerLeft,
-                border: pw.TableBorder.all(width: 0.5),
-                headerAlignment: pw.Alignment.center, // Center header text
-                tableWidth: pw.TableWidth.max,
+                border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey500),
+                children: [
+                  // Header Row
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration(
+                      color: PdfColors.blueGrey100,
+                    ),
+                    children: headers.map((headerLabel) {
+                      final fieldName = headerMap != null ? headerMap[headerLabel] ?? headerLabel : headerLabel;
+                      final config = fieldConfigMap[fieldName];
+                      final alignment = config?['num_alignment']?.toString().toLowerCase();
+
+                      pw.TextAlign headerTextAlign = pw.TextAlign.center; // Default for headers
+                      if (alignment == 'left') {
+                        headerTextAlign = pw.TextAlign.left;
+                      } else if (alignment == 'right') {
+                        headerTextAlign = pw.TextAlign.right;
+                      }
+
+                      return pw.Container(
+                        padding: const pw.EdgeInsets.all(4),
+                        alignment: pw.Alignment.center, // Visually center the header text within its cell
+                        child: pw.Text(
+                          headerLabel,
+                          style: pw.TextStyle(
+                            font: font,
+                            fontWeight: pw.FontWeight.bold,
+                            fontSize: headerFontSize,
+                          ),
+                          textAlign: headerTextAlign, // Apply alignment to header text
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  // Data Rows
+                  ...pageData.map((row) {
+                    return pw.TableRow(
+                      children: headers.map((headerLabel) {
+                        final fieldName = headerMap != null ? headerMap[headerLabel] ?? headerLabel : headerLabel;
+                        final config = fieldConfigMap[fieldName];
+
+                        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
+                            (config?['data_type']?.toString().toLowerCase() == 'number');
+                        final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
+                        final indianFormat = config?['indian_format']?.toString() == '1';
+                        final alignment = config?['num_alignment']?.toString().toLowerCase();
+
+                        final rawValue = row[fieldName];
+                        String displayValue = rawValue?.toString() ?? '';
+
+                        if (isNumeric && rawValue != null && rawValue.toString().isNotEmpty) {
+                          final doubleValue = double.tryParse(rawValue.toString()) ?? 0.0;
+                          displayValue = _formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat);
+                        } else {
+                          // No truncation for text fields either, let PDF library handle wrapping
+                          // displayValue = value.length > 100 ? '${value.substring(0, 100)}...' : value; // REMOVED
+                        }
+
+                        pw.TextAlign cellTextAlign = pw.TextAlign.left; // Default for data cells
+                        if (alignment == 'center') {
+                          cellTextAlign = pw.TextAlign.center;
+                        } else if (alignment == 'right') {
+                          cellTextAlign = pw.TextAlign.right;
+                        }
+
+                        return pw.Container(
+                          padding: const pw.EdgeInsets.all(2),
+                          alignment: (cellTextAlign == pw.TextAlign.left) ? pw.Alignment.centerLeft :
+                          (cellTextAlign == pw.TextAlign.right) ? pw.Alignment.centerRight :
+                          pw.Alignment.center,
+                          child: pw.Text(
+                            displayValue,
+                            style: pw.TextStyle(font: font, fontSize: fontSize),
+                            textAlign: cellTextAlign,
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  }).toList(),
+                ],
               ),
             ];
 
-            // Add total row as a separate table on the last page
             if (totalRowValues != null && pageIndex == pages.length - 1) {
               children.addAll([
                 pw.SizedBox(height: 10),
-                pw.Table.fromTextArray(
-                  data: [totalRowValues],
-                  headerStyle: pw.TextStyle(
-                    font: font,
-                    fontWeight: pw.FontWeight.bold,
-                    fontSize: headerFontSize,
-                  ),
-                  cellStyle: pw.TextStyle(
-                    font: font,
-                    fontWeight: pw.FontWeight.bold,
-                    fontSize: fontSize,
-                  ),
+                pw.Table(
                   columnWidths: columnWidths,
-                  cellPadding: const pw.EdgeInsets.all(2),
-                  cellAlignment: pw.Alignment.centerLeft, // Default alignment for content
-                  border: pw.TableBorder.all(width: 0.5),
-                  tableWidth: pw.TableWidth.max,
+                  border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey500),
+                  children: [
+                    pw.TableRow(
+                      decoration: const pw.BoxDecoration(
+                        color: PdfColors.blueGrey50,
+                      ),
+                      children: totalRowValues.asMap().entries.map((entry) {
+                        final i = entry.key;
+                        final value = entry.value;
+
+                        final headerLabel = headers[i];
+                        final fieldName = headerMap != null ? headerMap[headerLabel] ?? headerLabel : headerLabel;
+                        final config = fieldConfigMap[fieldName];
+                        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
+                            (config?['data_type']?.toString().toLowerCase() == 'number');
+                        final alignment = config?['num_alignment']?.toString().toLowerCase();
+
+                        pw.TextAlign totalTextAlign = pw.TextAlign.left; // Default for total row
+                        if (i == 0) { // First column "Total" label
+                          totalTextAlign = pw.TextAlign.left;
+                        } else if (isNumeric && alignment == 'center') {
+                          totalTextAlign = pw.TextAlign.center;
+                        } else if (isNumeric && alignment == 'right') {
+                          totalTextAlign = pw.TextAlign.right;
+                        } else if (isNumeric) { // Default for numeric totals if alignment is not specified
+                          totalTextAlign = pw.TextAlign.right;
+                        }
+
+
+                        return pw.Container(
+                          padding: const pw.EdgeInsets.all(4),
+                          alignment: (totalTextAlign == pw.TextAlign.left) ? pw.Alignment.centerLeft :
+                          (totalTextAlign == pw.TextAlign.right) ? pw.Alignment.centerRight :
+                          pw.Alignment.center,
+                          child: pw.Text(
+                            value,
+                            style: pw.TextStyle(
+                              font: font,
+                              fontWeight: pw.FontWeight.bold,
+                              fontSize: headerFontSize, // Use header font size for totals
+                            ),
+                            textAlign: totalTextAlign,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
                 ),
               ]);
               print('GeneratePDF: Added total row table to page ${pageIndex + 1}: $totalRowValues, exportId=$exportId');
@@ -923,7 +1004,6 @@ class _ExportWidgetState extends State<ExportWidget> {
       );
     }
 
-    // Save PDF
     print('GeneratePDF: Saving PDF, exportId=$exportId');
     final pdfBytes = await pdf.save();
     print('GeneratePDF: PDF generation completed, returning bytes (${pdfBytes.length} bytes), exportId=$exportId');
@@ -947,35 +1027,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         return;
       }
 
-      print('PrintDocument: Data length: ${widget.data.length} rows, exportId=$_exportId');
-      if (widget.data.length > 500) {
-        print('PrintDocument: Data exceeds 500 rows, prompting user, exportId=$_exportId');
-        final shouldProceed = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Large Data Warning'),
-            content: Text(
-              'The dataset contains ${widget.data.length} rows, which may take a long time to print or fail. Do you want to proceed with the first 500 rows only?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Proceed'),
-              ),
-            ],
-          ),
-        );
-        if (shouldProceed != true) {
-          print('PrintDocument: User cancelled due to large data, exportId=$_exportId');
-          return;
-        }
-        print('PrintDocument: Proceeding with first 500 rows, exportId=$_exportId');
-      }
-
       print('PrintDocument: Acquiring global lock, exportId=$_exportId');
       ExportLock.startExport();
 
@@ -990,24 +1041,24 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('PrintDocument: Calling compute to generate PDF, exportId=$_exportId');
       final pdfStartTime = DateTime.now();
       final pdfBytes = await compute(_generatePDF, {
-        'data': widget.data.length > 500 ? widget.data.sublist(0, 500) : widget.data,
+        'data': widget.data, // Print all data, no truncation
         'fileName': widget.fileName,
         'headerMap': widget.headerMap,
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
         'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters, // Pass apiParameters here
+        'apiParameters': widget.apiParameters,
+        'pickerOptions': widget.pickerOptions,
       });
       final pdfEndTime = DateTime.now();
       print('PrintDocument: PDF generation took ${pdfEndTime.difference(pdfStartTime).inMilliseconds} ms, exportId=$_exportId');
 
       if (kIsWeb) {
-        // NEW: Web-specific print handling using dart:html
         final blob = html.Blob([pdfBytes], 'application/pdf');
         final url = html.Url.createObjectUrlFromBlob(blob);
-        html.window.open(url, '_blank'); // Open in new tab, browser often shows print options
-        html.Url.revokeObjectUrl(url); // Release the object URL
+        html.window.open(url, '_blank');
+        html.Url.revokeObjectUrl(url);
 
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1015,7 +1066,6 @@ class _ExportWidgetState extends State<ExportWidget> {
           );
         }
       } else {
-        // Mobile/Desktop: Use the 'printing' package to share/print
         print('PrintDocument: Platform is not web. Using printing package to share/print PDF, exportId=$_exportId');
         await Printing.sharePdf(bytes: pdfBytes, filename: '${widget.fileName}_Print.pdf');
         if (context.mounted) {
@@ -1025,13 +1075,13 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
       }
 
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       print('PrintDocument: Print process completed successfully, exportId=$_exportId');
     } catch (e) {
       print('PrintDocument: Error during print process: $e, exportId=$_exportId');
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       if (context.mounted) {
@@ -1131,26 +1181,27 @@ class _ExportWidgetState extends State<ExportWidget> {
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
         'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters, // Pass apiParameters here
+        'apiParameters': widget.apiParameters,
+        'pickerOptions': widget.pickerOptions,
       });
 
-      // Generate PDF file (with truncation for large data as in _exportToPDFWithLoading)
+      // Generate PDF file (now generates all data)
       print('SendToEmail: Generating PDF file, exportId=$_exportId');
       final pdfBytes = await compute(_generatePDF, {
-        'data': widget.data.length > 500 ? widget.data.sublist(0, 500) : widget.data,
+        'data': widget.data, // All data for PDF
         'fileName': widget.fileName,
         'headerMap': widget.headerMap,
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
         'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters, // Pass apiParameters here
+        'apiParameters': widget.apiParameters,
+        'pickerOptions': widget.pickerOptions,
       });
 
       print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
       final request = http.MultipartRequest(
         'POST',
-        // !! IMPORTANT: Replace with your actual backend URL for sending mail
         Uri.parse('http://localhost/sendmail.php'), // Placeholder
       );
 
@@ -1161,7 +1212,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         'excel',
         excelBytes,
         filename: '${widget.fileName}.xlsx',
-        contentType: MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet'), // Correct MIME Type
+        contentType: MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
       ));
       print('SendToEmail: Added Excel file: ${widget.fileName}.xlsx, exportId=$_exportId');
 
@@ -1179,11 +1230,11 @@ class _ExportWidgetState extends State<ExportWidget> {
       final responseString = await response.stream.bytesToString();
       print('SendToEmail: HTTP response body: $responseString, exportId=$_exportId');
 
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
 
-      if (response.statusCode == 200 && responseString.contains('Success')) { // Check for 'Success' in response
+      if (response.statusCode == 200 && responseString.contains('Success')) {
         print('SendToEmail: Files sent to email successfully, exportId=$_exportId');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1200,7 +1251,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     } catch (e) {
       print('SendToEmail: Exception caught: $e, exportId=$_exportId');
-      if (context.mounted && Navigator.of(context).canPop()) { // Check if dialog is still open
+      if (context.mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
       if (context.mounted) {
