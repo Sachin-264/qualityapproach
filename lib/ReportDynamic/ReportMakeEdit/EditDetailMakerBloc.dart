@@ -1,6 +1,7 @@
-import 'package:flutter/cupertino.dart';
+// lib/ReportDynamic/ReportMaker/EditDetailMakerBloc.dart
+import 'package:flutter/cupertino.dart'; // Keep this if used for platform-specific widgets, otherwise remove
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:http/http.dart' as http;
+import 'package:http/http.dart' as http; // Unused, can be removed if not directly used for http calls
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
@@ -583,6 +584,14 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
           'groupjson': field['groupjson']?.toString() ?? '',
         };
       }).toList();
+
+      // --- ADDED LOGGING HERE ---
+      debugPrint('Bloc: Payload for Demo_table_2 (fieldConfigs) for RecNo ${event.recNo}:');
+      for (var config in fieldConfigs) {
+        debugPrint('  Field: ${config['Field_name']}, indian_format: ${config['indian_format']}, decimal_points: ${config['decimal_points']}');
+      }
+      // --- END ADDED LOGGING ---
+
 
       final processedActionsToSave = state.actions.map((action) {
         if (action['type'] == 'table') {

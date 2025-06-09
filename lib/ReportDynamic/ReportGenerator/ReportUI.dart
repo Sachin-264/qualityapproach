@@ -1,4 +1,6 @@
-// ReportUI.dart
+// lib/ReportDynamic/ReportUI.dart
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -18,7 +20,7 @@ class ReportUI extends StatefulWidget {
 
 class _ReportUIState extends State<ReportUI> {
   final TextEditingController _reportLabelDisplayController = TextEditingController();
-  Map<String, dynamic>? _selectedReport;
+  Map<String, dynamic>? _selectedReport; // Holds the full selected report metadata from demo_table
   final Map<String, TextEditingController> _paramControllers = {};
   final Map<String, FocusNode> _paramFocusNodes = {};
 
@@ -147,8 +149,11 @@ class _ReportUIState extends State<ReportUI> {
 
   // Encapsulate the reset logic
   void _resetAllFields(BuildContext context) {
+    debugPrint('UI: _resetAllFields called.'); // LOG
     _reportLabelDisplayController.clear();
-    _selectedReport = null;
+    setState(() { // setState to ensure UI rebuilds and _selectedReport becomes null
+      _selectedReport = null;
+    });
     // Dispose and clear parameter controllers/focus nodes
     _paramControllers.forEach((key, controller) => controller.dispose());
     _paramControllers.clear();
@@ -156,6 +161,7 @@ class _ReportUIState extends State<ReportUI> {
     _paramFocusNodes.clear();
 
     final bloc = context.read<ReportBlocGenerate>();
+    // Dispatch ResetReports to clear all relevant state in the BLoC
     bloc.add(ResetReports());
     debugPrint('UI: Resetting all fields and state, reports list preserved.');
   }
@@ -174,6 +180,7 @@ class _ReportUIState extends State<ReportUI> {
         ),
         body: BlocListener<ReportBlocGenerate, ReportState>(
           listener: (context, state) {
+            // Show error message
             if (state.error != null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -189,11 +196,45 @@ class _ReportUIState extends State<ReportUI> {
                   duration: const Duration(seconds: 5),
                 ),
               );
+              // Clear the error after showing to prevent it from showing again on rebuilds
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                context.read<ReportBlocGenerate>().emit(state.copyWith(error: null));
+              });
+            }
+            // Show success message
+            if (state.successMessage != null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    state.successMessage!,
+                    style: GoogleFonts.poppins(color: Colors.white),
+                  ),
+                  backgroundColor: Colors.green,
+                  behavior: SnackBarBehavior.floating,
+                  margin: const EdgeInsets.all(16),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  duration: const Duration(seconds: 3),
+                ),
+              );
+              // Clear the success message after showing
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null));
+              });
             }
           },
           child: BlocBuilder<ReportBlocGenerate, ReportState>(
             builder: (context, state) {
-              // --- Parameter Controller Management ---
+              // --- LOGGING BUTTON STATE CONDITIONS ---
+              debugPrint('--- UI Rebuild Log ---');
+              debugPrint('UI: _selectedReport is NULL: ${_selectedReport == null}');
+              debugPrint('UI: state.fieldConfigs is EMPTY: ${state.fieldConfigs.isEmpty}');
+              debugPrint('UI: Send to Client button enabled? : ${(_selectedReport != null && state.fieldConfigs.isNotEmpty)}');
+              debugPrint('-----------------------');
+              // --- END LOGGING ---
+
+              // --- Parameter Controller Management (Existing logic) ---
+              // Dispose controllers for parameters that are no longer present
               final currentParamNames = state.selectedApiParameters.map((p) => p['name'].toString()).toSet();
               _paramControllers.keys.toList().forEach((key) {
                 if (!currentParamNames.contains(key)) {
@@ -204,6 +245,7 @@ class _ReportUIState extends State<ReportUI> {
                 }
               });
 
+              // Create or update controllers for present parameters
               for (var param in state.selectedApiParameters) {
                 final paramName = param['name'].toString();
                 if (!_paramControllers.containsKey(paramName)) {
@@ -216,8 +258,8 @@ class _ReportUIState extends State<ReportUI> {
                     param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
                     param['display_field'] != null && param['display_field'].toString().isNotEmpty;
 
+                // Determine display value based on userParameterValues and pickerOptions
                 final String currentMasterValue = state.userParameterValues[paramName] ?? '';
-
                 String displayValueForController = currentMasterValue;
 
                 if (isPickerField &&
@@ -257,51 +299,106 @@ class _ReportUIState extends State<ReportUI> {
                                     child: Autocomplete<Map<String, dynamic>>(
                                       initialValue: TextEditingValue(text: _reportLabelDisplayController.text),
                                       optionsBuilder: (TextEditingValue textEditingValue) {
+                                        List<Map<String, dynamic>> filteredReports;
+
                                         if (textEditingValue.text.isEmpty) {
                                           if (_selectedReport != null) {
+                                            // Only reset if _selectedReport was previously set
+                                            // and the user cleared the text field.
                                             WidgetsBinding.instance.addPostFrameCallback((_) {
                                               _resetAllFields(context);
                                             });
                                           }
-                                          return const Iterable<Map<String, dynamic>>.empty();
+                                          // When text is empty, show all reports
+                                          filteredReports = List.from(state.reports); // Create a mutable copy
+                                        } else {
+                                          // When text is not empty, filter reports
+                                          filteredReports = state.reports.where((report) =>
+                                              report['Report_label']
+                                                  .toString()
+                                                  .toLowerCase()
+                                                  .contains(textEditingValue.text.toLowerCase()))
+                                              .toList(); // Convert to List for sorting
                                         }
-                                        return state.reports.where((report) =>
-                                            report['Report_label']
-                                                .toString()
-                                                .toLowerCase()
-                                                .contains(
-                                                textEditingValue.text.toLowerCase()));
+
+                                        // Sort the filtered (or all) reports alphabetically by 'Report_label'
+                                        filteredReports.sort((a, b) {
+                                          final String labelA = a['Report_label']?.toString().toLowerCase() ?? '';
+                                          final String labelB = b['Report_label']?.toString().toLowerCase() ?? '';
+                                          return labelA.compareTo(labelB);
+                                        });
+
+                                        debugPrint('UI: Autocomplete optionsBuilder - text: "${textEditingValue.text}", returning ${filteredReports.length} options.'); // LOG
+                                        return filteredReports;
                                       },
                                       displayStringForOption: (Map<String, dynamic> option) => option['Report_label'],
+                                      // --- MODIFIED: onSelected callback to fetch field configs immediately ---
                                       onSelected: (Map<String, dynamic> selection) {
-                                        // Dispose and clear old controllers
+                                        debugPrint('UI: Autocomplete onSelected: ${selection['Report_label']}'); // LOG
+
+                                        final bloc = context.read<ReportBlocGenerate>();
+                                        // 1. Immediately reset the BLoC state for a new selection
+                                        // This ensures old parameters, field configs, and report data are cleared.
+                                        bloc.add(ResetReports());
+
+                                        // 2. Dispose and clear old controllers in UI state
                                         _paramControllers.forEach((key, controller) => controller.dispose());
                                         _paramControllers.clear();
                                         _paramFocusNodes.forEach((key, focusNode) => focusNode.dispose());
                                         _paramFocusNodes.clear();
 
+                                        // 3. Update UI's _selectedReport
                                         setState(() {
                                           _selectedReport = selection;
                                           _reportLabelDisplayController.text = selection['Report_label'];
                                         });
+                                        debugPrint('UI: _selectedReport set to: ${_selectedReport!['Report_label']}'); // LOG
 
-                                        // Extract actions_config from the selected report's metadata
+                                        // 4. Prepare actions config from selection
                                         List<Map<String, dynamic>> selectedActionsConfig = [];
                                         final dynamic actionsRaw = selection['actions_config'];
                                         if (actionsRaw is List) {
                                           selectedActionsConfig = List<Map<String, dynamic>>.from(actionsRaw);
-                                        } else {
-                                          debugPrint('UI: Warning: actions_config is not a List for selected report: ${selection['Report_label']}. Value: $actionsRaw');
+                                        } else if (actionsRaw is String && actionsRaw.isNotEmpty) {
+                                          try {
+                                            selectedActionsConfig = List<Map<String, dynamic>>.from(jsonDecode(actionsRaw));
+                                          } catch (e) {
+                                            debugPrint('UI: Error decoding actions_config string: $e');
+                                          }
+                                        }
+                                        if (selectedActionsConfig.isEmpty) {
+                                          debugPrint('UI: Warning: actions_config is empty or invalid for selected report: ${selection['Report_label']}. Value: $actionsRaw');
                                         }
 
-                                        context.read<ReportBlocGenerate>().add(
+
+                                        // 5. Dispatch FetchApiDetails (gets general API params and client DB details)
+                                        bloc.add(
                                           FetchApiDetails(
                                             selection['API_name'],
                                             selectedActionsConfig,
                                           ),
                                         );
-                                        debugPrint('UI: Report selected: ${selection['Report_label']}');
+                                        debugPrint('UI: FetchApiDetails dispatched for API: ${selection['API_name']}.'); // LOG
+
+                                        // 6. Dispatch FetchFieldConfigs immediately after.
+                                        // Use `addPostFrameCallback` to ensure FetchApiDetails has its first emit processed
+                                        // before FetchFieldConfigs attempts to fetch field configs for the new RecNo.
+                                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                                          final recNo = selection['RecNo'].toString();
+                                          final apiName = selection['API_name'].toString();
+                                          final reportLabel = selection['Report_label'].toString();
+                                          bloc.add(
+                                            FetchFieldConfigs(
+                                              recNo,
+                                              apiName,
+                                              reportLabel,
+                                              dynamicApiParams: bloc.state.userParameterValues, // Pass current user params (initial defaults)
+                                            ),
+                                          );
+                                          debugPrint('UI: FetchFieldConfigs dispatched for RecNo: $recNo.'); // LOG
+                                        });
                                       },
+                                      // --- End of MODIFIED: onSelected callback ---
                                       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                                         if (_reportLabelDisplayController.text != controller.text) {
                                           controller.text = _reportLabelDisplayController.text;
@@ -319,7 +416,9 @@ class _ReportUIState extends State<ReportUI> {
                                           onChanged: (value) {
                                             _reportLabelDisplayController.text = value;
                                             if (value.isEmpty && _selectedReport != null) {
-                                              _resetAllFields(context);
+                                              WidgetsBinding.instance.addPostFrameCallback((_) { // Use post frame callback to avoid setState during build
+                                                _resetAllFields(context);
+                                              });
                                             }
                                           },
                                         );
@@ -333,6 +432,7 @@ class _ReportUIState extends State<ReportUI> {
                                             borderRadius: BorderRadius.circular(12),
                                             child: SizedBox(
                                               width: 300,
+                                              height: options.length > 5 ? 250 : null, // Max height of 250, otherwise shrinkWrap
                                               child: ListView.builder(
                                                 shrinkWrap: true,
                                                 padding: const EdgeInsets.all(8),
@@ -356,7 +456,7 @@ class _ReportUIState extends State<ReportUI> {
                                   ),
                                   const SizedBox(height: 20),
 
-                                  // Show/Reset buttons (MOVED here, below report label)
+                                  // Show/Reset/Send to Client buttons
                                   Row(
                                     mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
@@ -372,7 +472,15 @@ class _ReportUIState extends State<ReportUI> {
                                           final actionsConfigForMainReport = bloc.state.actionsConfig;
 
                                           debugPrint('UI: "Show" button pressed for report: $reportLabel');
-                                          bloc.add(FetchFieldConfigs(recNo, apiName, reportLabel));
+                                          // `FetchFieldConfigs` is already called on selection, but re-calling it here
+                                          // ensures it uses the *latest* user-inputted parameters before navigating.
+                                          // The `dynamicApiParams` will be `state.userParameterValues` from the text fields.
+                                          bloc.add(FetchFieldConfigs(
+                                            recNo,
+                                            apiName,
+                                            reportLabel,
+                                            dynamicApiParams: bloc.state.userParameterValues,
+                                          ));
                                           if (context.mounted) {
                                             debugPrint('UI: Navigating to ReportMainUI.');
                                             Navigator.push(
@@ -395,6 +503,55 @@ class _ReportUIState extends State<ReportUI> {
                                         }
                                             : null,
                                         icon: Icons.visibility,
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // NEW BUTTON: Send to Client
+                                      _buildButton(
+                                        text: 'Send to Client',
+                                        color: Colors.purple, // A distinct color for this action
+                                        onPressed: _selectedReport != null && state.fieldConfigs.isNotEmpty
+                                            ? () async {
+                                          final bloc = context.read<ReportBlocGenerate>();
+
+                                          final Map<String, dynamic> reportMetadataToSend =
+                                          Map<String, dynamic>.from(_selectedReport!);
+
+                                          // Ensure 'Parameter' from _selectedReport is a JSON string,
+                                          // as required by the PHP script for `demo_table`.
+                                          if (reportMetadataToSend['Parameter'] is List) {
+                                            reportMetadataToSend['Parameter'] =
+                                                jsonEncode(reportMetadataToSend['Parameter']);
+                                          } else if (reportMetadataToSend['Parameter'] == null) {
+                                            reportMetadataToSend['Parameter'] = '';
+                                          }
+
+                                          // Ensure 'actions_config' from _selectedReport is a JSON string.
+                                          if (reportMetadataToSend['actions_config'] is List) {
+                                            reportMetadataToSend['actions_config'] =
+                                                jsonEncode(reportMetadataToSend['actions_config']);
+                                          } else if (reportMetadataToSend['actions_config'] == null) {
+                                            reportMetadataToSend['actions_config'] = '[]';
+                                          } else if (reportMetadataToSend['actions_config'] is String && reportMetadataToSend['actions_config'].isEmpty) {
+                                            reportMetadataToSend['actions_config'] = '[]';
+                                          }
+
+
+                                          final String clientApiName = _selectedReport!['API_name'].toString();
+
+                                          debugPrint('UI: "Send to Client" button pressed for report RecNo: ${reportMetadataToSend['RecNo']}'); // LOG
+                                          debugPrint('UI: Client API Name for credentials lookup: $clientApiName'); // LOG
+
+
+                                          bloc.add(
+                                            DeployReportToClient(
+                                              reportMetadata: reportMetadataToSend,
+                                              fieldConfigs: state.fieldConfigs, // Use the fetched field configs
+                                              clientApiName: clientApiName,
+                                            ),
+                                          );
+                                        }
+                                            : null,
+                                        icon: Icons.cloud_upload,
                                       ),
                                       const SizedBox(width: 12),
                                       _buildButton(
@@ -462,10 +619,12 @@ class _ReportUIState extends State<ReportUI> {
                                               parameterInputWidget =
                                                   Autocomplete<Map<String, String>>(
                                                     optionsBuilder: (TextEditingValue textEditingValue) {
+                                                      // LOG for picker options
+                                                      debugPrint('UI: Autocomplete for param $paramName - text: "${textEditingValue.text}"');
                                                       if (!state.pickerOptions.containsKey(paramName) &&
                                                           state.serverIP != null && state.userName != null &&
                                                           state.password != null && state.databaseName != null) {
-                                                        debugPrint('UI: Dispatching FetchPickerOptions for $paramName');
+                                                        debugPrint('UI: Dispatching FetchPickerOptions for $paramName (because not in state.pickerOptions)');
                                                         context.read<ReportBlocGenerate>().add(
                                                           FetchPickerOptions(
                                                             paramName: paramName,
@@ -490,6 +649,7 @@ class _ReportUIState extends State<ReportUI> {
                                                     },
                                                     displayStringForOption: (Map<String, String> option) => option['label']!,
                                                     onSelected: (Map<String, String> selection) {
+                                                      debugPrint('UI: Picker selected: ${selection['label']} for $paramName'); // LOG
                                                       controller.text = selection['label']!;
                                                       context.read<ReportBlocGenerate>().add(
                                                         UpdateParameter(paramName, selection['value']!),
@@ -505,10 +665,12 @@ class _ReportUIState extends State<ReportUI> {
                                                         label: paramLabel,
                                                         enableClearButton: true,
                                                         onClear: () {
+                                                          debugPrint('UI: Clearing picker field: $paramName'); // LOG
                                                           textEditingControllerFromAutocomplete.clear();
                                                           context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
                                                         },
                                                         onChanged: (value) {
+                                                          debugPrint('UI: Changed picker field: $paramName to "$value"'); // LOG
                                                           context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, value));
                                                         },
                                                       );
@@ -522,6 +684,7 @@ class _ReportUIState extends State<ReportUI> {
                                                           borderRadius: BorderRadius.circular(12),
                                                           child: SizedBox(
                                                             width: 300,
+                                                            height: options.length > 5 ? 250 : null, // Max height of 250, otherwise shrinkWrap
                                                             child: ListView.builder(
                                                               shrinkWrap: true,
                                                               padding: const EdgeInsets.all(8),
@@ -551,10 +714,12 @@ class _ReportUIState extends State<ReportUI> {
                                                 readOnly: true,
                                                 enableClearButton: true,
                                                 onClear: () {
+                                                  debugPrint('UI: Clearing date field: $paramName'); // LOG
                                                   controller.clear();
                                                   context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
                                                 },
                                                 onTap: () async {
+                                                  debugPrint('UI: Date picker tapped for $paramName'); // LOG
                                                   DateTime? initialDate;
                                                   DateFormat? detectedFormat;
 
@@ -595,6 +760,7 @@ class _ReportUIState extends State<ReportUI> {
                                                   if (pickedDate != null) {
                                                     final formattedDate = detectedFormat.format(pickedDate);
                                                     controller.text = formattedDate;
+                                                    debugPrint('UI: Date selected: $formattedDate for $paramName'); // LOG
                                                     context.read<ReportBlocGenerate>().add(
                                                       UpdateParameter(paramName, formattedDate),
                                                     );
@@ -609,10 +775,12 @@ class _ReportUIState extends State<ReportUI> {
                                                 icon: Icons.text_fields,
                                                 enableClearButton: true,
                                                 onClear: () {
+                                                  debugPrint('UI: Clearing text field: $paramName'); // LOG
                                                   controller.clear();
                                                   context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
                                                 },
                                                 onChanged: (value) {
+                                                  debugPrint('UI: Changed text field: $paramName to "$value"'); // LOG
                                                   context.read<ReportBlocGenerate>().add(
                                                     UpdateParameter(paramName, value),
                                                   );
@@ -637,8 +805,7 @@ class _ReportUIState extends State<ReportUI> {
                     ),
                   ),
                   // Conditional Loader/Empty message as an overlay
-                  if ((state.isLoading && state.reports.isEmpty) ||
-                      (state.isLoading && state.selectedApiParameters.isNotEmpty && state.pickerOptions.isEmpty))
+                  if (state.isLoading) // Show loader if any loading is happening
                     const Positioned.fill(child: SubtleLoader())
                   else if (state.reports.isEmpty && !state.isLoading && state.error == null)
                     Positioned.fill(

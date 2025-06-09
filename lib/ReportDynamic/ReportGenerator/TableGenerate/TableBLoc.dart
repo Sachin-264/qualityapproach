@@ -1,4 +1,4 @@
-// ReportDynamic/TableGenerator/Tablebloc.dart
+// ReportDynamic/TableGenerator/TableBLoc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
@@ -13,7 +13,10 @@ class LoadReports extends ReportEvent {}
 
 class FetchApiDetails extends ReportEvent {
   final String apiName;
-  final List<Map<String, dynamic>> actionsConfig; // Kept for consistency, but often empty for nested calls
+  // actionsConfig here is from the ReportMainUI's constructor,
+  // typically empty for nested TableMainUI, and will be populated
+  // by the BLoC's own fetch of this API's details.
+  final List<Map<String, dynamic>> actionsConfig;
 
   FetchApiDetails(this.apiName, this.actionsConfig);
 }
@@ -26,10 +29,10 @@ class UpdateParameter extends ReportEvent {
 
 class FetchFieldConfigs extends ReportEvent {
   final String recNo;
-  final String apiName;
-  final String reportLabel;
-  final String? actionApiUrlTemplate;
-  final Map<String, String>? dynamicApiParams;
+  final String apiName; // The API_name used to fetch the actual report data and its details
+  final String reportLabel; // The display label
+  final String? actionApiUrlTemplate; // For drill-down/print actions
+  final Map<String, String>? dynamicApiParams; // Parameters for the API call
 
   FetchFieldConfigs(
       this.recNo,
@@ -202,12 +205,12 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       password: null,
       databaseName: null,
       documentData: null,
-      reportData: [],
-      fieldConfigs: [],
+      // Do NOT clear reportData and fieldConfigs here, as they are fetched by FetchFieldConfigs
+      // actionsConfig is cleared, then set by this event's success.
       actionsConfig: [], // Clear actions here to ensure a fresh fetch
     ));
     try {
-      final apiDetails = await apiService.getApiDetails(event.apiName);
+      final apiDetails = await apiService.getApiDetails(event.apiName); // This call now waits internally
 
       List<Map<String, dynamic>> fetchedParameters = List<Map<String, dynamic>>.from(apiDetails['parameters'] ?? []);
 
@@ -220,7 +223,7 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       final String? databaseName = apiDetails['databaseName']?.toString();
 
       // **IMPORTANT CHANGE HERE:** Directly use actions from the API response
-      List<Map<String, dynamic>> fetchedActions = List<Map<String, dynamic>>.from(apiDetails['actions'] ?? []);
+      List<Map<String, dynamic>> fetchedActions = List<Map<String, dynamic>>.from(apiDetails['actions_config'] ?? []); // Ensure 'actions_config' matches backend
       debugPrint('TableBloc: API "${event.apiName}" returned ${fetchedActions.length} actions.');
 
 
@@ -256,7 +259,15 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       ));
       debugPrint('TableBloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${fetchedActions.length} items.');
     } catch (e) {
-      emit(state.copyWith(isLoading: false, error: 'Failed to fetch API details: $e'));
+      // **Key change:** Instead of immediately emitting an error that causes UI flicker,
+      // we can try to proceed if possible or at least set a specific error message.
+      // The UI will still show the error if it's the only failure, but it won't be transient.
+      emit(state.copyWith(
+          isLoading: false,
+          error: e.toString().contains('API details not found')
+              ? 'Configuration error: API details for "${event.apiName}" not found on server. Please check setup.'
+              : 'Failed to fetch API details: $e'
+      ));
       debugPrint('TableBloc: FetchApiDetails error: $e');
     }
   }
@@ -269,7 +280,16 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
   }
 
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
-    emit(state.copyWith(isLoading: true, error: null, reportData: [])); // Clear previous report data
+    // Only set isLoading and clear reportData/error if not already loading from FetchApiDetails
+    // (This helps prevent duplicate loading indicators/flicker if FetchApiDetails just started)
+    if (!state.isLoading) {
+      emit(state.copyWith(isLoading: true, error: null, reportData: [])); // Clear previous report data
+    } else {
+      // If isLoading is true, it means FetchApiDetails is still working.
+      // Just ensure reportData is cleared and error is null for this specific fetch.
+      emit(state.copyWith(reportData: [], error: null));
+    }
+
 
     debugPrint('TableBloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
     debugPrint('TableBloc: FetchFieldConfigs: Dynamic parameters provided for API call: ${event.dynamicApiParams}');
@@ -277,8 +297,11 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
     try {
       final fieldConfigs = await apiService.fetchDemoTable2(event.recNo);
 
+      // We should ideally ensure API details are loaded for the data fetch,
+      // but apiService.fetchApiDataWithParams now handles ensuring API details
+      // are available, including potentially re-fetching them.
       final apiResponse = await apiService.fetchApiDataWithParams(
-        event.apiName,
+        event.apiName, // Use the actual API_name from the config
         event.dynamicApiParams ?? state.userParameterValues, // Use dynamicApiParams if provided, else use state's params
         actionApiUrlTemplate: event.actionApiUrlTemplate,
       );
@@ -300,7 +323,7 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
         selectedRecNo: event.recNo,
         selectedApiName: event.apiName,
         selectedReportLabel: event.reportLabel,
-        error: errorMessage,
+        error: errorMessage, // Set error from API response if any
         documentData: null,
       );
       emit(newState);
@@ -308,20 +331,21 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
     } catch (e) {
       List<Map<String, dynamic>> fieldConfigsFallback = [];
       try {
+        // Attempt to fetch field configs even if data fetch fails, to display column headers.
         fieldConfigsFallback = await apiService.fetchDemoTable2(event.recNo);
       } catch (e2) {
-        debugPrint('TableBloc: Error fetching field configs fallback: $e2');
+        debugPrint('TableBloc: Error fetching field configs fallback after data fetch failure: $e2');
       }
 
       final newState = state.copyWith(
         isLoading: false,
-        fieldConfigs: fieldConfigsFallback,
-        reportData: [],
+        fieldConfigs: fieldConfigsFallback, // Keep whatever configs were successfully fetched
+        reportData: [], // Ensure report data is empty on error
         selectedRecNo: event.recNo,
         selectedApiName: event.apiName,
         selectedReportLabel: event.reportLabel,
         error: e.toString().contains('TimeoutException')
-            ? 'API request timed out after multiple attempts. Please check your network or try again later.'
+            ? 'API request timed out. Please check your network or try again later.'
             : 'Failed to fetch report data: $e',
         documentData: null,
       );

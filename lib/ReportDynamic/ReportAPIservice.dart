@@ -11,7 +11,11 @@ class ReportAPIService {
   late final Map<String, String> _postEndpoints;
   late final Map<String, String> _getEndpoints;
 
+  // Cache for API details fetched from get_database_server
   Map<String, Map<String, dynamic>> _apiDetails = {};
+
+  // Completer to manage concurrent fetches of _apiDetails
+  Completer<void>? _apiDetailsLoadingCompleter;
 
   static int _recNoCounter = 0; // Consider if this is truly needed or if backend manages RecNo
 
@@ -25,6 +29,8 @@ class ReportAPIService {
       'edit_database_server': '$_baseUrl?mode=edit_database_server',
       'edit_demo_tables': '$_baseUrl?mode=edit_demo_tables',
       'delete_demo_tables': '$_baseUrl?mode=delete_demo_tables',
+      // NEW ENDPOINT: Added for the deployment functionality
+      'deploy_report': 'http://localhost/reportBuilder/deploy_report_to_client.php', // *** IMPORTANT: CHANGE THIS URL FOR PRODUCTION DEPLOYMENT! ***
     };
 
     _getEndpoints = {
@@ -34,6 +40,36 @@ class ReportAPIService {
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
       'fetch_databases': _databaseFetchUrl,
     };
+  }
+
+  /// Ensures that the [_apiDetails] cache is populated.
+  /// If a fetch is already in progress, it waits for it.
+  /// If the cache is empty and no fetch is in progress, it initiates a new fetch.
+  Future<void> _ensureApiDetailsCacheLoaded() async {
+    // 1. Check if a fetch is already in progress
+    if (_apiDetailsLoadingCompleter != null && !_apiDetailsLoadingCompleter!.isCompleted) {
+      debugPrint('ReportAPIService: API details cache load in progress. Waiting...');
+      return _apiDetailsLoadingCompleter!.future; // If yes, return the existing Future and wait for it
+    }
+
+    // 2. If cache is empty AND no fetch is in progress, start a new one
+    if (_apiDetails.isEmpty) {
+      _apiDetailsLoadingCompleter = Completer<void>(); // Create a new Completer
+      debugPrint('ReportAPIService: Initiating new API details cache load.');
+      try {
+        await getAvailableApis(); // This method performs the actual API call to get_database_server and populates _apiDetails
+        _apiDetailsLoadingCompleter!.complete(); // Mark the Completer as complete (success)
+      } catch (e) {
+        _apiDetailsLoadingCompleter!.completeError(e); // Mark as complete with an error
+        debugPrint('ReportAPIService: Error during API details cache load: $e');
+        rethrow; // Re-throw the error to propagate it
+      } finally {
+        // Reset the completer regardless of success or failure, but only after it's completed.
+        // This ensures the next request will start a new fetch if needed.
+        _apiDetailsLoadingCompleter = null;
+      }
+    }
+    // If cache is already populated, or if we just completed populating it, this method finishes successfully.
   }
 
   Future<List<String>> fetchDatabases({
@@ -312,6 +348,7 @@ class ReportAPIService {
     }
   }
 
+  /// Fetches all available APIs from the database server and populates the [_apiDetails] cache.
   Future<List<String>> getAvailableApis() async {
     final url = _getEndpoints['get_database_server'];
     if (url == null) {
@@ -370,28 +407,24 @@ class ReportAPIService {
   }
 
   Future<Map<String, dynamic>> getApiDetails(String apiName) async {
-    // Attempt to retrieve from cache first
-    if (_apiDetails.isNotEmpty && _apiDetails.containsKey(apiName)) {
+    // --- THIS IS THE KEY MODIFICATION: Ensure cache is loaded before attempting lookup ---
+    await _ensureApiDetailsCacheLoaded();
+    // -------------------------------------------------------------------------------------
+
+    // Now, we are GUARANTEED that _apiDetails is populated (or an error was thrown and caught higher up)
+    if (_apiDetails.containsKey(apiName)) {
       debugPrint('ReportAPIService: Retrieved API details for $apiName from cache: ${_apiDetails[apiName]}'); // ADDED LOG
       return _apiDetails[apiName]!;
-    }
-
-    // If not cached, fetch all and then retrieve (this might happen if getAvailableApis wasn't called first)
-    debugPrint('getApiDetails: Details for $apiName not cached, fetching all APIs.'); // Log
-    await getAvailableApis(); // This will populate _apiDetails cache
-    final apiDetail = _apiDetails[apiName];
-
-    if (apiDetail == null) {
-      debugPrint('Error: API details not found for apiName=$apiName after fetch.'); // Log
+    } else {
+      debugPrint('Error: API details not found for "$apiName" after cache load attempt.'); // Log
       throw Exception('API details not found for "$apiName".');
     }
-    debugPrint('ReportAPIService: Retrieved API details for $apiName after re-fetch: $apiDetail'); // ADDED LOG
-    return apiDetail;
   }
 
   // MODIFIED: This method now explicitly constructs the URI using queryParameters map.
   // It relies on getApiDetails to provide the base URL and default parameters.
   Future<List<Map<String, dynamic>>> fetchApiData(String apiName) async {
+    // getApiDetails internally calls _ensureApiDetailsCacheLoaded(), so no need to call it directly here.
     final apiDetail = await getApiDetails(apiName);
     String baseUrl = apiDetail['url'];
     List<dynamic> parameters = apiDetail['parameters'] ?? [];
@@ -459,6 +492,9 @@ class ReportAPIService {
       });
       debugPrint('ReportAPIService: Initializing params from actionApiUrlTemplate: $effectiveBaseUrl');
     } else {
+      // --- THIS IS THE KEY MODIFICATION: Ensure cache is loaded before calling getApiDetails ---
+      await _ensureApiDetailsCacheLoaded();
+      // -----------------------------------------------------------------------------------------
       final apiDetail = await getApiDetails(apiName); // This is where getApiDetails is properly used with an apiName
       effectiveBaseUrl = apiDetail['url'];
       final Uri tempUri = Uri.parse(effectiveBaseUrl);
@@ -503,7 +539,7 @@ class ReportAPIService {
             throw TimeoutException('Request to $uri timed out');
           },
         );
-        debugPrint('ReportAPIService: ApiData response: status=${response.statusCode}, body length=${response.body.length}');
+        debugPrint('ReportAPIService: ApiData response: status=${response.statusCode}, body=${response.body.length}');
 
         final parsedData = _parseApiResponse(response);
         return {
@@ -635,6 +671,8 @@ class ReportAPIService {
           return [];
         }
         final jsonData = jsonDecode(response.body);
+        // ADDED LOG: Print the raw JSON data for demo_table (report metadata)
+        debugPrint('Raw JSON from get_demo_table: ${jsonEncode(jsonData)}');
         if (jsonData['status'] == 'success') {
           List<Map<String, dynamic>> reports = [];
           for (var item in jsonData['data']) {
@@ -686,6 +724,8 @@ class ReportAPIService {
           return [];
         }
         final jsonData = jsonDecode(response.body);
+        // NEW LOG: Print the raw JSON data for field configurations
+        debugPrint('Raw JSON from get_demo_table2 for RecNo $recNo: ${jsonEncode(jsonData)}');
         if (jsonData['status'] == 'success') {
           return List<Map<String, dynamic>>.from(jsonData['data']);
         } else {
@@ -989,7 +1029,7 @@ class ReportAPIService {
     required String reportLabel,
     required String apiName,
     required String parameter,
-    required List<Map<String, dynamic>> fieldConfigs,
+    required List<Map<String, dynamic>> fieldConfigs, // This list is already correctly formatted
     required List<Map<String, dynamic>> actions, // NEW: actions parameter
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
@@ -998,6 +1038,8 @@ class ReportAPIService {
       throw Exception('POST API not found');
     }
 
+    // This is the CRITICAL change: Pass fieldConfigs directly as it's already correctly formatted.
+    // The previous code was re-mapping it, causing the `indian_format` to revert.
     final payload = {
       'RecNo': recNo.toString(),
       'Demo_table': {
@@ -1007,47 +1049,10 @@ class ReportAPIService {
         'Parameter': parameter.trim(),
         'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
       },
-      'Demo_table_2': fieldConfigs.map((field) {
-        return {
-          'Field_name': field['Field_name']?.toString() ?? '',
-          'Field_label': field['Field_label']?.toString() ?? field['Field_name']?.toString() ?? '',
-          'Sequence_no': field['Sequence_no'] is int
-              ? field['Sequence_no']
-              : int.tryParse(field['Sequence_no'].toString()) ?? 0,
-          'width': field['width'] is int ? field['width'] : int.tryParse(field['width'].toString()) ?? 100,
-          'Total': field['Total'] is int
-              ? field['Total']
-              : (field['Total'] == true ? 1 : 0),
-          'num_alignment': field['num_alignment']?.toString() ?? 'Left',
-          'time': field['time'] is int
-              ? field['time']
-              : (field['time'] == true ? 1 : 0),
-          'indian_format': field['num_format'] is int // This is the field in question
-              ? field['num_format']
-              : (field['num_format'] == true ? 1 : 0),
-          'Breakpoint': field['Breakpoint'] is int
-              ? field['Breakpoint']
-              : (field['Breakpoint'] == true ? 1 : 0),
-          'SubTotal': field['SubTotal'] is int
-              ? field['SubTotal']
-              : (field['SubTotal'] == true ? 1 : 0),
-          'decimal_points': field['decimal_points'] is int
-              ? field['decimal_points']
-              : int.tryParse(field['decimal_points'].toString()) ?? 0,
-          'image': field['image'] is int
-              ? field['image']
-              : (field['image'] == true ? 1 : 0),
-        };
-      }).toList(),
+      'Demo_table_2': fieldConfigs, // <-- Use the already processed fieldConfigs directly
     };
 
-    debugPrint('EditDemoTables URL: $url, Payload: ${jsonEncode(payload)}'); // ADDED LOG
-
-    // ADDED LOG for indian_format within fieldConfigs
-    debugPrint('Saving DemoTable2 fields for RecNo ${recNo}:');
-    for (var field in payload['Demo_table_2'] as List) {
-      debugPrint('  Field: ${field['Field_name']}, indian_format: ${field['indian_format']}');
-    }
+    debugPrint('EditDemoTables URL: $url, Final Payload to send: ${jsonEncode(payload)}'); // ADDED LOG for final payload
 
     try {
       final response = await http.post(
@@ -1115,6 +1120,58 @@ class ReportAPIService {
       return jsonData;
     } catch (e) {
       debugPrint('delete_demo_tables exception: $e'); // Log
+      rethrow;
+    }
+  }
+
+  // NEW METHOD: deployReportToClient - This was the one missing from the previous snippet!
+  Future<Map<String, dynamic>> deployReportToClient({
+    required Map<String, dynamic> reportMetadata,
+    required List<Map<String, dynamic>> fieldConfigs,
+    required String clientServerIP,
+    required String clientUserName,
+    required String clientPassword,
+    required String clientDatabaseName,
+  }) async {
+    final url = _postEndpoints['deploy_report'];
+    if (url == null) {
+      debugPrint('Error: POST API not found for deploy_report');
+      throw Exception('POST API not found for deployment.');
+    }
+
+    final payload = {
+      'report_metadata': jsonEncode(reportMetadata),
+      'field_configs': jsonEncode(fieldConfigs),
+      'client_server': clientServerIP.trim(),
+      'client_user': clientUserName.trim(),
+      'client_password': clientPassword.trim(),
+      'client_database': clientDatabaseName.trim(),
+    };
+    debugPrint('DeployReportToClient URL: $url, Payload keys: ${payload.keys.join(', ')}'); // Log keys, not full sensitive payload
+
+    try {
+      final response = await http.post(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 180)); // Give it more time for DB operations
+
+      debugPrint('DeployReportToClient response status: ${response.statusCode}');
+      debugPrint('DeployReportToClient response body: ${response.body}');
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          throw Exception('Empty response body from deployment script.');
+        }
+        return jsonDecode(response.body); // Should contain status and message
+      } else {
+        throw Exception('Server error during deployment: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('DeployReportToClient exception: $e\nStack trace: $stackTrace');
       rethrow;
     }
   }
