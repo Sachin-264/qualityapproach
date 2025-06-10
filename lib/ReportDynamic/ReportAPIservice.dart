@@ -276,7 +276,20 @@ class ReportAPIService {
         }
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success' && jsonData['data'] is List) {
-          return List<Map<String, dynamic>>.from(jsonData['data']);
+          // FIX: Explicitly map and convert each item to Map<String, dynamic>
+          return (jsonData['data'] as List)
+              .map((item) {
+            if (item is Map<String, dynamic>) {
+              return item;
+            } else {
+              // Log a warning or handle cases where an item is not a map
+              debugPrint('Warning: Expected Map<String, dynamic> in picker data, but found ${item.runtimeType}. Item: $item');
+              // Return an empty map for malformed items, which will be filtered out.
+              return <String, dynamic>{};
+            }
+          })
+              .where((item) => item.isNotEmpty) // Filter out any empty maps resulting from malformed data
+              .toList();
         } else {
           debugPrint('Fetch picker data error: API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}'); // Log
           throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
@@ -570,7 +583,8 @@ class ReportAPIService {
     };
   }
 
-  // MODIFIED: This method is updated to handle nested lists and maps within the 'data' field.
+  // MODIFIED: This method is updated to handle nested lists and maps within the 'data' field,
+  // ensuring robust type conversion to List<Map<String, dynamic>>.
   List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
     try {
       if (response.body.trim().isEmpty) {
@@ -591,18 +605,17 @@ class ReportAPIService {
           if (jsonData[0] is List) {
             // This suggests multiple result sets, like from a stored procedure.
             // For document views or primary data, we typically care about the first inner list.
-            debugPrint('ParseApiResponse: Detected List of Lists. Taking the first inner list.');
-            if (jsonData[0].isNotEmpty && jsonData[0][0] is Map<String, dynamic>) {
-              // Ensure the inner list actually contains maps.
-              return List<Map<String, dynamic>>.from(jsonData[0]);
+            debugPrint('ParseApiResponse: Detected List of Lists. Taking the first inner list and ensuring types.');
+            if (jsonData[0].isNotEmpty) {
+              return (jsonData[0] as List).whereType<Map<String, dynamic>>().toList();
             } else {
-              debugPrint('ParseApiResponse: First inner list is empty or does not contain maps. Returning empty list.');
+              debugPrint('ParseApiResponse: First inner list is empty. Returning empty list.');
               return [];
             }
           } else if (jsonData[0] is Map<String, dynamic>) {
             // This is a direct list of maps, e.g., [{"id":1}, {"id":2}]
-            debugPrint('ParseApiResponse: Detected List of Maps directly. Returning as is.');
-            return List<Map<String, dynamic>>.from(jsonData);
+            debugPrint('ParseApiResponse: Detected List of Maps directly. Ensuring types.');
+            return jsonData.whereType<Map<String, dynamic>>().toList();
           } else {
             debugPrint('ParseApiResponse: List contains unexpected element type: ${jsonData[0].runtimeType}. Throwing error.');
             throw Exception('List contains unexpected element type: ${jsonData[0].runtimeType}');
@@ -618,8 +631,8 @@ class ReportAPIService {
         if (isSuccess && jsonData['data'] != null) {
           final data = jsonData['data'];
           if (data is List) {
-            debugPrint('ParseApiResponse: Detected Map with "data" field as List. Returning data list.');
-            return List<Map<String, dynamic>>.from(data);
+            debugPrint('ParseApiResponse: Detected Map with "data" field as List. Ensuring types.');
+            return data.whereType<Map<String, dynamic>>().toList();
           } else if (data is Map<String, dynamic>) {
             // Handle case where 'data' is a single map (e.g., for some document APIs returning single object)
             debugPrint('ParseApiResponse: Detected Map with "data" field as single Map. Wrapping in List.');
@@ -727,7 +740,8 @@ class ReportAPIService {
         // NEW LOG: Print the raw JSON data for field configurations
         debugPrint('Raw JSON from get_demo_table2 for RecNo $recNo: ${jsonEncode(jsonData)}');
         if (jsonData['status'] == 'success') {
-          return List<Map<String, dynamic>>.from(jsonData['data']);
+          // Use whereType for robust conversion
+          return (jsonData['data'] as List).whereType<Map<String, dynamic>>().toList();
         } else {
           debugPrint('DemoTable2 error: ${jsonData['message']}'); // Log
           throw Exception('API returned error: ${jsonData['message']}');

@@ -7,6 +7,7 @@ import '../../../ReportUtils/Appbar.dart';
 import '../../ReportAPIService.dart';
 import 'EditDetailAdminBloc.dart';
 import 'dart:async';
+import 'dart:convert';
 
 class EditDetailAdmin extends StatelessWidget {
   final Map<String, dynamic> apiData;
@@ -56,14 +57,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     _apiServerURLController.text = widget.apiData['APIServerURl'] ?? '';
     _apiNameController.text = widget.apiData['APIName'] ?? '';
 
-    // Initialize parameter controllers and listeners from state (IMPORTANT for existing data)
-    // Delay this initialization until after the first frame to ensure BLoC state is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (context.mounted) {
-        // We need to re-fetch parameters from the BLoC state as it might contain
-        // the full, parsed structure including 'is_company_name_field'.
-        final parameters = context.read<EditDetailAdminBloc>().state.parameters;
-        _initializeParameterControllers(parameters);
+        _initializeParameterControllers(context.read<EditDetailAdminBloc>().state.parameters);
       }
     });
 
@@ -89,29 +85,30 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     });
     _apiNameController.addListener(() {
       _debouncedUpdate(() {
-        print('User entered APIName: ${_apiNameController.text}');
-        print('Dispatching UpdateApiName with: ${_apiNameController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateApiName(_apiNameController.text));
       });
     });
   }
 
-  // Helper method to consolidate parameter controller initialization
   void _initializeParameterControllers(List<Map<String, dynamic>> parameters) {
     for (var i = 0; i < parameters.length; i++) {
-      // Create controller if it doesn't exist
       _paramControllers[i] ??= TextEditingController();
-      // Set text from current parameter value
-      final String valueToDisplay = parameters[i]['value']?.toString() ?? '';
-      if (_paramControllers[i]!.text != valueToDisplay) { // Only update if different to avoid cursor jump
-        _paramControllers[i]!.text = valueToDisplay;
+      final param = parameters[i];
+      String valueToDisplay;
+
+      if (param['config_type'] == 'radio' || param['config_type'] == 'checkbox') {
+        valueToDisplay = param['value']?.toString() ?? '';
+      } else {
+        valueToDisplay = param['display_value_cache']?.toString() ?? param['value']?.toString() ?? '';
       }
 
-      // Add listener if not already added
+      if (_paramControllers[i]!.text != valueToDisplay) {
+        _paramControllers[i]!.text = valueToDisplay;
+      }
       if (!_paramControllers[i]!.hasListeners) {
         _paramControllers[i]!.addListener(() {
           _debouncedUpdate(() {
-            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(i, _paramControllers[i]!.text));
+            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(i, _paramControllers[i]!.text, _paramControllers[i]!.text));
           });
         });
       }
@@ -131,27 +128,26 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     super.dispose();
   }
 
-  // Helper to infer date format from a string
   DateFormat? _inferDateFormat(String dateString) {
     if (dateString.isEmpty) return null;
 
     final List<String> commonFormats = [
-      'dd-MMM-yyyy', // e.g., 26-Oct-2023
-      'yyyy-MM-dd',  // e.g., 2023-10-26
-      'MM/dd/yyyy',  // e.g., 10/26/2023
-      'dd/MM/yyyy',  // e.g., 26/10/2023
-      'MMM dd, yyyy',// e.g., Oct 26, 2023
+      'dd-MMM-yyyy',
+      'yyyy-MM-dd',
+      'MM/dd/yyyy',
+      'dd/MM/yyyy',
+      'MMM dd, yyyy',
     ];
 
     for (String format in commonFormats) {
       try {
-        DateFormat(format).parseStrict(dateString); // Use parseStrict for precise matching
+        DateFormat(format).parseStrict(dateString);
         return DateFormat(format);
       } catch (e) {
         // Not this format, try next
       }
     }
-    return null; // No matching format found
+    return null;
   }
 
   Widget _buildTextField({
@@ -161,15 +157,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     bool obscureText = false,
     bool isSmall = false,
     bool isDateField = false,
-    VoidCallback? onTap, // For date picker
-    IconData? suffixIcon, // New for field selection
-    VoidCallback? onSuffixIconTap, // New for field selection
+    VoidCallback? onTap,
+    IconData? suffixIcon,
+    VoidCallback? onSuffixIconTap,
+    bool readOnly = false,
   }) {
     return TextField(
       controller: controller,
       obscureText: obscureText,
-      readOnly: isDateField, // Keep readOnly for date fields
-      onTap: isDateField ? onTap : null, // Only onTap for date fields (opens date picker)
+      readOnly: isDateField || readOnly,
+      onTap: isDateField ? onTap : null,
       style: GoogleFonts.poppins(fontSize: isSmall ? 14 : 16, color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
@@ -181,10 +178,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: isSmall ? 20 : 22) : null,
         suffixIcon: isDateField
             ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20)
-            : (suffixIcon != null // If it's not a date field, check for a custom suffixIcon
+            : (suffixIcon != null
             ? IconButton(
           icon: Icon(suffixIcon, color: Colors.blueAccent, size: isSmall ? 18 : 20),
-          onPressed: onSuffixIconTap, // Use new callback for custom suffix icon
+          onPressed: onSuffixIconTap,
         )
             : null),
         filled: true,
@@ -268,7 +265,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     required IconData icon,
   }) {
     return ElevatedButton(
-      onPressed: onPressed, // The onPressed is directly passed, handling null/empty for disabled state
+      onPressed: onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -295,10 +292,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
   }
 
   bool _isDateParameter(String name, String value) {
-    // Check if the parameter name contains 'date' or if the value matches a common date pattern
-    final datePattern1 = RegExp(r'^\d{2}-\d{2}-\d{4}$'); // DD-MM-YYYY
-    final datePattern2 = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$'); // DD-MMM-YYYY
-    final datePattern3 = RegExp(r'^\d{4}-\d{2}-\d{2}$'); // YYYY-MM-DD
+    final datePattern1 = RegExp(r'^\d{2}-\d{2}-\d{4}$');
+    final datePattern2 = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$');
+    final datePattern3 = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
     return name.toLowerCase().contains('date') || datePattern1.hasMatch(value) || datePattern2.hasMatch(value) || datePattern3.hasMatch(value);
   }
@@ -313,12 +309,11 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         try {
           initialDate = inferredFormat.parse(controller.text);
         } catch (e) {
-          // If parsing fails despite inferred format (e.g., malformed date), fall back
           initialDate = DateTime.now();
         }
       }
     }
-    initialDate ??= DateTime.now(); // Default if no text or no format inferred
+    initialDate ??= DateTime(2000);
 
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -348,11 +343,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     );
 
     if (picked != null && context.mounted) {
-      // Use the inferred format for output, or default to dd-MMM-yyyy
       final DateFormat outputFormat = inferredFormat ?? DateFormat('dd-MMM-yyyy');
       final formattedDate = outputFormat.format(picked);
       controller.text = formattedDate;
-      context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, formattedDate));
+      context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, formattedDate, formattedDate));
     }
   }
 
@@ -366,7 +360,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         backgroundColor: Colors.white,
         title: Text(
-          'Enter Field Label for $paramName',
+          'Edit Field Label for ${paramName.toUpperCase()}',
           style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         content: _buildTextField(
@@ -422,30 +416,47 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     _debounce = Timer(const Duration(milliseconds: 500), callback);
   }
 
-  // Modified _buildParameterRows to accept the full state
   List<Widget> _buildParameterRows(EditDetailAdminState state, BuildContext context) {
     final List<Widget> rows = [];
-    final List<Map<String, dynamic>> allParamsOrdered = state.parameters; // Get from BLoC state
+    final List<Map<String, dynamic>> allParamsOrdered = state.parameters;
 
     for (var i = 0; i < allParamsOrdered.length; i++) {
       final param = allParamsOrdered[i];
-      final index = i; // This is the actual index in the state.parameters list
+      final index = i;
 
-      // Ensure controller exists and is linked to the correct value
-      // This part was moved to _initializeParameterControllers and should be less critical here
-      // But we still need to ensure the text field is updated if state changes from modal
-      final currentText = _paramControllers[index]?.text;
-      final newValueFromBloc = param['value']?.toString() ?? '';
-      if (currentText != newValueFromBloc) {
-        _paramControllers[index]?.text = newValueFromBloc; // Use ?. for safety if controller not yet created (shouldn't happen with initState logic)
+      String valueToDisplay;
+      if (param['config_type'] == 'radio' || param['config_type'] == 'checkbox') {
+        valueToDisplay = param['value']?.toString() ?? '';
+      } else {
+        valueToDisplay = param['display_value_cache']?.toString() ?? param['value']?.toString() ?? '';
       }
-      _paramControllers[index] ??= TextEditingController(text: newValueFromBloc); // Fallback if controller not yet created
+
+      _paramControllers[index] ??= TextEditingController(text: valueToDisplay);
+      if (_paramControllers[index]!.text != valueToDisplay) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted) {
+            _paramControllers[index]?.text = valueToDisplay;
+          }
+        });
+      }
 
       final bool isDate = _isDateParameter(param['name'].toString(), param['value'].toString());
-      final String? masterTable = param['master_table']?.toString();
-      final String? masterField = param['master_field']?.toString();
-      final String? displayField = param['display_field']?.toString();
-      final bool isCompanyNameField = param['is_company_name_field'] ?? false; // NEW: Get company name flag
+      final String configType = param['config_type'] ?? 'database';
+
+      IconData suffixIcon;
+      switch (configType) {
+        case 'database':
+          suffixIcon = Icons.storage;
+          break;
+        case 'radio':
+          suffixIcon = Icons.radio_button_checked;
+          break;
+        case 'checkbox':
+          suffixIcon = Icons.check_box;
+          break;
+        default:
+          suffixIcon = Icons.settings;
+      }
 
       rows.add(
         Padding(
@@ -462,29 +473,29 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                         isSmall: true,
                         isDateField: isDate,
                         onTap: isDate ? () => _selectDate(context, _paramControllers[index]!, index) : null,
-                        suffixIcon: isDate ? null : Icons.table_view, // Show table icon for non-date fields
+                        suffixIcon: isDate ? null : suffixIcon,
+                        readOnly: !isDate && (configType == 'database' || configType == 'radio' || configType == 'checkbox'),
                         onSuffixIconTap: isDate
                             ? null
-                            : () async { // Only for non-date fields, allow selecting master values
+                            : () async {
                           final blocState = context.read<EditDetailAdminBloc>().state;
-                          // Pass actual current values for pre-population
-                          final result = await showGeneralDialog<Map<String, String?>>(
+                          final currentParam = blocState.parameters[index];
+
+                          final Map<String, dynamic>? result = await showGeneralDialog<Map<String, dynamic>>(
                             context: context,
                             barrierDismissible: true,
                             barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
                             barrierColor: Colors.black54,
                             transitionDuration: const Duration(milliseconds: 200),
                             pageBuilder: (dialogContext, animation, secondaryAnimation) {
-                              return _SelectFieldValuesModal(
+                              return _ParameterConfigModal(
                                 apiService: context.read<EditDetailAdminBloc>().apiService,
+                                paramIndex: index,
+                                currentParam: currentParam,
                                 serverIP: blocState.serverIP,
                                 userName: blocState.userName,
                                 password: blocState.password,
                                 databaseName: blocState.databaseName,
-                                initialTable: masterTable,
-                                initialField: masterField,
-                                initialDisplayField: displayField,
-                                initialValue: _paramControllers[index]!.text,
                               );
                             },
                             transitionBuilder: (context, a1, a2, child) {
@@ -497,19 +508,41 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               );
                             },
                           );
-                          if (result != null && context.mounted) {
-                            _paramControllers[index]!.text = result['display_label'] ?? result['value'] ?? '';
 
-                            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, result['value']!));
+                          if (result != null && context.mounted) {
+                            final String newConfigType = result['config_type'];
+                            final String? newValue = result['value'];
+                            final String? newDisplayLabel = result['display_label'];
+                            final String? newMasterTable = result['master_table'];
+                            final String? newMasterField = result['master_field'];
+                            final String? newDisplayField = result['display_field'];
+                            final List<Map<String, dynamic>>? newOptions = result['options'];
+                            final List<String>? newSelectedValues = result['selected_values']?.cast<String>();
 
                             context.read<EditDetailAdminBloc>().add(
-                              UpdateParameterMasterSelection(
-                                index,
-                                result['table'],
-                                result['field'],
-                                result['display_field'],
-                              ),
-                            );
+                                UpdateParameterConfigType(index, newConfigType));
+
+                            String finalDisplayValueForUI;
+                            if (newConfigType == 'radio' || newConfigType == 'checkbox') {
+                              finalDisplayValueForUI = newValue ?? '';
+                            } else {
+                              finalDisplayValueForUI = newDisplayLabel ?? newValue ?? '';
+                            }
+
+                            _paramControllers[index]!.text = finalDisplayValueForUI;
+                            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(
+                              index, newValue ?? '', newDisplayLabel ?? newValue ?? '',
+                            ));
+
+                            context.read<EditDetailAdminBloc>().add(UpdateParameterMasterSelection(
+                                index, newMasterTable, newMasterField, newDisplayField));
+
+                            if (newOptions != null) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterOptions(index, newOptions));
+                            }
+                            if (newSelectedValues != null) {
+                              context.read<EditDetailAdminBloc>().add(UpdateParameterSelectedValues(index, newSelectedValues));
+                            }
                           }
                         },
                       ),
@@ -529,22 +562,20 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                 ),
               ),
               const SizedBox(width: 8),
-              // NEW: Radio button for Company Name Field selection
               Tooltip(
                 message: 'Mark as Company Name Field',
                 child: Radio<int>(
-                  value: index, // Value is the index of the current parameter
-                  groupValue: state.parameters.indexWhere((p) => (p['is_company_name_field'] as bool?) == true), // Find the index of the currently marked company name field
+                  value: index,
+                  groupValue: state.parameters.indexWhere((p) => (p['is_company_name_field'] as bool?) == true),
                   onChanged: (int? selectedIndex) {
                     if (selectedIndex != null && context.mounted) {
                       context.read<EditDetailAdminBloc>().add(UpdateParameterIsCompanyNameField(selectedIndex));
                     }
                   },
-                  activeColor: Colors.deepOrange, // Distinct color
+                  activeColor: Colors.deepOrange,
                 ),
               ),
-              const SizedBox(width: 8), // Space between Radio and Checkbox
-              // Existing Checkbox for 'show'
+              const SizedBox(width: 8),
               Checkbox(
                 value: param['show'] ?? false,
                 onChanged: (value) async {
@@ -607,15 +638,12 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
             );
             Navigator.pop(context, true);
           }
-          // Ensure parameter controller values are synced when state parameters change,
-          // especially after a modal or initial load.
           _initializeParameterControllers(state.parameters);
         },
         builder: (context, state) {
           return Stack(
             children: [
               SingleChildScrollView(
-                // Adjusted padding to reduce left (and right) space
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 16.0),
                   child: Card(
@@ -668,7 +696,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               ),
                               const SizedBox(width: 16),
                               Expanded(
-                                child: state.isLoading && state.availableDatabases.isEmpty // Only show loader if no databases are fetched yet
+                                child: state.isLoading && state.availableDatabases.isEmpty
                                     ? const Center(
                                   child: Padding(
                                     padding: EdgeInsets.symmetric(horizontal: 20.0),
@@ -732,8 +760,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               ),
                             )
                           else
-                          // Pass the entire state object to get company name selection info
-                            ..._buildParameterRows(state, context), // MODIFIED: Passing state
+                            ..._buildParameterRows(state, context),
                           const SizedBox(height: 20),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
@@ -741,9 +768,8 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               _buildButton(
                                 text: 'Save',
                                 color: Colors.blueAccent,
-                                // Disable button when isLoading is true
                                 onPressed: state.isLoading
-                                    ? () {} // Empty function disables the button
+                                    ? () {}
                                     : () {
                                   context.read<EditDetailAdminBloc>().add(SaveChanges());
                                 },
@@ -753,7 +779,6 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               _buildButton(
                                 text: 'Cancel',
                                 color: Colors.grey,
-                                // Also disable cancel during save to prevent navigation mid-operation
                                 onPressed: state.isLoading
                                     ? () {}
                                     : () => Navigator.pop(context),
@@ -761,13 +786,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 30),
+                          const Divider(color: Colors.grey, thickness: 1),
+                          const SizedBox(height: 20),
+                          _buildHelpSection(),
                         ],
                       ),
                     ),
                   ),
                 ),
               ),
-              // Show loader on top of the content when isLoading is true
               if (state.isLoading)
                 const Center(
                   child: SubtleLoader(),
@@ -778,122 +806,276 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
       ),
     );
   }
+
+  Widget _buildHelpSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'How to configure parameters:',
+          style: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+            color: Colors.black87,
+          ),
+        ),
+        const SizedBox(height: 10),
+        _buildHelpRow(
+          icon: Icons.visibility,
+          label: 'Show/Hide Parameter (Checkbox):',
+          description: 'Check this box to make a parameter visible and editable to the end-user. Uncheck to hide it.',
+        ),
+        _buildHelpRow(
+          icon: Icons.edit,
+          label: 'Edit Field Label (Pencil Icon):',
+          description: 'Click this icon to customize the display name (label) of the parameter that users will see.',
+        ),
+        _buildHelpRow(
+          icon: Icons.radio_button_checked,
+          label: 'Mark as Company Name Field (Radio Button):',
+          description: 'Select one parameter to be used as the "Company Name" for specific features like linking data across reports. Only one can be selected per API.',
+          color: Colors.deepOrange,
+        ),
+        _buildHelpRow(
+          icon: Icons.settings,
+          label: 'Configure Parameter Input (Settings Icon):',
+          description: 'Click this icon next to the parameter value field to open a detailed configuration dialog. Here, you can define how the user inputs the value for this parameter:',
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: 28.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildHelpRow(
+                icon: Icons.storage,
+                label: 'Database Picker (Tab in Dialog):',
+                description: 'Link this parameter to a table in your database. Users will get a dropdown/searchable list of values from the specified \'Master Field\' (API Value), with a friendly \'Display Field\' (User Value).',
+                isSubItem: true,
+              ),
+              _buildHelpRow(
+                icon: Icons.radio_button_checked,
+                label: 'Radio Buttons (Tab in Dialog):',
+                description: 'Define a fixed set of options. Users can choose only one value from this set. Provide an \'API Value\' (actual data) and a \'Display Field\' (what the user sees). The API value will be shown in the main parameter field.',
+                isSubItem: true,
+              ),
+              _buildHelpRow(
+                icon: Icons.check_box,
+                label: 'Checkboxes (Tab in Dialog):',
+                description: 'Define a fixed set of options. Users can select multiple values from this set. Provide an \'API Value\' and a \'Display Field\'. The API value(s) will be shown in the main parameter field (e.g., comma-separated).',
+                isSubItem: true,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHelpRow({
+    required IconData icon,
+    required String label,
+    required String description,
+    Color color = Colors.blueAccent,
+    bool isSubItem = false,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 12.0, left: isSubItem ? 16.0 : 0.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+                Text(
+                  description,
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: Colors.grey[700],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// Renamed from _SelectFieldValuesDialog to _SelectFieldValuesModal
-// This widget is now built directly within showGeneralDialog
-class _SelectFieldValuesModal extends StatefulWidget {
+class _ParameterConfigModal extends StatefulWidget {
   final ReportAPIService apiService;
+  final int paramIndex;
+  final Map<String, dynamic> currentParam;
   final String? serverIP;
   final String? userName;
   final String? password;
-  final String? databaseName; // This is the pre-selected database
-  final String? initialTable;
-  final String? initialField;
-  final String? initialDisplayField;
-  final String? initialValue; // The current value in the parameter text field
+  final String? databaseName;
 
-  const _SelectFieldValuesModal({
+  const _ParameterConfigModal({
     required this.apiService,
+    required this.paramIndex,
+    required this.currentParam,
     this.serverIP,
     this.userName,
     this.password,
     this.databaseName,
-    this.initialTable,
-    this.initialField,
-    this.initialDisplayField,
-    this.initialValue,
   });
 
   @override
-  _SelectFieldValuesModalState createState() => _SelectFieldValuesModalState();
+  _ParameterConfigModalState createState() => _ParameterConfigModalState();
 }
 
-class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
+class _ParameterConfigModalState extends State<_ParameterConfigModal> with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  String _selectedConfigType = 'database';
+
+  // Database Picker state
   List<String> _tables = [];
   String? _selectedTable;
   List<String> _fields = [];
-  String? _selectedMasterField; // This will be the "Master Field (Value)"
-  String? _selectedDisplayField; // This will be the "Display Field (Optional)"
-
-  List<Map<String, String>> _allFieldData = []; // Stores { 'value': 'master_val', 'label': 'display_label' }
-  String _searchRawText = ''; // For the search bar
-  final TextEditingController _searchController = TextEditingController();
+  String? _selectedMasterField;
+  String? _selectedDisplayField;
+  List<Map<String, String>> _allFieldData = [];
+  final TextEditingController _dbPickerSearchController = TextEditingController();
+  String _dbPickerSearchRawText = '';
 
   final TextEditingController _tableAutocompleteController = TextEditingController();
   final TextEditingController _masterFieldAutocompleteController = TextEditingController();
   final TextEditingController _displayFieldAutocompleteController = TextEditingController();
 
-  bool _isLoadingTables = false;
-  bool _isLoadingFields = false;
-  bool _isLoadingFieldData = false; // Changed from _isLoadingFieldValues
+  // Radio/Checkbox options state
+  List<Map<String, String>> _options = [];
+  String? _radioSelectedValue;
+  List<String> _checkboxSelectedValues = [];
+
+  final TextEditingController _apiValueController = TextEditingController();
+  final TextEditingController _displayFieldOptionController = TextEditingController();
+
+  bool _isLoading = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _searchController.addListener(_onSearchChanged);
+    _dbPickerSearchController.addListener(_onDbPickerSearchChanged);
 
-    // Initialize with initial values from widget
-    _selectedTable = widget.initialTable;
-    _tableAutocompleteController.text = widget.initialTable ?? '';
+    _selectedConfigType = widget.currentParam['config_type'] ?? 'database';
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.index = _configTypeToIndex(_selectedConfigType);
+    _tabController.addListener(_handleTabSelection);
 
-    _selectedMasterField = widget.initialField;
-    _masterFieldAutocompleteController.text = widget.initialField ?? '';
+    _selectedTable = widget.currentParam['master_table'];
+    _tableAutocompleteController.text = _selectedTable ?? '';
 
-    _selectedDisplayField = widget.initialDisplayField;
-    _displayFieldAutocompleteController.text = widget.initialDisplayField ?? '';
+    _selectedMasterField = widget.currentParam['master_field'];
+    _masterFieldAutocompleteController.text = _selectedMasterField ?? '';
 
+    _selectedDisplayField = widget.currentParam['display_field'];
+    _displayFieldAutocompleteController.text = _selectedDisplayField ?? '';
 
-    // Start fetching tables for the pre-selected database immediately
-    _fetchTablesForSelectedDatabase();
+    _options = List<Map<String, String>>.from(
+        (widget.currentParam['options'] as List?)?.map((e) => Map<String, String>.from(e)) ?? []);
+
+    if (_selectedConfigType == 'radio') {
+      _radioSelectedValue = widget.currentParam['value'];
+    } else if (_selectedConfigType == 'checkbox') {
+      _checkboxSelectedValues = List<String>.from(widget.currentParam['selected_values']?.cast<String>() ?? []);
+    }
+
+    if (_selectedConfigType == 'database') {
+      _fetchTablesForSelectedDatabase();
+    }
+  }
+
+  int _configTypeToIndex(String configType) {
+    switch (configType) {
+      case 'database': return 0;
+      case 'radio': return 1;
+      case 'checkbox': return 2;
+      default: return 0;
+    }
+  }
+
+  String _indexToConfigType(int index) {
+    switch (index) {
+      case 0: return 'database';
+      case 1: return 'radio';
+      case 2: return 'checkbox';
+      default: return 'database';
+    }
+  }
+
+  void _handleTabSelection() {
+    if (!_tabController.indexIsChanging) {
+      setState(() {
+        _selectedConfigType = _indexToConfigType(_tabController.index);
+        if (_selectedConfigType == 'database' && _tables.isEmpty && widget.databaseName != null) {
+          _fetchTablesForSelectedDatabase();
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    _dbPickerSearchController.dispose();
+    _apiValueController.dispose();
+    _displayFieldOptionController.dispose();
     _tableAutocompleteController.dispose();
     _masterFieldAutocompleteController.dispose();
     _displayFieldAutocompleteController.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  void _onSearchChanged() {
+  void _onDbPickerSearchChanged() {
     setState(() {
-      _searchRawText = _searchController.text;
+      _dbPickerSearchRawText = _dbPickerSearchController.text;
     });
   }
 
-  // Filter based on the display label
   List<Map<String, String>> get _filteredFieldData {
-    if (_searchRawText.isEmpty) {
+    if (_dbPickerSearchRawText.isEmpty) {
       return _allFieldData;
     }
     return _allFieldData
-        .where((item) => (item['label'] ?? '').toLowerCase().contains(_searchRawText.toLowerCase()))
+        .where((item) => (item['label'] ?? '').toLowerCase().contains(_dbPickerSearchRawText.toLowerCase()))
         .toList();
   }
 
   Future<void> _fetchTablesForSelectedDatabase() async {
     setState(() {
-      _isLoadingTables = true;
+      _isLoading = true;
       _error = null;
       _tables = [];
       _fields = [];
       _allFieldData = [];
-      _selectedTable = null; // Clear selections if refetching tables
-      _selectedMasterField = null;
-      _selectedDisplayField = null;
+      _dbPickerSearchController.clear();
+
       _tableAutocompleteController.clear();
       _masterFieldAutocompleteController.clear();
       _displayFieldAutocompleteController.clear();
-      _searchController.clear();
+
+      _selectedTable = null;
+      _selectedMasterField = null;
+      _selectedDisplayField = null;
     });
 
     if (widget.serverIP == null || widget.userName == null || widget.password == null || widget.databaseName == null) {
       setState(() {
         _error = "Database connection details are incomplete.";
-        _isLoadingTables = false;
+        _isLoading = false;
       });
       return;
     }
@@ -907,44 +1089,39 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
       );
       setState(() {
         _tables = tables;
-        _isLoadingTables = false;
-        // Attempt to pre-populate selected table if initialTable exists
-        if (widget.initialTable != null && tables.contains(widget.initialTable)) {
-          _selectedTable = widget.initialTable;
-          _tableAutocompleteController.text = widget.initialTable!;
-          // If initial table is set, immediately fetch its fields
-          _fetchFieldsForTable(widget.initialTable!);
-        } else {
-          // Clear if initial table not found or null
-          _selectedTable = null;
-          _tableAutocompleteController.clear();
+        _isLoading = false;
+        if (widget.currentParam['master_table'] != null && tables.contains(widget.currentParam['master_table'])) {
+          _selectedTable = widget.currentParam['master_table'];
+          _tableAutocompleteController.text = _selectedTable!;
+          _fetchFieldsForTable(_selectedTable!);
         }
       });
     } catch (e) {
       setState(() {
         _error = 'Failed to load tables for database "${widget.databaseName}": $e';
-        _isLoadingTables = false;
+        _isLoading = false;
       });
     }
   }
 
   Future<void> _fetchFieldsForTable(String tableName) async {
     setState(() {
-      _isLoadingFields = true;
+      _isLoading = true;
       _error = null;
-      _fields = []; // Clear previous fields
-      _allFieldData = []; // Clear data
-      _selectedMasterField = null; // Reset master field
-      _selectedDisplayField = null; // Reset display field
+      _fields = [];
+      _allFieldData = [];
+
+      _selectedMasterField = null;
       _masterFieldAutocompleteController.clear();
+      _selectedDisplayField = null;
       _displayFieldAutocompleteController.clear();
-      _searchController.clear();
+      _dbPickerSearchController.clear();
     });
 
     if (widget.serverIP == null || widget.userName == null || widget.password == null || widget.databaseName == null) {
       setState(() {
         _error = "Database connection details are incomplete for fields.";
-        _isLoadingFields = false;
+        _isLoading = false;
       });
       return;
     }
@@ -959,31 +1136,21 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
       );
       setState(() {
         _fields = fields;
-        _isLoadingFields = false;
+        _isLoading = false;
 
-        // Try to pre-populate master field
-        if (widget.initialField != null && fields.contains(widget.initialField)) {
-          _selectedMasterField = widget.initialField;
-          _masterFieldAutocompleteController.text = widget.initialField!;
-        } else {
-          _selectedMasterField = null;
-          _masterFieldAutocompleteController.clear();
+        if (widget.currentParam['master_field'] != null && fields.contains(widget.currentParam['master_field'])) {
+          _selectedMasterField = widget.currentParam['master_field'];
+          _masterFieldAutocompleteController.text = _selectedMasterField!;
         }
 
-        // Try to pre-populate display field
-        if (widget.initialDisplayField != null && fields.contains(widget.initialDisplayField)) {
-          _selectedDisplayField = widget.initialDisplayField;
-          _displayFieldAutocompleteController.text = widget.initialDisplayField!;
+        if (widget.currentParam['display_field'] != null && fields.contains(widget.currentParam['display_field'])) {
+          _selectedDisplayField = widget.currentParam['display_field'];
+          _displayFieldAutocompleteController.text = _selectedDisplayField!;
         } else if (_selectedMasterField != null) {
-          // If no initial display field, and master field exists, default display field to master field
           _selectedDisplayField = _selectedMasterField;
           _displayFieldAutocompleteController.text = _selectedMasterField!;
-        } else {
-          _selectedDisplayField = null;
-          _displayFieldAutocompleteController.clear();
         }
 
-        // After setting initial master and display fields, fetch field data
         if (_selectedMasterField != null && _selectedDisplayField != null) {
           _fetchFieldData();
         }
@@ -991,26 +1158,25 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
     } catch (e) {
       setState(() {
         _error = 'Failed to load fields for table "$tableName": $e';
-        _isLoadingFields = false;
+        _isLoading = false;
       });
     }
   }
 
-  // UPDATED: Fetches `master_field` and `display_field` data pairs
   Future<void> _fetchFieldData() async {
     if (_selectedTable == null || _selectedMasterField == null || _selectedDisplayField == null) return;
 
     setState(() {
-      _isLoadingFieldData = true;
+      _isLoading = true;
       _error = null;
       _allFieldData = [];
-      _searchController.clear();
-      _searchRawText = '';
+      _dbPickerSearchController.clear();
+      _dbPickerSearchRawText = '';
     });
 
     try {
-      // >>> Use the new fetchPickerData method <<<
-      final data = await widget.apiService.fetchPickerData(
+      // Safely fetch data and ensure each item is a Map<String, dynamic>
+      final List<Map<String, dynamic>> rawData = await widget.apiService.fetchPickerData(
         server: widget.serverIP!,
         UID: widget.userName!,
         PWD: widget.password!,
@@ -1020,42 +1186,101 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
         displayField: _selectedDisplayField!,
       );
 
-      // Convert the fetched raw data to the { 'value': '...', 'label': '...' } format
-      final List<Map<String, String>> mappedData = data.map((item) {
-        return {
-          'value': item[_selectedMasterField]?.toString() ?? '',
-          'label': item[_selectedDisplayField]?.toString() ?? '',
-        };
-      }).toList();
+      final List<Map<String, String>> mappedData = [];
+      for (var item in rawData) {
+        // Explicitly cast dynamic values to String or provide a default
+        final String value = item[_selectedMasterField]?.toString() ?? '';
+        final String label = item[_selectedDisplayField]?.toString() ?? '';
+        mappedData.add({
+          'value': value,
+          'label': label,
+        });
+      }
 
       setState(() {
         _allFieldData = mappedData;
-        _isLoadingFieldData = false;
+        _isLoading = false;
 
-        // If an initialValue was provided, try to pre-populate the search bar with its display label
-        if (widget.initialValue != null && widget.initialValue!.isNotEmpty) {
+        // Populate search controller with initial value if it matches.
+        // This logic is for when you open the dialog and the parameter already has a value.
+        if (widget.currentParam['config_type'] == 'database' && widget.currentParam['value'] != null && widget.currentParam['value'].toString().isNotEmpty) {
+          final String initialParamValue = widget.currentParam['value'].toString();
           final matchedItem = mappedData.firstWhere(
-                (item) => item['value'] == widget.initialValue,
-            orElse: () => {}, // Use empty map as fallback if not found
+                (item) => item['value'] == initialParamValue,
+            orElse: () => {},
           );
           if (matchedItem.isNotEmpty && matchedItem['label'] != null) {
-            _searchController.text = matchedItem['label']!;
-            _searchRawText = matchedItem['label']!;
+            _dbPickerSearchController.text = matchedItem['label']!;
+            _dbPickerSearchRawText = matchedItem['label']!;
           } else {
-            // If the initialValue doesn't match any fetched picker item,
-            // default the search controller to the raw initialValue itself
-            _searchController.text = widget.initialValue!;
-            _searchRawText = widget.initialValue!;
+            // If the initial API value doesn't have a corresponding display label in fetched data,
+            // just show the raw API value itself in the search box.
+            _dbPickerSearchController.text = initialParamValue;
+            _dbPickerSearchRawText = initialParamValue;
           }
         }
       });
     } catch (e) {
       setState(() {
-        _error = 'Failed to load field data for "${_selectedMasterField!}" & "${_selectedDisplayField!}" in "${_selectedTable!}": $e';
-        _isLoadingFieldData = false;
+        _error = 'Failed to load field data: $e';
+        _isLoading = false;
         _allFieldData = [];
       });
     }
+  }
+
+  void _addOption() {
+    final apiValue = _apiValueController.text.trim();
+    final displayField = _displayFieldOptionController.text.trim();
+    if (apiValue.isNotEmpty && displayField.isNotEmpty) {
+      setState(() {
+        _options.add({'label': displayField, 'value': apiValue});
+        _apiValueController.clear();
+        _displayFieldOptionController.clear();
+      });
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Both API Value and Display Field are required.', style: GoogleFonts.poppins()),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
+  }
+
+  void _removeOption(int index) {
+    setState(() {
+      final removedOption = _options.removeAt(index);
+      if (_selectedConfigType == 'radio' && _radioSelectedValue == removedOption['value']) {
+        _radioSelectedValue = null;
+      } else if (_selectedConfigType == 'checkbox' && _checkboxSelectedValues.contains(removedOption['value'])) {
+        _checkboxSelectedValues.remove(removedOption['value']);
+      }
+    });
+  }
+
+  InputDecoration _buildDialogTextFieldDecoration(String labelText, {String? hintText, Widget? suffixIcon}) {
+    return InputDecoration(
+      labelText: labelText,
+      hintText: hintText,
+      labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
+      filled: true,
+      fillColor: Colors.white,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: Colors.grey[500]!, width: 1),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: Colors.grey[500]!, width: 1),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+      suffixIcon: suffixIcon,
+    );
   }
 
   @override
@@ -1064,11 +1289,12 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
     final Size screenSize = mediaQuery.size;
 
     final double modalWidth = screenSize.width * 0.8;
-    final double modalHeight = screenSize.height * 0.85; // Made slightly taller for more fields
+    final double modalHeight = screenSize.height * 0.85;
 
     return Center(
       child: Material(
         type: MaterialType.card,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         elevation: 10,
         child: Container(
@@ -1080,7 +1306,7 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Select Master Data (Value & Display Field)',
+                'Configure Parameter: ${widget.currentParam['name'].toUpperCase()}',
                 style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
@@ -1093,232 +1319,51 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
                     textAlign: TextAlign.center,
                   ),
                 ),
-              // Autocomplete for Tables
-              _isLoadingTables
-                  ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-                  : Autocomplete<String>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text.isEmpty) {
-                    return Iterable<String>.empty(); // Or _tables for all options initially
-                  }
-                  return _tables.where((String option) {
-                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  });
-                },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  // Sync Autocomplete's controller with our internal controller
-                  if (textEditingController.text != _tableAutocompleteController.text) {
-                    // This update ensures initial values also reflect in the Autocomplete field.
-                    // Needs to be done safely using addPostFrameCallback if setting during build.
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      textEditingController.text = _tableAutocompleteController.text;
-                    });
-                  }
-                  return TextField(
-                    controller: textEditingController,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Select Table',
-                      labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    style: GoogleFonts.poppins(),
-                  );
-                },
-                onSelected: (String selection) {
-                  setState(() {
-                    _selectedTable = selection;
-                    _tableAutocompleteController.text = selection; // Keep internal controller synced
-                    _selectedMasterField = null; // Reset fields when table changes
-                    _masterFieldAutocompleteController.clear();
-                    _selectedDisplayField = null;
-                    _displayFieldAutocompleteController.clear();
-                    _fields = [];
-                    _allFieldData = [];
-                    _searchController.clear();
-                  });
-                  _fetchFieldsForTable(selection);
-                  FocusScope.of(context).unfocus(); // Dismiss keyboard
-                },
+              TabBar(
+                controller: _tabController,
+                labelColor: Colors.blueAccent,
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: Colors.blueAccent,
+                tabs: const [
+                  Tab(text: 'Database'),
+                  Tab(text: 'Radio Buttons'),
+                  Tab(text: 'Checkboxes'),
+                ],
               ),
-              const SizedBox(height: 16),
-              // Autocomplete for Master Field (Value)
-              _selectedTable == null
-                  ? Container()
-                  : _isLoadingFields
-                  ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: CircularProgressIndicator(),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _buildDatabasePickerView(),
+                    _buildOptionsConfigView('radio'),
+                    _buildOptionsConfigView('checkbox'),
+                  ],
                 ),
-              )
-                  : Autocomplete<String>(
-                optionsBuilder: (TextEditingValue textEditingValue) {
-                  if (textEditingValue.text.isEmpty) {
-                    return Iterable<String>.empty();
-                  }
-                  return _fields.where((String option) {
-                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                  });
-                },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                  if (textEditingController.text != _masterFieldAutocompleteController.text) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      textEditingController.text = _masterFieldAutocompleteController.text;
-                    });
-                  }
-                  return TextField(
-                    controller: textEditingController,
-                    focusNode: focusNode,
-                    decoration: InputDecoration(
-                      labelText: 'Select Master Field (Value)',
-                      labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                    style: GoogleFonts.poppins(),
-                  );
-                },
-                onSelected: (String selection) {
-                  setState(() {
-                    _selectedMasterField = selection;
-                    _masterFieldAutocompleteController.text = selection;
-                    // Auto-select display field to master field if no specific display field was previously set
-                    if (_selectedDisplayField == null || _selectedDisplayField == widget.initialField) {
-                      _selectedDisplayField = selection;
-                      _displayFieldAutocompleteController.text = selection;
-                    }
-                    _allFieldData = [];
-                    _searchController.clear();
-                  });
-                  _fetchFieldData(); // Fetch paired values/labels
-                  FocusScope.of(context).unfocus();
-                },
               ),
-              const SizedBox(height: 16),
-              // Autocomplete for Display Field (Optional)
-              if (_selectedTable != null && _selectedMasterField != null)
-                Autocomplete<String>(
-                  optionsBuilder: (TextEditingValue textEditingValue) {
-                    if (textEditingValue.text.isEmpty) {
-                      return Iterable<String>.empty();
-                    }
-                    return _fields.where((String option) {
-                      return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                    });
-                  },
-                  fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                    if (textEditingController.text != _displayFieldAutocompleteController.text) {
-                      WidgetsBinding.instance.addPostFrameCallback((_){
-                        textEditingController.text = _displayFieldAutocompleteController.text;
-                      });
-                    }
-                    return TextField(
-                      controller: textEditingController,
-                      focusNode: focusNode,
-                      decoration: InputDecoration(
-                        labelText: 'Select Display Field (Optional)',
-                        labelStyle: GoogleFonts.poppins(color: Colors.grey[700]),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      style: GoogleFonts.poppins(),
-                    );
-                  },
-                  onSelected: (String selection) {
-                    setState(() {
-                      _selectedDisplayField = selection;
-                      _displayFieldAutocompleteController.text = selection;
-                      _allFieldData = []; // Clear values because display field changes means re-fetch paired data
-                      _searchController.clear();
-                    });
-                    // Only refetch data if master and display fields are both valid.
-                    // This handles scenarios where display field might be empty or invalid.
-                    if (_selectedMasterField != null && _selectedDisplayField != null && _selectedTable != null) {
-                      _fetchFieldData();
-                    }
-                    FocusScope.of(context).unfocus();
-                  },
-                ),
-              const SizedBox(height: 16),
-              // Display Values for selected Master & Display Fields
-              if (_selectedTable != null && _selectedMasterField != null && _selectedDisplayField != null)
-                _isLoadingFieldData
-                    ? const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(8.0),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-                    : Expanded(
-                  child: Column(
-                    children: [
-                      TextField(
-                        controller: _searchController,
-                        decoration: InputDecoration(
-                          labelText: 'Search values (by Display Field)',
-                          prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                          contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
-                          labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 14),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
-                          ),
-                        ),
-                        style: GoogleFonts.poppins(fontSize: 14),
-                      ),
-                      const SizedBox(height: 8),
-                      Expanded(
-                        child: _filteredFieldData.isEmpty
-                            ? Center(
-                          child: Text(
-                            _searchRawText.isNotEmpty
-                                ? 'No matching values found for "${_searchRawText}".'
-                                : 'No values available for this field combination.',
-                            style: GoogleFonts.poppins(color: Colors.grey),
-                          ),
-                        )
-                            : ListView.builder(
-                          itemCount: _filteredFieldData.length,
-                          itemBuilder: (context, index) {
-                            final item = _filteredFieldData[index];
-                            final displayLabel = item['label'];
-                            final masterValue = item['value'];
-                            return ListTile(
-                              title: Text(displayLabel ?? '', style: GoogleFonts.poppins()),
-                              subtitle: (displayLabel != masterValue && masterValue != null && masterValue.isNotEmpty)
-                                  ? Text('($masterValue)', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))
-                                  : null,
-                              onTap: () {
-                                if (!context.mounted) return;
-                                Navigator.pop(context, {
-                                  'value': masterValue,       // Actual value for the API parameter
-                                  'display_label': displayLabel, // Display value for the UI text field
-                                  'table': _selectedTable,
-                                  'field': _selectedMasterField,
-                                  'display_field': _selectedDisplayField,
-                                });
-                              },
-                            );
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
               const SizedBox(height: 16),
               Align(
                 alignment: Alignment.bottomRight,
-                child: TextButton(
-                  onPressed: () {
-                    if (!context.mounted) return;
-                    Navigator.pop(context); // Pop without result
-                  },
-                  child: Text('Close', style: GoogleFonts.poppins(color: Colors.redAccent)),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                      },
+                      child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.redAccent)),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        if (!context.mounted) return;
+                        _returnResult();
+                      },
+                      child: Text('Select', style: GoogleFonts.poppins(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1326,5 +1371,418 @@ class _SelectFieldValuesModalState extends State<_SelectFieldValuesModal> {
         ),
       ),
     );
+  }
+
+  Widget _buildDatabasePickerView() {
+    return Column(
+      children: [
+        const SizedBox(height: 16),
+        _isLoading && _selectedConfigType == 'database'
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+          children: [
+            Autocomplete<String>(
+              optionsBuilder: (TextEditingValue textEditingValue) {
+                return _tables.where((String option) {
+                  return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                });
+              },
+              fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                // IMPORTANT FIX: Sync the Autocomplete's internal controller with our dedicated controller.
+                if (textEditingController.text != _tableAutocompleteController.text) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (context.mounted) textEditingController.text = _tableAutocompleteController.text;
+                  });
+                }
+                return TextFormField(
+                  controller: textEditingController, // Use the Autocomplete's provided controller
+                  focusNode: focusNode,
+                  decoration: _buildDialogTextFieldDecoration(
+                    'Select Table',
+                    suffixIcon: textEditingController.text.isNotEmpty
+                        ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        textEditingController.clear(); // Clear the UI
+                        setState(() { // Update state and associated controllers
+                          _selectedTable = null;
+                          _tableAutocompleteController.clear();
+                          _selectedMasterField = null;
+                          _masterFieldAutocompleteController.clear();
+                          _selectedDisplayField = null;
+                          _displayFieldAutocompleteController.clear();
+                          _fields = [];
+                          _allFieldData = [];
+                          _dbPickerSearchController.clear();
+                        });
+                      },
+                    )
+                        : null,
+                  ),
+                  style: GoogleFonts.poppins(),
+                  onChanged: (value) {
+                    // This listener ensures that _tableAutocompleteController stays updated
+                    // even if the user types something not in the options or clears it.
+                    _tableAutocompleteController.text = value;
+                    if (!_tables.contains(value) && _selectedTable != null && _selectedTable != value) {
+                      setState(() {
+                        _selectedTable = null;
+                        _selectedMasterField = null;
+                        _selectedDisplayField = null;
+                        _fields = [];
+                        _allFieldData = [];
+                      });
+                    }
+                  },
+                );
+              },
+              onSelected: (String selection) {
+                setState(() {
+                  _selectedTable = selection;
+                  _tableAutocompleteController.text = selection; // Update dedicated controller
+                  _selectedMasterField = null;
+                  _masterFieldAutocompleteController.clear();
+                  _selectedDisplayField = null;
+                  _displayFieldAutocompleteController.clear();
+                  _fields = [];
+                  _allFieldData = [];
+                  _dbPickerSearchController.clear();
+                });
+                _fetchFieldsForTable(selection);
+                FocusScope.of(context).unfocus();
+              },
+            ),
+            const SizedBox(height: 16),
+            if (_selectedTable != null)
+              Autocomplete<String>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  return _fields.where((String option) {
+                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                  });
+                },
+                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                  if (textEditingController.text != _masterFieldAutocompleteController.text) {
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) textEditingController.text = _masterFieldAutocompleteController.text;
+                    });
+                  }
+                  return TextFormField(
+                    controller: textEditingController,
+                    focusNode: focusNode,
+                    decoration: _buildDialogTextFieldDecoration(
+                      'Select Master Field (API Value)',
+                      hintText: 'e.g., CustomerID, ItemCode',
+                      suffixIcon: textEditingController.text.isNotEmpty
+                          ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          textEditingController.clear();
+                          setState(() {
+                            _selectedMasterField = null;
+                            _selectedDisplayField = null;
+                            _allFieldData = [];
+                            _masterFieldAutocompleteController.clear();
+                            _displayFieldAutocompleteController.clear();
+                            _dbPickerSearchController.clear();
+                          });
+                        },
+                      )
+                          : null,
+                    ),
+                    style: GoogleFonts.poppins(),
+                    onChanged: (value) {
+                      _masterFieldAutocompleteController.text = value; // Keep dedicated controller updated
+                      if (!_fields.contains(value) && _selectedMasterField != null && _selectedMasterField != value) {
+                        setState(() {
+                          _selectedMasterField = null;
+                          _selectedDisplayField = null;
+                          _allFieldData = [];
+                        });
+                      }
+                    },
+                  );
+                },
+                onSelected: (String selection) {
+                  setState(() {
+                    _selectedMasterField = selection;
+                    _masterFieldAutocompleteController.text = selection;
+                    if (_selectedDisplayField == null || _selectedDisplayField == widget.currentParam['master_field'] || !(_fields.contains(_selectedDisplayField))) {
+                      _selectedDisplayField = selection;
+                      _displayFieldAutocompleteController.text = selection;
+                    }
+                    _allFieldData = [];
+                    _dbPickerSearchController.clear();
+                  });
+                  _fetchFieldData();
+                  FocusScope.of(context).unfocus();
+                },
+              ),
+            const SizedBox(height: 16),
+            if (_selectedTable != null && _selectedMasterField != null)
+              Autocomplete<String>(
+                optionsBuilder: (TextEditingValue textEditingValue) {
+                  return _fields.where((String option) {
+                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                  });
+                },
+                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                  if (textEditingController.text != _displayFieldAutocompleteController.text) {
+                    WidgetsBinding.instance.addPostFrameCallback((_){
+                      if (context.mounted) textEditingController.text = _displayFieldAutocompleteController.text;
+                    });
+                  }
+                  return TextFormField(
+                    controller: textEditingController,
+                    focusNode: focusNode,
+                    decoration: _buildDialogTextFieldDecoration(
+                      'Select Display Field (User Value)',
+                      hintText: 'e.g., CustomerName, ItemDescription',
+                      suffixIcon: textEditingController.text.isNotEmpty
+                          ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          textEditingController.clear();
+                          setState(() {
+                            _selectedDisplayField = null;
+                            _allFieldData = [];
+                            _displayFieldAutocompleteController.clear();
+                            _dbPickerSearchController.clear();
+                          });
+                        },
+                      )
+                          : null,
+                    ),
+                    style: GoogleFonts.poppins(),
+                    onChanged: (value) {
+                      _displayFieldAutocompleteController.text = value; // Keep dedicated controller updated
+                      if (!_fields.contains(value) && _selectedDisplayField != null && _selectedDisplayField != value) {
+                        setState(() {
+                          _selectedDisplayField = null;
+                          _allFieldData = [];
+                        });
+                      }
+                    },
+                  );
+                },
+                onSelected: (String selection) {
+                  setState(() {
+                    _selectedDisplayField = selection;
+                    _displayFieldAutocompleteController.text = selection;
+                    _allFieldData = [];
+                    _dbPickerSearchController.clear();
+                  });
+                  if (_selectedMasterField != null && _selectedDisplayField != null) {
+                    _fetchFieldData();
+                  }
+                  FocusScope.of(context).unfocus();
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (_selectedTable != null && _selectedMasterField != null && _selectedDisplayField != null)
+          Expanded(
+            child: Column(
+              children: [
+                TextField(
+                  controller: _dbPickerSearchController,
+                  decoration: _buildDialogTextFieldDecoration(
+                    'Search values (by User Value)',
+                    suffixIcon: _dbPickerSearchController.text.isNotEmpty
+                        ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: _dbPickerSearchController.clear,
+                    )
+                        : null,
+                  ),
+                  style: GoogleFonts.poppins(fontSize: 14),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: _filteredFieldData.isEmpty
+                      ? Center(
+                    child: Text(
+                      _dbPickerSearchRawText.isNotEmpty
+                          ? 'No matching values found for "${_dbPickerSearchRawText}".'
+                          : 'No values available for this field combination.',
+                      style: GoogleFonts.poppins(color: Colors.grey),
+                    ),
+                  )
+                      : ListView.builder(
+                    itemCount: _filteredFieldData.length,
+                    itemBuilder: (context, index) {
+                      final item = _filteredFieldData[index];
+                      final displayLabel = item['label'];
+                      final masterValue = item['value'];
+                      return ListTile(
+                        title: Text(displayLabel ?? '', style: GoogleFonts.poppins()),
+                        subtitle: (displayLabel != masterValue && masterValue != null && masterValue.isNotEmpty)
+                            ? Text('API Value: ($masterValue)', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))
+                            : null,
+                        onTap: () {
+                          if (!context.mounted) return;
+                          Navigator.pop(context, {
+                            'config_type': 'database',
+                            'value': masterValue,
+                            'display_label': displayLabel,
+                            'master_table': _selectedTable,
+                            'master_field': _selectedMasterField,
+                            'display_field': _selectedDisplayField,
+                            'options': [],
+                            'selected_values': [],
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildOptionsConfigView(String type) {
+    bool isRadio = type == 'radio';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          'Define ${isRadio ? 'Radio Button' : 'Checkbox'} Options',
+          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _apiValueController,
+                decoration: _buildDialogTextFieldDecoration(
+                  'API Value',
+                  hintText: 'e.g., A, 1, Active',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: _apiValueController.clear,
+                  ),
+                ),
+                style: GoogleFonts.poppins(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: _displayFieldOptionController,
+                decoration: _buildDialogTextFieldDecoration(
+                  'Display Field (User Value)',
+                  hintText: 'e.g., Option A, Value 1, True',
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: _displayFieldOptionController.clear,
+                  ),
+                ),
+                style: GoogleFonts.poppins(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton(
+              onPressed: _addOption,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              child: const Icon(Icons.add, color: Colors.white),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Expanded(
+          child: _options.isEmpty
+              ? Center(
+            child: Text(
+              'No options added yet.',
+              style: GoogleFonts.poppins(color: Colors.grey),
+            ),
+          )
+              : ListView.builder(
+            itemCount: _options.length,
+            itemBuilder: (context, index) {
+              final option = _options[index];
+              return Card(
+                margin: const EdgeInsets.only(bottom: 8),
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                child: ListTile(
+                  title: Text(option['label']!, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
+                  subtitle: Text('API Value: ${option['value']!}', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600])),
+                  leading: isRadio
+                      ? Radio<String>(
+                    value: option['value']!,
+                    groupValue: _radioSelectedValue,
+                    onChanged: (String? value) {
+                      setState(() {
+                        _radioSelectedValue = value;
+                      });
+                    },
+                  )
+                      : Checkbox(
+                    value: _checkboxSelectedValues.contains(option['value']!),
+                    onChanged: (bool? checked) {
+                      setState(() {
+                        if (checked == true) {
+                          _checkboxSelectedValues.add(option['value']!);
+                        } else {
+                          _checkboxSelectedValues.remove(option['value']!);
+                        }
+                      });
+                    },
+                  ),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.redAccent),
+                    onPressed: () => _removeOption(index),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _returnResult() {
+    String? finalValue;
+    String? finalDisplayLabel;
+    Map<String, dynamic> result = {
+      'config_type': _selectedConfigType,
+      'master_table': null,
+      'master_field': null,
+      'display_field': null,
+      'options': _options,
+      'selected_values': [],
+    };
+
+    if (_selectedConfigType == 'radio') {
+      finalValue = _radioSelectedValue;
+      finalDisplayLabel = _options.firstWhere((opt) => opt['value'] == finalValue, orElse: () => {})['label'];
+      result['selected_values'] = finalValue != null ? [finalValue] : [];
+    } else if (_selectedConfigType == 'checkbox') {
+      finalValue = _checkboxSelectedValues.join(',');
+      finalDisplayLabel = _checkboxSelectedValues.map((val) =>
+      _options.firstWhere((opt) => opt['value'] == val, orElse: () => {})['label'] ?? '').join(', ');
+      result['selected_values'] = _checkboxSelectedValues;
+    } else {
+      finalValue = widget.currentParam['value'];
+      finalDisplayLabel = widget.currentParam['display_value_cache'];
+      result['master_table'] = _selectedTable;
+      result['master_field'] = _selectedMasterField;
+      result['display_field'] = _selectedDisplayField;
+    }
+
+    result['value'] = finalValue;
+    result['display_label'] = finalDisplayLabel;
+    Navigator.pop(context, result);
   }
 }

@@ -1,7 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
-import '../../ReportAPIService.dart';
+import 'dart:convert';
+import '../../ReportAPIService.dart'; // Ensure this path is correct
 
 // Events
 abstract class EditDetailAdminEvent {}
@@ -51,7 +52,8 @@ class UpdateApiName extends EditDetailAdminEvent {
 class UpdateParameterValue extends EditDetailAdminEvent {
   final int index;
   final String value;
-  UpdateParameterValue(this.index, this.value);
+  final String displayValueCache;
+  UpdateParameterValue(this.index, this.value, this.displayValueCache);
 }
 
 class UpdateParameterShow extends EditDetailAdminEvent {
@@ -66,20 +68,36 @@ class UpdateParameterFieldLabel extends EditDetailAdminEvent {
   UpdateParameterFieldLabel(this.index, this.fieldLabel);
 }
 
-// MODIFIED EVENT: To update master table, master field, AND display field for a parameter
 class UpdateParameterMasterSelection extends EditDetailAdminEvent {
   final int index;
   final String? masterTable;
   final String? masterField;
-  final String? displayField; // NEW: Added displayField
+  final String? displayField;
 
   UpdateParameterMasterSelection(this.index, this.masterTable, this.masterField, this.displayField);
 }
 
-// NEW EVENT: To mark a parameter as the Company Name field
 class UpdateParameterIsCompanyNameField extends EditDetailAdminEvent {
   final int index;
   UpdateParameterIsCompanyNameField(this.index);
+}
+
+class UpdateParameterConfigType extends EditDetailAdminEvent {
+  final int index;
+  final String configType;
+  UpdateParameterConfigType(this.index, this.configType);
+}
+
+class UpdateParameterOptions extends EditDetailAdminEvent {
+  final int index;
+  final List<Map<String, dynamic>> options;
+  UpdateParameterOptions(this.index, this.options);
+}
+
+class UpdateParameterSelectedValues extends EditDetailAdminEvent {
+  final int index;
+  final List<String> selectedValues;
+  UpdateParameterSelectedValues(this.index, this.selectedValues);
 }
 
 class SaveChanges extends EditDetailAdminEvent {}
@@ -93,7 +111,6 @@ class EditDetailAdminState {
   final String databaseName;
   final String apiServerURl;
   final String apiName;
-  // MODIFIED: Each parameter map can now contain 'master_table', 'master_field', 'display_field', and 'is_company_name_field'
   final List<Map<String, dynamic>> parameters;
   final List<String> availableDatabases;
   final bool isLoading;
@@ -146,29 +163,55 @@ class EditDetailAdminState {
   }
 }
 
-// BLoC
+// Bloc
 class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminState> {
   final ReportAPIService apiService;
 
   EditDetailAdminBloc(this.apiService, Map<String, dynamic> apiData)
       : super(EditDetailAdminState(
     id: apiData['id']?.toString() ?? '',
-    serverIP: apiData['ServerIP'] ?? '',
-    userName: apiData['UserName'] ?? '',
-    password: apiData['Password'] ?? '',
-    databaseName: apiData['DatabaseName'] ?? '',
-    apiServerURl: apiData['APIServerURl'] ?? '',
-    apiName: apiData['APIName'] ?? '',
-    // Ensure parameters are parsed correctly, including new keys
-    parameters: List<Map<String, dynamic>>.from(apiData['Parameter'] ?? []).map((p) {
-      return {
-        ...p,
-        'master_table': p['master_table'] as String?,
-        'master_field': p['master_field'] as String?,
-        'display_field': p['display_field'] as String?,
-        'is_company_name_field': (p['is_company_name_field'] as bool?) ?? false, // NEW: Parse is_company_name_field
-      };
-    }).toList(),
+    serverIP: apiData['ServerIP']?.toString() ?? '',
+    userName: apiData['UserName']?.toString() ?? '',
+    password: apiData['Password']?.toString() ?? '',
+    databaseName: apiData['DatabaseName']?.toString() ?? '',
+    apiServerURl: apiData['APIServerURl']?.toString() ?? '',
+    apiName: apiData['APIName']?.toString() ?? '',
+    parameters: (() {
+      dynamic paramsRaw = apiData['Parameter'];
+      List<dynamic> parsedParams = [];
+      if (paramsRaw is String && paramsRaw.isNotEmpty) {
+        try {
+          parsedParams = jsonDecode(paramsRaw);
+        } catch (e) {
+          print('Warning: Failed to decode parameters string: $e');
+          parsedParams = [];
+        }
+      } else if (paramsRaw is List) {
+        parsedParams = paramsRaw;
+      }
+
+      return parsedParams.map((p) {
+        if (p is! Map<String, dynamic>) {
+          print('Warning: Parameter element is not a Map: $p');
+          return <String, dynamic>{};
+        }
+        return {
+          ...p,
+          'master_table': p['master_table'] as String?,
+          'master_field': p['master_field'] as String?,
+          'display_field': p['display_field'] as String?,
+          'is_company_name_field': (p['is_company_name_field'] as bool?) ?? false,
+          'config_type': p['config_type'] as String? ?? 'database',
+          'options': (p['options'] is List)
+              ? (p['options'] as List).cast<Map<String, dynamic>>()
+              : [],
+          'selected_values': (p['selected_values'] is List)
+              ? (p['selected_values'] as List).cast<String>()
+              : [],
+          'display_value_cache': p['display_value_cache'] as String?,
+        };
+      }).toList();
+    })(),
   )) {
     on<FetchDatabases>(_onFetchDatabases);
     on<UpdateServerIP>(_onUpdateServerIP);
@@ -181,7 +224,10 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     on<UpdateParameterShow>(_onUpdateParameterShow);
     on<UpdateParameterFieldLabel>(_onUpdateParameterFieldLabel);
     on<UpdateParameterMasterSelection>(_onUpdateParameterMasterSelection);
-    on<UpdateParameterIsCompanyNameField>(_onUpdateParameterIsCompanyNameField); // NEW HANDLER
+    on<UpdateParameterIsCompanyNameField>(_onUpdateParameterIsCompanyNameField);
+    on<UpdateParameterConfigType>(_onUpdateParameterConfigType);
+    on<UpdateParameterOptions>(_onUpdateParameterOptions);
+    on<UpdateParameterSelectedValues>(_onUpdateParameterSelectedValues);
     on<SaveChanges>(_onSaveChanges);
   }
 
@@ -220,10 +266,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
   }
 
   void _onUpdateApiName(UpdateApiName event, Emitter<EditDetailAdminState> emit) {
-    // print('User entered APIName: ${_apiNameController.text}');
-    // print('Dispatching UpdateApiName with: ${_apiNameController.text}');
     emit(state.copyWith(apiName: event.apiName));
-    print('New state.apiName: ${state.apiName}');
   }
 
   void _onUpdateParameterValue(UpdateParameterValue event, Emitter<EditDetailAdminState> emit) {
@@ -231,6 +274,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     updatedParameters[event.index] = {
       ...updatedParameters[event.index],
       'value': event.value,
+      'display_value_cache': event.displayValueCache,
     };
     emit(state.copyWith(parameters: updatedParameters));
   }
@@ -253,40 +297,70 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     emit(state.copyWith(parameters: updatedParameters));
   }
 
-  // MODIFIED HANDLER: Now updates master table, master field, and display field
   void _onUpdateParameterMasterSelection(UpdateParameterMasterSelection event, Emitter<EditDetailAdminState> emit) {
     final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
     updatedParameters[event.index] = {
       ...updatedParameters[event.index],
       'master_table': event.masterTable,
       'master_field': event.masterField,
-      'display_field': event.displayField, // NEW: Update display_field
+      'display_field': event.displayField,
     };
     emit(state.copyWith(parameters: updatedParameters));
   }
 
-  // NEW HANDLER: For updating the 'is_company_name_field' flag (ensures only one is true)
   void _onUpdateParameterIsCompanyNameField(UpdateParameterIsCompanyNameField event, Emitter<EditDetailAdminState> emit) {
     final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
     for (var i = 0; i < updatedParameters.length; i++) {
       updatedParameters[i] = {
         ...updatedParameters[i],
-        'is_company_name_field': (i == event.index), // Set true for the selected index, false for all others
+        'is_company_name_field': (i == event.index),
       };
     }
     emit(state.copyWith(parameters: updatedParameters));
   }
 
+  void _onUpdateParameterConfigType(UpdateParameterConfigType event, Emitter<EditDetailAdminState> emit) {
+    final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
+    updatedParameters[event.index] = {
+      ...updatedParameters[event.index],
+      'config_type': event.configType,
+      'master_table': null,
+      'master_field': null,
+      'display_field': null,
+      'options': [],
+      'selected_values': [],
+    };
+    emit(state.copyWith(parameters: updatedParameters));
+  }
+
+  void _onUpdateParameterOptions(UpdateParameterOptions event, Emitter<EditDetailAdminState> emit) {
+    final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
+    updatedParameters[event.index] = {
+      ...updatedParameters[event.index],
+      'options': event.options,
+    };
+    emit(state.copyWith(parameters: updatedParameters));
+  }
+
+  void _onUpdateParameterSelectedValues(UpdateParameterSelectedValues event, Emitter<EditDetailAdminState> emit) {
+    final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
+    updatedParameters[event.index] = {
+      ...updatedParameters[event.index],
+      'selected_values': event.selectedValues,
+      // For radio, 'value' is single selected_value, for checkbox, 'value' is comma-separated list
+      'value': event.selectedValues.join(','),
+      'display_value_cache': event.selectedValues.map((val) {
+        final option = (updatedParameters[event.index]['options'] as List<dynamic>?)
+            ?.firstWhere(
+                (opt) => opt is Map<String, dynamic> && opt['value'] == val,
+            orElse: () => <String, dynamic>{}); // FIXED: Explicitly specify type for the empty map
+        return option?['label'] ?? val;
+      }).join(', '),
+    };
+    emit(state.copyWith(parameters: updatedParameters));
+  }
+
   Future<void> _onSaveChanges(SaveChanges event, Emitter<EditDetailAdminState> emit) async {
-    print('Saving changes with state:');
-    print('  id: ${state.id}');
-    print('  serverIP: ${state.serverIP}');
-    print('  userName: ${state.userName}');
-    print('  password: ${state.password}');
-    print('  databaseName: ${state.databaseName}');
-    print('  apiServerURl: ${state.apiServerURl}');
-    print('  apiName: ${state.apiName}');
-    print('  parameters: ${state.parameters}'); // This will now include master_table/field/display_field/is_company_name_field if set
     emit(state.copyWith(isLoading: true, error: null, saveInitiated: true));
     try {
       await apiService.editDatabaseServer(
@@ -297,12 +371,10 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
         databaseName: state.databaseName,
         apiServerURL: state.apiServerURl,
         apiName: state.apiName,
-        parameters: state.parameters, // Pass the parameters list as is
+        parameters: state.parameters,
       );
-      print('editDatabaseServer API call successful');
       emit(state.copyWith(isLoading: false, saveInitiated: true));
     } catch (e) {
-      print('editDatabaseServer API call failed: $e');
       emit(state.copyWith(isLoading: false, error: e.toString(), saveInitiated: false));
     }
   }
