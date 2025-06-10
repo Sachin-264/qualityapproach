@@ -1,4 +1,3 @@
-// EditDetailAdmin.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -57,35 +56,14 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     _apiServerURLController.text = widget.apiData['APIServerURl'] ?? '';
     _apiNameController.text = widget.apiData['APIName'] ?? '';
 
-    // Initialize parameter controllers from state (IMPORTANT for existing data)
+    // Initialize parameter controllers and listeners from state (IMPORTANT for existing data)
+    // Delay this initialization until after the first frame to ensure BLoC state is ready
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (context.mounted) {
+        // We need to re-fetch parameters from the BLoC state as it might contain
+        // the full, parsed structure including 'is_company_name_field'.
         final parameters = context.read<EditDetailAdminBloc>().state.parameters;
-        for (var i = 0; i < parameters.length; i++) {
-          _paramControllers[i] ??= TextEditingController(); // Ensure controller is created
-
-          final param = parameters[i];
-          String valueToDisplay = param['value']?.toString() ?? ''; // Default to actual value
-          final String? masterTable = param['master_table']?.toString();
-          final String? masterField = param['master_field']?.toString();
-          final String? displayField = param['display_field']?.toString();
-
-          // If it's a picker field and has a display_field, try to set the initial text to the display value
-          // This requires fetching the display value if only the master value is known,
-          // which is typically done by the BLoC or by the modal itself.
-          // For simplicity and to avoid making initState async for every param,
-          // the controller initially gets the raw `value` from the API.
-          // The modal interaction correctly updates it with the display_label.
-          _paramControllers[i]!.text = valueToDisplay; // Set the text field content
-
-          if (!_paramControllers[i]!.hasListeners) { // Avoid adding duplicate listeners
-            _paramControllers[i]!.addListener(() {
-              _debouncedUpdate(() {
-                context.read<EditDetailAdminBloc>().add(UpdateParameterValue(i, _paramControllers[i]!.text));
-              });
-            });
-          }
-        }
+        _initializeParameterControllers(parameters);
       }
     });
 
@@ -116,6 +94,28 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         context.read<EditDetailAdminBloc>().add(UpdateApiName(_apiNameController.text));
       });
     });
+  }
+
+  // Helper method to consolidate parameter controller initialization
+  void _initializeParameterControllers(List<Map<String, dynamic>> parameters) {
+    for (var i = 0; i < parameters.length; i++) {
+      // Create controller if it doesn't exist
+      _paramControllers[i] ??= TextEditingController();
+      // Set text from current parameter value
+      final String valueToDisplay = parameters[i]['value']?.toString() ?? '';
+      if (_paramControllers[i]!.text != valueToDisplay) { // Only update if different to avoid cursor jump
+        _paramControllers[i]!.text = valueToDisplay;
+      }
+
+      // Add listener if not already added
+      if (!_paramControllers[i]!.hasListeners) {
+        _paramControllers[i]!.addListener(() {
+          _debouncedUpdate(() {
+            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(i, _paramControllers[i]!.text));
+          });
+        });
+      }
+    }
   }
 
   @override
@@ -422,50 +422,30 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     _debounce = Timer(const Duration(milliseconds: 500), callback);
   }
 
-  List<Widget> _buildParameterRows(List<Map<String, dynamic>> parameters, BuildContext context) {
+  // Modified _buildParameterRows to accept the full state
+  List<Widget> _buildParameterRows(EditDetailAdminState state, BuildContext context) {
     final List<Widget> rows = [];
-    final List<Map<String, dynamic>> allParamsOrdered = [...parameters];
+    final List<Map<String, dynamic>> allParamsOrdered = state.parameters; // Get from BLoC state
 
     for (var i = 0; i < allParamsOrdered.length; i++) {
       final param = allParamsOrdered[i];
       final index = i; // This is the actual index in the state.parameters list
 
       // Ensure controller exists and is linked to the correct value
-      if (!_paramControllers.containsKey(index)) {
-        _paramControllers[index] = TextEditingController(text: param['value'].toString());
-        _paramControllers[index]!.addListener(() {
-          _debouncedUpdate(() {
-            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, _paramControllers[index]!.text));
-          });
-        });
-      } else {
-        // Update controller text if state value has changed externally (e.g., from modal selection)
-        // Only update if the text is different to avoid infinite loops or cursor issues
-        final currentText = _paramControllers[index]!.text;
-        final newValueFromBloc = param['value']?.toString() ?? '';
-        // If a display_label exists in state, it might be better to set the controller text to that.
-        // For this specific setup, the `_SelectFieldValuesModal` returns `display_label`
-        // which updates the controller directly, so the value from bloc's `parameters[i]['value']`
-        // is the *master* value. We rely on the modal to update the controller.
-        // If the bloc needs to hold the display_label too, it should be added to the state.
-        // For now, _paramControllers[index]!.text reflects the actual value from the API,
-        // and the modal will update it with the 'display_label' if chosen.
-        if (currentText != newValueFromBloc) {
-          _paramControllers[index]!.text = newValueFromBloc;
-        }
+      // This part was moved to _initializeParameterControllers and should be less critical here
+      // But we still need to ensure the text field is updated if state changes from modal
+      final currentText = _paramControllers[index]?.text;
+      final newValueFromBloc = param['value']?.toString() ?? '';
+      if (currentText != newValueFromBloc) {
+        _paramControllers[index]?.text = newValueFromBloc; // Use ?. for safety if controller not yet created (shouldn't happen with initState logic)
       }
+      _paramControllers[index] ??= TextEditingController(text: newValueFromBloc); // Fallback if controller not yet created
 
       final bool isDate = _isDateParameter(param['name'].toString(), param['value'].toString());
       final String? masterTable = param['master_table']?.toString();
       final String? masterField = param['master_field']?.toString();
       final String? displayField = param['display_field']?.toString();
-
-
-      // Determine if it's a field for which the SelectFieldValuesModal should be invoked
-      // It's a field selection parameter if it has master_table, master_field (and now display_field)
-      final bool isFieldSelection = (masterTable?.isNotEmpty ?? false) &&
-          (masterField?.isNotEmpty ?? false) &&
-          (displayField?.isNotEmpty ?? false);
+      final bool isCompanyNameField = param['is_company_name_field'] ?? false; // NEW: Get company name flag
 
       rows.add(
         Padding(
@@ -488,7 +468,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                             : () async { // Only for non-date fields, allow selecting master values
                           final blocState = context.read<EditDetailAdminBloc>().state;
                           // Pass actual current values for pre-population
-                          final result = await showGeneralDialog<Map<String, String?>>( // Type changed
+                          final result = await showGeneralDialog<Map<String, String?>>(
                             context: context,
                             barrierDismissible: true,
                             barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
@@ -501,10 +481,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                                 userName: blocState.userName,
                                 password: blocState.password,
                                 databaseName: blocState.databaseName,
-                                initialTable: masterTable,      // Pre-populate with current
-                                initialField: masterField,      // Pre-populate with current master field
-                                initialDisplayField: displayField, // Pre-populate with current display field
-                                initialValue: _paramControllers[index]!.text, // The current actual value
+                                initialTable: masterTable,
+                                initialField: masterField,
+                                initialDisplayField: displayField,
+                                initialValue: _paramControllers[index]!.text,
                               );
                             },
                             transitionBuilder: (context, a1, a2, child) {
@@ -518,21 +498,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                             },
                           );
                           if (result != null && context.mounted) {
-                            // If a new value/label is selected from the modal
-                            // Update the text controller with the DISPLAY value
-                            _paramControllers[index]!.text = result['display_label'] ?? result['value'] ?? ''; // Prefer display, fallback to value
+                            _paramControllers[index]!.text = result['display_label'] ?? result['value'] ?? '';
 
-                            // Dispatch events to update BLoC state
-                            // The param['value'] in BLoC state should hold the actual master_field value for API
                             context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, result['value']!));
 
-                            // Update the master_table, master_field, display_field in Bloc for the parameter
                             context.read<EditDetailAdminBloc>().add(
                               UpdateParameterMasterSelection(
                                 index,
-                                result['table'],       // Selected Table
-                                result['field'],       // Selected Master Field (Value)
-                                result['display_field'], // Selected Display Field (Label)
+                                result['table'],
+                                result['field'],
+                                result['display_field'],
                               ),
                             );
                           }
@@ -554,6 +529,22 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                 ),
               ),
               const SizedBox(width: 8),
+              // NEW: Radio button for Company Name Field selection
+              Tooltip(
+                message: 'Mark as Company Name Field',
+                child: Radio<int>(
+                  value: index, // Value is the index of the current parameter
+                  groupValue: state.parameters.indexWhere((p) => (p['is_company_name_field'] as bool?) == true), // Find the index of the currently marked company name field
+                  onChanged: (int? selectedIndex) {
+                    if (selectedIndex != null && context.mounted) {
+                      context.read<EditDetailAdminBloc>().add(UpdateParameterIsCompanyNameField(selectedIndex));
+                    }
+                  },
+                  activeColor: Colors.deepOrange, // Distinct color
+                ),
+              ),
+              const SizedBox(width: 8), // Space between Radio and Checkbox
+              // Existing Checkbox for 'show'
               Checkbox(
                 value: param['show'] ?? false,
                 onChanged: (value) async {
@@ -616,6 +607,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
             );
             Navigator.pop(context, true);
           }
+          // Ensure parameter controller values are synced when state parameters change,
+          // especially after a modal or initial load.
+          _initializeParameterControllers(state.parameters);
         },
         builder: (context, state) {
           return Stack(
@@ -738,7 +732,8 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                               ),
                             )
                           else
-                            ..._buildParameterRows(state.parameters, context),
+                          // Pass the entire state object to get company name selection info
+                            ..._buildParameterRows(state, context), // MODIFIED: Passing state
                           const SizedBox(height: 20),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,

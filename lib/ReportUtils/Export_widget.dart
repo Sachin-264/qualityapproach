@@ -1,18 +1,17 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
-import 'package:file_saver/file_saver.dart'; // FileSaver supports web and non-web platforms for saving files
+import 'package:file_saver/file_saver.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart';
 import 'package:http_parser/http_parser.dart' show MediaType;
-import 'package:printing/printing.dart'; // Handles printing (web and non-web)
-import 'dart:html' as html; // Only available for web; used for specific web print/download behaviors if needed
+import 'package:pdf/pdf.dart';
+import 'package:printing/printing.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 
 // Global export lock to prevent multiple exports
@@ -90,6 +89,8 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _emailDebouncer = Debouncer(const Duration(milliseconds: 500));
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString(); // Unique ID for each widget instance/export lifecycle
+
+  static const String _pdfApiBaseUrl = 'http://localhost:3000'; // <<-- YOUR NODE.JS API BASE URL
 
   @override
   void initState() {
@@ -188,8 +189,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     );
   }
 
-  // --- Common Export Logic Wrapper ---
-  // This helper function centralizes the lock management and loader display
+
   Future<void> _executeExportTask(BuildContext context, Future<void> Function() task, String taskName) async {
     print('$taskName: Starting export task, exportId=$_exportId');
     final startTime = DateTime.now();
@@ -219,9 +219,6 @@ class _ExportWidgetState extends State<ExportWidget> {
       setState(() {}); // Rebuild widget to gray out buttons IMMEDIATELY
     }
 
-    // Show loader right after the UI update to disabled buttons
-    // Using a Future.delayed ensures the UI has a moment to redraw before dialog appears
-    // This reduces the 'lag' perception for very fast operations
     bool dialogShown = false;
     if (context.mounted) {
       Future.delayed(Duration.zero, () { // Use Duration.zero to schedule after current frame
@@ -237,19 +234,17 @@ class _ExportWidgetState extends State<ExportWidget> {
       });
     }
 
-
     try {
       await task(); // Execute the specific export task
     } catch (e) {
       print('$taskName: Exception caught: $e, exportId=$_exportId');
       String errorMessage = 'Failed to $taskName. Please try again.';
-      // Provide more specific error messages for PDF if possible
-      if (taskName.contains('PDF') && e.toString().contains('TooManyPagesException')) {
-        errorMessage = 'PDF export failed: The report is too large to render. Please try filtering data or contact support.';
-      } else if (taskName.contains('PDF') && e.toString().contains('Memory')) { // Generic memory error
-        errorMessage = 'PDF export failed due to insufficient memory for a very large report. Try reducing data or contact support.';
-      }
-      else {
+      // More specific error messages for PDF API errors
+      if (e.toString().contains('Failed to generate PDF on server')) {
+        errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
+      } else if (e.toString().contains('Connection refused')) {
+        errorMessage = 'Could not connect to PDF server. Is it running?';
+      } else {
         errorMessage = 'Failed to $taskName: $e';
       }
 
@@ -259,9 +254,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         );
       }
     } finally {
-      // Only pop the dialog if it was successfully shown.
-      // This prevents "Navigator.pop called on a null route" errors
-      // if the export finished before the dialog even had a chance to render.
       if (dialogShown && context.mounted && Navigator.of(context).canPop()) {
         print('$taskName: Dismissing loader dialog, exportId=$_exportId');
         Navigator.of(context).pop();
@@ -277,14 +269,83 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('$taskName: Total export time: ${endTime.difference(startTime).inMilliseconds} ms, exportId=$_exportId');
   }
 
-  // --- Export to Excel ---
+  // --- Helper to call Node.js PDF Generation API ---
+  Future<Uint8List> _callPdfGenerationApi() async {
+    print('Calling Node.js PDF API, exportId=$_exportId');
+
+    final Map<String, String> visibleAndFormattedParameters = _getVisibleAndFormattedParameters();
+
+    // Prepare serializable data for HTTP request
+    final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
+      'field': col.field,
+      'title': col.title,
+      'type': col.type.runtimeType.toString(), // Simple type representation (e.g., PlutoColumnType.text)
+      'width': col.width,
+    }).toList();
+
+    final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
+      'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
+      '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
+    }).toList();
+
+    // Calculate total configured width to help Node.js with proportional column sizing
+    double totalPlutoConfiguredWidth = 0.0;
+    for (var col in widget.columns) {
+      // Exclude the __actions__ column from width calculation for content columns
+      if (col.field != '__actions__') {
+        totalPlutoConfiguredWidth += (col.width ?? 100.0);
+      }
+    }
+    // Fallback if no columns with widths or all are actions
+    if (totalPlutoConfiguredWidth == 0 && widget.columns.isNotEmpty) {
+      totalPlutoConfiguredWidth = widget.columns.where((col) => col.field != '__actions__').length * 100.0;
+    } else if (totalPlutoConfiguredWidth == 0) {
+      totalPlutoConfiguredWidth = 1.0; // Avoid division by zero if there are no columns at all
+    }
+
+
+    final Map<String, dynamic> requestBody = {
+      'columns': serializableColumns,
+      'rows': serializableRows,
+      'fileName': widget.fileName,
+      'exportId': _exportId, // Pass for server-side logging/tracking if needed
+      'fieldConfigs': widget.fieldConfigs, // These are crucial for server-side formatting
+      'reportLabel': widget.reportLabel,
+      'parameterValues': widget.parameterValues, // Raw values
+      'apiParameters': widget.apiParameters, // Definitions
+      'pickerOptions': widget.pickerOptions, // For display value resolution if needed on server
+      'visibleAndFormattedParameters': visibleAndFormattedParameters, // Already formatted for display in header
+      'totalPlutoConfiguredWidth': totalPlutoConfiguredWidth, // Send this for accurate column width scaling
+    };
+
+    try {
+      final response = await http.post(
+        Uri.parse('$_pdfApiBaseUrl/generate-pdf'), // <<-- USING THE DEFINED API URL
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      );
+
+      if (response.statusCode == 200) {
+        print('Node.js PDF API responded successfully, exportId=$_exportId. File size: ${response.bodyBytes.length} bytes.');
+        return response.bodyBytes;
+      } else {
+        final errorMessage = 'Failed to generate PDF on server: ${response.statusCode} - ${response.body}';
+        print(errorMessage);
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      print('Error calling Node.js PDF API: $e, exportId=$_exportId');
+      rethrow; // Re-throw to be caught by _executeExportTask
+    }
+  }
+
+  // --- Export to Excel --- (No change, still uses local compute)
   Future<void> _exportToExcel(BuildContext context) async {
     await _executeExportTask(context, () async {
-      // Prepare serializable data for compute
       final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
         'field': col.field,
         'title': col.title,
-        'type': col.type.runtimeType.toString(), // Simple type representation
+        'type': col.type.runtimeType.toString(),
         'width': col.width,
       }).toList();
 
@@ -294,7 +355,6 @@ class _ExportWidgetState extends State<ExportWidget> {
       }).toList();
 
       print('ExportToExcel: Calling compute to generate Excel, exportId=$_exportId');
-      final excelStartTime = DateTime.now();
       final excelBytes = await compute(_generateExcel, {
         'columns': serializableColumns,
         'rows': serializableRows,
@@ -305,11 +365,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         'apiParameters': widget.apiParameters,
         'pickerOptions': widget.pickerOptions,
       });
-      final excelEndTime = DateTime.now();
-      print('ExportToExcel: Excel generation took ${excelEndTime.difference(excelStartTime).inMilliseconds} ms, exportId=$_exportId');
-      print('ExportToExcel: Generated Excel file size: ${excelBytes.length} bytes, exportId=$_exportId');
 
-      // Use FileSaver for both web and non-web platforms to download the file
       print('ExportToExcel: Saving Excel file using FileSaver, exportId=$_exportId');
       final fileName = '${widget.fileName}.xlsx';
       final result = await FileSaver.instance.saveFile(
@@ -328,43 +384,13 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Export to Excel');
   }
 
-  // --- Export to PDF (Download) ---
+  // --- Export to PDF (Download) --- (MODIFIED to use API)
+  // @override // No need for @override here as it's not overriding a method from a superclass unless explicitly defined.
   Future<void> _exportToPDF(BuildContext context) async {
     await _executeExportTask(context, () async {
-      // Collect parameters into a map for compute
-      final Map<String, String> visibleAndFormattedParameters = _getVisibleAndFormattedParameters();
+      print('ExportToPDF: Calling Node.js API to generate PDF, exportId=$_exportId');
+      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
 
-      // Prepare serializable data for compute
-      final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
-        'field': col.field,
-        'title': col.title,
-        'type': col.type.runtimeType.toString(),
-        'width': col.width,
-      }).toList();
-
-      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
-        'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
-        '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
-      }).toList();
-
-      print('ExportToPDF: Calling compute to generate PDF, exportId=$_exportId');
-      final pdfStartTime = DateTime.now();
-      final pdfBytes = await compute(_generatePDF, {
-        'columns': serializableColumns,
-        'rows': serializableRows,
-        'fileName': widget.fileName,
-        'exportId': _exportId,
-        'fieldConfigs': widget.fieldConfigs,
-        'reportLabel': widget.reportLabel,
-        'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters,
-        'pickerOptions': widget.pickerOptions,
-        'visibleAndFormattedParameters': visibleAndFormattedParameters,
-      });
-      final pdfEndTime = DateTime.now();
-      print('ExportToPDF: PDF generation took ${pdfEndTime.difference(pdfStartTime).inMilliseconds} ms, exportId=$_exportId');
-
-      // Use FileSaver for both web and non-web platforms to download the file
       print('ExportToPDF: Saving PDF file using FileSaver, exportId=$_exportId');
       final fileName = '${widget.fileName}.pdf';
       final result = await FileSaver.instance.saveFile(
@@ -383,43 +409,15 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Export to PDF');
   }
 
-  // --- Print Document ---
+  // --- Print Document --- (MODIFIED to use API)
+  // @override // Same as above, no need for @override
   Future<void> _printDocument(BuildContext context) async {
     await _executeExportTask(context, () async {
-      final Map<String, String> visibleAndFormattedParameters = _getVisibleAndFormattedParameters();
-
-      final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
-        'field': col.field,
-        'title': col.title,
-        'type': col.type.runtimeType.toString(),
-        'width': col.width,
-      }).toList();
-
-      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
-        'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
-        '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
-      }).toList();
-
-      print('PrintDocument: Calling compute to generate PDF for printing, exportId=$_exportId');
-      final pdfStartTime = DateTime.now();
-      final pdfBytes = await compute(_generatePDF, {
-        'columns': serializableColumns,
-        'rows': serializableRows,
-        'fileName': widget.fileName,
-        'exportId': _exportId,
-        'fieldConfigs': widget.fieldConfigs,
-        'reportLabel': widget.reportLabel,
-        'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters,
-        'pickerOptions': widget.pickerOptions,
-        'visibleAndFormattedParameters': visibleAndFormattedParameters,
-      });
-      final pdfEndTime = DateTime.now();
-      print('PrintDocument: PDF generation for print took ${pdfEndTime.difference(pdfStartTime).inMilliseconds} ms, exportId=$_exportId');
+      print('PrintDocument: Calling Node.js API to generate PDF for printing, exportId=$_exportId');
+      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
 
       if (kIsWeb) {
         print('PrintDocument: Platform is web. Using Printing.layoutPdf for direct browser print dialog, exportId=$_exportId');
-        // On web, this directly opens the browser's print preview/dialog.
         await Printing.layoutPdf(
           onLayout: (PdfPageFormat format) async => pdfBytes,
           name: '${widget.fileName}_Print.pdf',
@@ -431,8 +429,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
       } else {
         print('PrintDocument: Platform is not web. Using Printing.sharePdf to trigger system print/share dialog, exportId=$_exportId');
-        // On non-web (mobile/desktop), Printing.sharePdf opens the native share sheet,
-        // which typically includes a "Print" option among others. This gives the user control.
         await Printing.sharePdf(bytes: pdfBytes, filename: '${widget.fileName}_Print.pdf');
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -443,7 +439,8 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Print Document');
   }
 
-  // --- Send to Email ---
+  // --- Send to Email --- (MODIFIED to use API for PDF)
+  // @override // Same as above, no need for @override
   Future<void> _sendToEmail(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('SendToEmail: Showing email input dialog, exportId=$_exportId');
@@ -493,28 +490,25 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('SendToEmail: Dialog result: shouldSend=$shouldSend, exportId=$_exportId');
       if (shouldSend != true) {
         print('SendToEmail: Email sending cancelled by user, exportId=$_exportId');
-        throw Exception('Email sending cancelled by user.'); // Throw to enter finally block of _executeExportTask
+        throw Exception('Email sending cancelled by user.');
       }
 
-      final Map<String, String> visibleAndFormattedParameters = _getVisibleAndFormattedParameters();
-
-      final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
+      // Generate Excel file (still client-side via compute)
+      print('SendToEmail: Generating Excel file for email attachment, exportId=$_exportId');
+      final List<Map<String, dynamic>> serializableColumnsForExcel = widget.columns.map((col) => {
         'field': col.field,
         'title': col.title,
         'type': col.type.runtimeType.toString(),
         'width': col.width,
       }).toList();
-
-      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
+      final List<Map<String, dynamic>> serializableRowsForExcel = widget.plutoRows.map((row) => {
         'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
         '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
       }).toList();
 
-      // Generate Excel file
-      print('SendToEmail: Generating Excel file for email attachment, exportId=$_exportId');
       final excelBytes = await compute(_generateExcel, {
-        'columns': serializableColumns,
-        'rows': serializableRows,
+        'columns': serializableColumnsForExcel,
+        'rows': serializableRowsForExcel,
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
@@ -523,25 +517,14 @@ class _ExportWidgetState extends State<ExportWidget> {
         'pickerOptions': widget.pickerOptions,
       });
 
-      // Generate PDF file
-      print('SendToEmail: Generating PDF file for email attachment, exportId=$_exportId');
-      final pdfBytes = await compute(_generatePDF, {
-        'columns': serializableColumns,
-        'rows': serializableRows,
-        'fileName': widget.fileName,
-        'exportId': _exportId,
-        'fieldConfigs': widget.fieldConfigs,
-        'reportLabel': widget.reportLabel,
-        'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters,
-        'pickerOptions': widget.pickerOptions,
-        'visibleAndFormattedParameters': visibleAndFormattedParameters,
-      });
+      // Generate PDF file (now via API)
+      print('SendToEmail: Generating PDF file for email attachment via API, exportId=$_exportId');
+      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
 
       print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://localhost/sendmail.php'), // Placeholder: Replace with your actual backend endpoint
+        Uri.parse('http://localhost/sendmail.php'), // <<-- THIS IS YOUR BACKEND EMAIL API. UPDATE IF NEEDED.
       );
 
       request.fields['email'] = emailController.text;
@@ -579,7 +562,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Send to Email');
   }
 
-  // Helper method to format parameters for display in PDF/Excel header
+  // Helper method to format parameters for display in PDF/Excel header (NO CHANGE)
   Map<String, String> _getVisibleAndFormattedParameters() {
     final Map<String, String> formattedParams = <String, String>{};
     if (widget.apiParameters != null) {
@@ -618,7 +601,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     return formattedParams;
   }
 
-  // --- Static Helper for Number Formatting (Used by Excel and PDF) ---
+  // --- Static Helper for Number Formatting (Used by Excel only now, but kept for consistency if needed elsewhere) ---
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
     String pattern = '##,##,##0';
     if (decimalPoints > 0) {
@@ -632,7 +615,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     return formatter.format(number);
   }
 
-  // --- _generateExcel function (static for compute) ---
+  // --- _generateExcel function (static for compute) --- (NO CHANGE)
   static Uint8List _generateExcel(Map<String, dynamic> params) {
     final exportId = params['exportId'] as String;
     print('GenerateExcel: Starting Excel generation in isolate, exportId=$exportId');
@@ -747,7 +730,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         final rawValue = rowData['cells'][fieldName];
         final config = fieldConfigMap[fieldName];
 
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
+        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
@@ -769,7 +752,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
+        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
 
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: dataRowIndex)).cellStyle = CellStyle(
@@ -790,7 +773,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       final totalRowValues = fieldNames.map((fieldName) {
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
+        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
@@ -813,7 +796,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
+        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
 
@@ -842,351 +825,5 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('GenerateExcel: Excel generation completed, returning bytes, exportId=$exportId');
 
     return excelBytes;
-  }
-
-  // --- _generatePDF function (static for compute) ---
-  static Future<Uint8List> _generatePDF(Map<String, dynamic> params) async {
-    final exportId = params['exportId'] as String;
-    print('GeneratePDF: Starting PDF generation in isolate, exportId=$exportId');
-    final columns = params['columns'] as List<Map<String, dynamic>>;
-    final rows = params['rows'] as List<Map<String, dynamic>>;
-    final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
-    final reportLabel = params['reportLabel'] as String;
-    final visibleAndFormattedParameters = params['visibleAndFormattedParameters'] as Map<String, String>;
-
-    if (rows.isEmpty) {
-      print('GeneratePDF: Empty rows provided, returning empty PDF, exportId=$exportId');
-      final pdf = pw.Document();
-      pdf.addPage(
-        pw.Page(
-          build: (pw.Context context) => pw.Center(
-            child: pw.Text(
-              'No data available',
-              style: pw.TextStyle(fontSize: 12),
-            ),
-          ),
-        ),
-      );
-      return await pdf.save();
-    }
-
-    print('GeneratePDF: Rows length: ${rows.length} rows, exportId=$exportId');
-    final List<String> originalFieldNames = columns.map((col) => col['field'].toString()).toList();
-    final List<String> originalHeaderLabels = columns.map((col) => col['title'].toString()).toList();
-
-    final List<String> fieldNames = [];
-    final List<String> headerLabels = [];
-    for(int i = 0; i < originalFieldNames.length; i++) {
-      if (originalFieldNames[i] != '__actions__') {
-        fieldNames.add(originalFieldNames[i]);
-        headerLabels.add(originalHeaderLabels[i]);
-      }
-    }
-    print('GeneratePDF: Filtered headers (count: ${headerLabels.length}): $headerLabels, exportId=$exportId');
-
-    final pdf = pw.Document();
-    const fontSize = 8.0;
-    const headerFontSize = 10.0;
-    const reportLabelFontSize = 14.0;
-
-    print('GeneratePDF: Loading font, exportId=$exportId');
-    pw.Font font;
-    try {
-      // Only load once
-      final fontData = await rootBundle.load('assets/fonts/Roboto-Regular.ttf');
-      font = pw.Font.ttf(fontData);
-      print('GeneratePDF: Font loaded successfully, exportId=$exportId');
-    } catch (e) {
-      print('GeneratePDF: Failed to load font: $e, using Helvetica fallback, exportId=$exportId');
-      font = pw.Font.helvetica();
-    }
-
-    final Map<String, Map<String, dynamic>> fieldConfigMap = {
-      for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
-    };
-
-    double totalPlutoConfiguredWidth = 0.0;
-    for (var col in columns) {
-      if (col['field'] != '__actions__') {
-        totalPlutoConfiguredWidth += (col['width'] as double? ?? 100.0);
-      }
-    }
-    if (totalPlutoConfiguredWidth == 0) {
-      totalPlutoConfiguredWidth = fieldNames.length * 100.0;
-    }
-
-    final Map<int, pw.TableColumnWidth> columnWidths = {};
-    for (int i = 0; i < fieldNames.length; i++) {
-      final fieldName = fieldNames[i];
-      final originalCol = columns.firstWhere((col) => col['field'] == fieldName);
-      columnWidths[i] = pw.FlexColumnWidth((originalCol['width'] as double? ?? 100.0) / totalPlutoConfiguredWidth);
-    }
-    print('GeneratePDF: Calculated column widths for PDF table, exportId=$exportId');
-
-    final List<pw.TableRow> tableRows = [];
-
-    tableRows.add(
-      pw.TableRow(
-        decoration: const pw.BoxDecoration(
-          color: PdfColors.blueGrey100,
-        ),
-        children: headerLabels.map((headerLabel) {
-          final fieldName = fieldNames[headerLabels.indexOf(headerLabel)];
-          final config = fieldConfigMap[fieldName];
-          final alignment = config?['num_alignment']?.toString().toLowerCase();
-
-          pw.TextAlign headerTextAlign = pw.TextAlign.center;
-          if (alignment == 'left') {
-            headerTextAlign = pw.TextAlign.left;
-          } else if (alignment == 'right') {
-            headerTextAlign = pw.TextAlign.right;
-          }
-
-          return pw.Container(
-            padding: const pw.EdgeInsets.all(4),
-            alignment: pw.Alignment.center,
-            child: pw.Text(
-              headerLabel,
-              style: pw.TextStyle(
-                font: font,
-                fontWeight: pw.FontWeight.bold,
-                fontSize: headerFontSize,
-              ),
-              textAlign: headerTextAlign,
-            ),
-          );
-        }).toList(),
-      ),
-    );
-    print('GeneratePDF: Added header row to PDF tableRows, exportId=$exportId');
-
-    List<Map<String, dynamic>> dataRowsForGrandTotal = [];
-    print('GeneratePDF: Starting to add data rows to PDF tableRows, exportId=$exportId');
-    final dataRowsStartTime = DateTime.now();
-    for (var rowData in rows) {
-      final isSubtotalRow = rowData.containsKey('__isSubtotal__') ? rowData['__isSubtotal__'] : false;
-
-      tableRows.add(
-        pw.TableRow(
-          decoration: isSubtotalRow
-              ? const pw.BoxDecoration(color: PdfColors.grey200)
-              : (rows.indexOf(rowData) % 2 == 0
-              ? const pw.BoxDecoration(color: PdfColors.white)
-              : const pw.BoxDecoration(color: PdfColors.grey50)),
-          children: fieldNames.map((fieldName) {
-            final rawValue = rowData['cells'][fieldName];
-            final config = fieldConfigMap[fieldName];
-
-            final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
-                (config?['data_type']?.toString().toLowerCase() == 'number');
-            final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
-            final indianFormat = config?['indian_format']?.toString() == '1';
-            final alignment = config?['num_alignment']?.toString().toLowerCase();
-            final isImageColumn = config?['image']?.toString() == '1';
-
-            String displayValue = rawValue?.toString() ?? '';
-
-            pw.Widget cellContent;
-
-            if (isImageColumn && displayValue.isNotEmpty && (displayValue.startsWith('http://') || displayValue.startsWith('https://'))) {
-              // OPTIMIZATION: For print/PDF, large number of images from URLs can cause memory issues.
-              // Instead of attempting to load/embed, display a placeholder or the URL.
-              cellContent = pw.Text(
-                '[Image]', // Or displayValue if you prefer the URL text
-                style: pw.TextStyle(font: font, fontSize: fontSize, color: PdfColors.blue, decoration: pw.TextDecoration.underline),
-                overflow: pw.TextOverflow.clip,
-                maxLines: 1,
-              );
-            } else if (isNumeric && rawValue != null) {
-              final doubleValue = double.tryParse(rawValue.toString()) ?? 0.0;
-              displayValue = _formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat);
-              cellContent = pw.Text(
-                displayValue,
-                style: pw.TextStyle(
-                  font: font,
-                  fontSize: fontSize,
-                  fontWeight: isSubtotalRow ? pw.FontWeight.bold : pw.FontWeight.normal,
-                ),
-                textAlign: alignment == 'center'
-                    ? pw.TextAlign.center
-                    : alignment == 'right'
-                    ? pw.TextAlign.right
-                    : pw.TextAlign.left,
-              );
-            } else {
-              cellContent = pw.Text(
-                displayValue,
-                style: pw.TextStyle(
-                  font: font,
-                  fontSize: fontSize,
-                  fontWeight: isSubtotalRow ? pw.FontWeight.bold : pw.FontWeight.normal,
-                ),
-                textAlign: isSubtotalRow && fieldName == fieldNames[0]
-                    ? pw.TextAlign.left
-                    : alignment == 'center'
-                    ? pw.TextAlign.center
-                    : alignment == 'right'
-                    ? pw.TextAlign.right
-                    : pw.TextAlign.left,
-              );
-            }
-            return pw.Container(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 2, vertical: 2),
-              alignment: (alignment == 'center') ? pw.Alignment.center :
-              (alignment == 'right') ? pw.Alignment.centerRight :
-              pw.Alignment.centerLeft,
-              child: cellContent,
-            );
-          }).toList(),
-        ),
-      );
-      if (!isSubtotalRow) {
-        dataRowsForGrandTotal.add(rowData);
-      }
-    }
-    final dataRowsEndTime = DateTime.now();
-    print('GeneratePDF: Added all data rows (including subtotals) to PDF tableRows in ${dataRowsEndTime.difference(dataRowsStartTime).inMilliseconds} ms, exportId=$exportId');
-
-    final bool hasGrandTotals = fieldConfigs != null && fieldConfigs.any((config) => config['Total']?.toString() == '1');
-    if (hasGrandTotals) {
-      print('GeneratePDF: Calculating and adding grand total row, exportId=$exportId');
-      final List<String> grandTotalValues = fieldNames.map((fieldName) {
-        final config = fieldConfigMap[fieldName];
-        final total = config?['Total']?.toString() == '1';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
-            (config?['data_type']?.toString().toLowerCase() == 'number');
-        final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
-        final indianFormat = config?['indian_format']?.toString() == '1';
-
-        if (fieldNames.indexOf(fieldName) == 0) {
-          return 'Grand Total';
-        } else if (total && isNumeric) {
-          final sum = dataRowsForGrandTotal.fold<double>(0.0, (sum, row) {
-            final value = row['cells'][fieldName];
-            return sum + (double.tryParse(value?.toString() ?? '0') ?? 0.0);
-          });
-          return _formatNumber(sum, decimalPoints, indianFormat: indianFormat);
-        }
-        return '';
-      }).toList();
-      tableRows.add(
-        pw.TableRow(
-          decoration: const pw.BoxDecoration(
-            color: PdfColors.blueGrey50,
-          ),
-          children: grandTotalValues.asMap().entries.map((entry) {
-            final i = entry.key;
-            final value = entry.value;
-
-            final fieldName = fieldNames[i];
-            final config = fieldConfigMap[fieldName];
-            final total = config?['Total']?.toString() == '1';
-            final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS'].contains(fieldName) ||
-                (config?['data_type']?.toString().toLowerCase() == 'number');
-            final alignment = config?['num_alignment']?.toString().toLowerCase();
-
-            pw.TextAlign totalTextAlign = pw.TextAlign.left;
-            if (i == 0) {
-              totalTextAlign = pw.TextAlign.left;
-            } else if (isNumeric && alignment == 'center') {
-              totalTextAlign = pw.TextAlign.center;
-            } else if (isNumeric && alignment == 'right') {
-              totalTextAlign = pw.TextAlign.right;
-            } else if (isNumeric) {
-              totalTextAlign = pw.TextAlign.right;
-            }
-
-            return pw.Container(
-              padding: const pw.EdgeInsets.all(4),
-              alignment: (totalTextAlign == pw.TextAlign.left) ? pw.Alignment.centerLeft :
-              (totalTextAlign == pw.TextAlign.right) ? pw.Alignment.centerRight :
-              pw.Alignment.center,
-              child: pw.Text(
-                value,
-                style: pw.TextStyle(
-                  font: font,
-                  fontWeight: pw.FontWeight.bold,
-                  fontSize: headerFontSize,
-                ),
-                textAlign: totalTextAlign,
-              ),
-            );
-          }).toList(),
-        ),
-      );
-      print('GeneratePDF: Added grand total row to PDF tableRows, exportId=$exportId');
-    }
-
-    print('GeneratePDF: Adding page to PDF document, exportId=$exportId');
-    final pdfBuildStartTime = DateTime.now();
-    pdf.addPage(
-      pw.MultiPage(
-        pageFormat: PdfPageFormat.a4.landscape.copyWith(
-          marginLeft: 20,
-          marginRight: 20,
-          marginTop: 20,
-          marginBottom: 20,
-        ),
-        header: (pw.Context context) {
-          return pw.Column(
-            children: [
-              pw.Center(
-                child: pw.Text(
-                  reportLabel,
-                  style: pw.TextStyle(
-                    fontSize: reportLabelFontSize,
-                    font: font,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 5),
-              if (visibleAndFormattedParameters.isNotEmpty) ...[
-                for (var entry in visibleAndFormattedParameters.entries)
-                  pw.Text(
-                    '${entry.key}: ${entry.value}',
-                    style: pw.TextStyle(font: font, fontSize: fontSize),
-                  ),
-                pw.SizedBox(height: 10),
-              ],
-              pw.Align(
-                alignment: pw.Alignment.topRight,
-                child: pw.Text(
-                  'Page ${context.pageNumber} of ${context.pagesCount}',
-                  style: pw.TextStyle(font: font, fontSize: fontSize),
-                ),
-              ),
-              pw.SizedBox(height: 10),
-            ],
-          );
-        },
-        build: (pw.Context context) => [
-          pw.Table(
-            columnWidths: columnWidths,
-            border: pw.TableBorder.all(width: 0.5, color: PdfColors.grey500),
-            children: tableRows,
-          ),
-        ],
-      ),
-    );
-    final pdfBuildEndTime = DateTime.now();
-    print('GeneratePDF: PDF page building took ${pdfBuildEndTime.difference(pdfBuildStartTime).inMilliseconds} ms, exportId=$exportId');
-
-    print('GeneratePDF: Saving PDF, exportId=$exportId');
-    final pdfSaveStartTime = DateTime.now();
-    Uint8List pdfBytes;
-    try {
-      pdfBytes = await pdf.save(); // This is the final step where memory or serialization could be an issue
-    } catch (e) {
-      print('GeneratePDF: ERROR during pdf.save(): $e, exportId=$exportId');
-      // Re-throw with more specific info if possible, or a custom exception
-      throw Exception('PDF Save Error: $e'); // This will be caught by _executeExportTask
-    }
-
-    final pdfSaveEndTime = DateTime.now();
-    print('GeneratePDF: PDF saving took ${pdfSaveEndTime.difference(pdfSaveStartTime).inMilliseconds} ms, exportId=$exportId');
-    print('GeneratePDF: PDF generation completed, returning bytes (${pdfBytes.length} bytes), exportId=$exportId');
-
-    return pdfBytes;
   }
 }

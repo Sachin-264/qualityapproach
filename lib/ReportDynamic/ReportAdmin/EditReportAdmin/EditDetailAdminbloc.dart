@@ -1,4 +1,3 @@
-// EditDetailAdminBloc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
@@ -77,6 +76,12 @@ class UpdateParameterMasterSelection extends EditDetailAdminEvent {
   UpdateParameterMasterSelection(this.index, this.masterTable, this.masterField, this.displayField);
 }
 
+// NEW EVENT: To mark a parameter as the Company Name field
+class UpdateParameterIsCompanyNameField extends EditDetailAdminEvent {
+  final int index;
+  UpdateParameterIsCompanyNameField(this.index);
+}
+
 class SaveChanges extends EditDetailAdminEvent {}
 
 // State
@@ -88,7 +93,7 @@ class EditDetailAdminState {
   final String databaseName;
   final String apiServerURl;
   final String apiName;
-  // MODIFIED: Each parameter map can now contain 'master_table', 'master_field', AND 'display_field'
+  // MODIFIED: Each parameter map can now contain 'master_table', 'master_field', 'display_field', and 'is_company_name_field'
   final List<Map<String, dynamic>> parameters;
   final List<String> availableDatabases;
   final bool isLoading;
@@ -160,7 +165,8 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
         ...p,
         'master_table': p['master_table'] as String?,
         'master_field': p['master_field'] as String?,
-        'display_field': p['display_field'] as String?, // NEW: Parse display_field
+        'display_field': p['display_field'] as String?,
+        'is_company_name_field': (p['is_company_name_field'] as bool?) ?? false, // NEW: Parse is_company_name_field
       };
     }).toList(),
   )) {
@@ -174,7 +180,8 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     on<UpdateParameterValue>(_onUpdateParameterValue);
     on<UpdateParameterShow>(_onUpdateParameterShow);
     on<UpdateParameterFieldLabel>(_onUpdateParameterFieldLabel);
-    on<UpdateParameterMasterSelection>(_onUpdateParameterMasterSelection); // MODIFIED HANDLER
+    on<UpdateParameterMasterSelection>(_onUpdateParameterMasterSelection);
+    on<UpdateParameterIsCompanyNameField>(_onUpdateParameterIsCompanyNameField); // NEW HANDLER
     on<SaveChanges>(_onSaveChanges);
   }
 
@@ -213,8 +220,8 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
   }
 
   void _onUpdateApiName(UpdateApiName event, Emitter<EditDetailAdminState> emit) {
-    print('Processing UpdateApiName event with value: ${event.apiName}');
-    print('Current state.apiName: ${state.apiName}');
+    // print('User entered APIName: ${_apiNameController.text}');
+    // print('Dispatching UpdateApiName with: ${_apiNameController.text}');
     emit(state.copyWith(apiName: event.apiName));
     print('New state.apiName: ${state.apiName}');
   }
@@ -258,6 +265,18 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     emit(state.copyWith(parameters: updatedParameters));
   }
 
+  // NEW HANDLER: For updating the 'is_company_name_field' flag (ensures only one is true)
+  void _onUpdateParameterIsCompanyNameField(UpdateParameterIsCompanyNameField event, Emitter<EditDetailAdminState> emit) {
+    final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
+    for (var i = 0; i < updatedParameters.length; i++) {
+      updatedParameters[i] = {
+        ...updatedParameters[i],
+        'is_company_name_field': (i == event.index), // Set true for the selected index, false for all others
+      };
+    }
+    emit(state.copyWith(parameters: updatedParameters));
+  }
+
   Future<void> _onSaveChanges(SaveChanges event, Emitter<EditDetailAdminState> emit) async {
     print('Saving changes with state:');
     print('  id: ${state.id}');
@@ -267,7 +286,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     print('  databaseName: ${state.databaseName}');
     print('  apiServerURl: ${state.apiServerURl}');
     print('  apiName: ${state.apiName}');
-    print('  parameters: ${state.parameters}'); // This will now include master_table/field/display_field if set
+    print('  parameters: ${state.parameters}'); // This will now include master_table/field/display_field/is_company_name_field if set
     emit(state.copyWith(isLoading: true, error: null, saveInitiated: true));
     try {
       await apiService.editDatabaseServer(
