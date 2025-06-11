@@ -22,6 +22,8 @@ class TableMainUI extends StatelessWidget {
   final String reportLabel;
   final Map<String, String> userParameterValues;
   final List<Map<String, dynamic>> actionsConfig; // Actions specific to this table UI
+  final Map<String, String> displayParameterValues; // Added for ExportWidget
+  final String companyName; // NEW: Added companyName to TableMainUI
 
   const TableMainUI({
     super.key,
@@ -30,6 +32,8 @@ class TableMainUI extends StatelessWidget {
     required this.reportLabel,
     required this.userParameterValues,
     this.actionsConfig = const [], // This TableMainUI instance will use the actions it's configured with
+    required this.displayParameterValues,
+    required this.companyName, // NEW: Make companyName required
   });
 
   // Helper function to format numbers using Indian locale
@@ -102,6 +106,8 @@ class TableMainUI extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     debugPrint('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
+    debugPrint('TableMainUI: Company Name passed: ${companyName}'); // NEW: Log company name
+
     // IMPORTANT: Now we use the `actionsConfig` that was passed to this specific instance's constructor.
     // The BLoC's state will contain the actions for the currently loaded API, but this widget instance
     // will operate on the actions it was configured with. This is the correct behavior for nested
@@ -263,8 +269,8 @@ class TableMainUI extends StatelessWidget {
               final total = config['Total']?.toString() == '1';
               final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
               final decimalPoints = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
-              final isNumericField = numericColumnMap[fieldName] ?? false; // Use the map here
-              final isImageColumn = imageColumnMap[fieldName] ?? false;
+              final bool isNumericField = numericColumnMap[fieldName] ?? false; // Use the map here
+              final bool isImageColumn = imageColumnMap[fieldName] ?? false;
               final bool useIndianFormatForColumn = indianFormatColumnMap[fieldName] ?? false; // New: Get conditional flag
 
               String plutoGridFormatString = '#,##0'; // For PlutoGrid's internal formatting
@@ -479,6 +485,50 @@ class TableMainUI extends StatelessWidget {
                                 debugPrint('TableMainUI Dynamic Params for action: $dynamicApiParams');
 
                                 if (actionType == 'table') {
+                                  // --- IMPORTANT: Prepare display values for nested TableMainUI ---
+                                  final Map<String, String> nestedDisplayValuesForExport = {};
+                                  for (var param in state.selectedApiParameters) {
+                                    final pName = param['name'].toString();
+                                    final pValue = state.userParameterValues[pName] ?? '';
+
+                                    String dValue = '';
+                                    if (param['is_company_name_field'] == true) {
+                                      // If the company field is *shown* in UI, use the value from user input/picker
+                                      if (param['show'] == true && pValue.isNotEmpty) {
+                                        final String configType = param['config_type']?.toString().toLowerCase() ?? '';
+                                        if (configType == 'database' && state.pickerOptions.containsKey(pName)) {
+                                          final List<Map<String, String>> pickerOptions = state.pickerOptions[pName] ?? [];
+                                          dValue = pickerOptions.firstWhere(
+                                                (opt) => opt['value'] == pValue,
+                                            orElse: () => {'label': pValue, 'value': pValue},
+                                          )['label']!;
+                                        } else {
+                                          dValue = pValue; // For other types of company fields
+                                        }
+                                      }
+                                      // If the company field is *not shown* (show: false), use its display_value_cache
+                                      else if (param['show'] == false && param['display_value_cache']?.toString().isNotEmpty == true) {
+                                        dValue = param['display_value_cache'].toString();
+                                      }
+                                    } else { // For all other parameters
+                                      final pConfigType = param['config_type']?.toString().toLowerCase() ?? '';
+                                      if (pConfigType == 'radio' || pConfigType == 'checkbox') {
+                                        final opts = List<Map<String, String>>.from(param['options']?.map((e) => Map<String, String>.from(e)) ?? []);
+                                        dValue = opts.firstWhere((opt) => opt['value'] == pValue, orElse: () => {'label': pValue, 'value': pValue})['label']!;
+                                      } else if (pConfigType == 'database' && pValue.isNotEmpty && state.pickerOptions.containsKey(pName)) {
+                                        final pOpts = state.pickerOptions[pName] ?? [];
+                                        dValue = pOpts.firstWhere((opt) => opt['value'] == pValue, orElse: () => {'label': pValue, 'value': pValue})['label']!;
+                                      } else {
+                                        dValue = pValue;
+                                      }
+                                    }
+                                    if (dValue.isNotEmpty) {
+                                      final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : pName;
+                                      nestedDisplayValuesForExport[paramLabel] = dValue;
+                                    }
+                                  }
+                                  // --- End preparation for nested TableMainUI ---
+
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -498,6 +548,8 @@ class TableMainUI extends StatelessWidget {
                                           reportLabel: actionReportLabel,
                                           userParameterValues: dynamicApiParams,
                                           actionsConfig: const [], // Actions will be fetched by the nested TableBloc
+                                          displayParameterValues: nestedDisplayValuesForExport, // Pass display values to nested UI
+                                          companyName: companyName, // NEW: Pass companyName to nested TableMainUI
                                         ),
                                       ),
                                     ),
@@ -608,21 +660,22 @@ class TableMainUI extends StatelessWidget {
                 }
 
                 final rowCells = <String, PlutoCell>{};
-                data.forEach((key, value) {
-                  final String fieldName = key.toString();
-                  // Note: `orElse` provides a default if field config isn't found (e.g., dynamic fields not in config)
-                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
-                        (cfg) => cfg['Field_name']?.toString() == fieldName,
-                    orElse: () => {'Field_name': fieldName, 'data_type': 'text', 'decimal_points': '0', 'indian_format': '0'},
-                  );
-                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
+                // Iterate through sortedFieldConfigs to ensure all expected fields are present
+                for (var config in sortedFieldConfigs) {
+                  final fieldName = config['Field_name']?.toString() ?? '';
+                  final rawValue = data[fieldName]; // Get value from data row
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false; // Use the value determined earlier
 
-                  rowCells[fieldName] = PlutoCell(
-                    value: isNumeric && value is String && value.isNotEmpty
-                        ? (double.tryParse(value) ?? 0.0)
-                        : value,
-                  );
-                });
+                  // Ensure value is non-null for PlutoCell
+                  dynamic cellValue;
+                  if (isNumeric) {
+                    cellValue = double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0;
+                  } else {
+                    cellValue = rawValue?.toString() ?? '';
+                  }
+                  rowCells[fieldName] = PlutoCell(value: cellValue);
+                }
+
                 if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
@@ -647,21 +700,21 @@ class TableMainUI extends StatelessWidget {
             } else {
               finalRows.addAll(state.reportData.map((data) {
                 final rowCells = <String, PlutoCell>{};
-                data.forEach((key, value) {
-                  final String fieldName = key.toString();
-                  // Note: `orElse` provides a default if field config isn't found (e.g., dynamic fields not in config)
-                  final Map<String, dynamic> fieldConfig = sortedFieldConfigs.firstWhere(
-                        (cfg) => cfg['Field_name']?.toString() == fieldName,
-                    orElse: () => {'Field_name': fieldName, 'data_type': 'text', 'decimal_points': '0', 'indian_format': '0'},
-                  );
-                  final bool isNumeric = numericColumnMap[fieldName] ?? (fieldConfig['data_type']?.toString().toLowerCase() == 'number');
+                // Iterate through sortedFieldConfigs to ensure all expected fields are present
+                for (var config in sortedFieldConfigs) {
+                  final fieldName = config['Field_name']?.toString() ?? '';
+                  final rawValue = data[fieldName]; // Get value from data row
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false; // Use the value determined earlier
 
-                  rowCells[fieldName] = PlutoCell(
-                    value: isNumeric && value is String && value.isNotEmpty
-                        ? (double.tryParse(value) ?? 0.0)
-                        : value,
-                  );
-                });
+                  // Ensure value is non-null for PlutoCell
+                  dynamic cellValue;
+                  if (isNumeric) {
+                    cellValue = double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0;
+                  } else {
+                    cellValue = rawValue?.toString() ?? '';
+                  }
+                  rowCells[fieldName] = PlutoCell(value: cellValue);
+                }
                 if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
@@ -685,8 +738,10 @@ class TableMainUI extends StatelessWidget {
                     fieldConfigs: sortedFieldConfigs, // Still useful for detailed config
                     reportLabel: reportLabel,
                     parameterValues: userParameterValues,
+                    displayParameterValues: displayParameterValues, // Pass the map here
                     apiParameters: state.selectedApiParameters,
                     pickerOptions: state.pickerOptions,
+                    companyName: companyName, // Pass the company name here
                   ),
                   const SizedBox(height: 16),
                   Expanded(

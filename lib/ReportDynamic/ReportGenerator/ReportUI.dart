@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:collection/collection.dart'; // Add this import for firstWhereOrNull
 import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/subtleloader.dart';
 import '../ReportAPIService.dart';
@@ -166,6 +167,120 @@ class _ReportUIState extends State<ReportUI> {
     debugPrint('UI: Resetting all fields and state, reports list preserved.');
   }
 
+  // NEW: Helper for Radio Buttons
+  Widget _buildRadioParameter({
+    required Map<String, dynamic> param,
+    required String currentValue,
+    required ValueChanged<String> onChanged,
+  }) {
+    final paramName = param['name'].toString();
+    final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
+    // Ensure options is always a List<Map<String, String>>
+    final List<Map<String, String>> options = List<Map<String, String>>.from(
+      (param['options'] as List?)?.map((e) => Map<String, String>.from(e ?? {})) ?? [],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          paramLabel,
+          style: GoogleFonts.poppins(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[500]!, width: 1),
+          ),
+          child: Column(
+            children: options.map((option) {
+              return RadioListTile<String>(
+                title: Text(option['label']!, style: GoogleFonts.poppins(fontSize: 14)),
+                value: option['value']!,
+                groupValue: currentValue,
+                onChanged: (String? newValue) {
+                  if (newValue != null) {
+                    debugPrint('UI: Radio selected for $paramName: label=${option['label']}, value=$newValue');
+                    onChanged(newValue);
+                  }
+                },
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                activeColor: Colors.blueAccent,
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // NEW: Helper for Checkboxes (single-selectable, can be empty)
+  Widget _buildCheckboxParameter({
+    required Map<String, dynamic> param,
+    required String currentValue,
+    required ValueChanged<String> onChanged,
+  }) {
+    final paramName = param['name'].toString();
+    final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
+    // Ensure options is always a List<Map<String, String>>
+    final List<Map<String, String>> options = List<Map<String, String>>.from(
+      (param['options'] as List?)?.map((e) => Map<String, String>.from(e ?? {})) ?? [],
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          paramLabel,
+          style: GoogleFonts.poppins(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Colors.grey[700],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.9),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey[500]!, width: 1),
+          ),
+          child: Column(
+            children: options.map((option) {
+              return CheckboxListTile(
+                title: Text(option['label']!, style: GoogleFonts.poppins(fontSize: 14)),
+                value: currentValue == option['value'],
+                onChanged: (bool? isChecked) {
+                  String newValue = ''; // Default to empty if unchecked or no longer selected
+                  if (isChecked == true) {
+                    newValue = option['value']!; // Set to this option's value if checked
+                    debugPrint('UI: Checkbox selected for $paramName: label=${option['label']}, value=$newValue');
+                  } else {
+                    debugPrint('UI: Checkbox unselected for $paramName: label=${option['label']}, value=""');
+                  }
+                  onChanged(newValue); // Update the BLoC with the single selected value or empty string
+                },
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                activeColor: Colors.blueAccent,
+                controlAffinity: ListTileControlAffinity.leading,
+              );
+            }).toList(),
+          ),
+        ),
+      ],
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -233,11 +348,22 @@ class _ReportUIState extends State<ReportUI> {
               debugPrint('-----------------------');
               // --- END LOGGING ---
 
-              // --- Parameter Controller Management (Existing logic) ---
-              // Dispose controllers for parameters that are no longer present
-              final currentParamNames = state.selectedApiParameters.map((p) => p['name'].toString()).toSet();
+              // --- Parameter Controller Management ---
+              // Identify parameters that are currently displayed and are text-input based
+              // This is for rendering the UI input fields. It should always respect param['show']
+              final Set<String> currentTextFieldParamNames = state.selectedApiParameters
+                  .where((p) {
+                final String configType = p['config_type']?.toString().toLowerCase() ?? '';
+                final bool isTextOrDatePicker = !(configType == 'radio' || configType == 'checkbox');
+                final bool isDatabaseNotPicker = (configType == 'database' && (p['master_table']?.toString().isEmpty == true));
+                return p['show'] == true && (isTextOrDatePicker || isDatabaseNotPicker);
+              })
+                  .map((p) => p['name'].toString())
+                  .toSet();
+
+              // Dispose controllers for parameters that are no longer text-input based or are no longer shown
               _paramControllers.keys.toList().forEach((key) {
-                if (!currentParamNames.contains(key)) {
+                if (!currentTextFieldParamNames.contains(key)) {
                   _paramControllers[key]?.dispose();
                   _paramControllers.remove(key);
                   _paramFocusNodes[key]?.dispose();
@@ -245,26 +371,26 @@ class _ReportUIState extends State<ReportUI> {
                 }
               });
 
-              // Create or update controllers for present parameters
-              for (var param in state.selectedApiParameters) {
-                final paramName = param['name'].toString();
+              // Create or update controllers for currently shown text-input based parameters
+              for (var paramName in currentTextFieldParamNames) {
                 if (!_paramControllers.containsKey(paramName)) {
                   _paramControllers[paramName] = TextEditingController();
                   _paramFocusNodes[paramName] = FocusNode();
                 }
 
-                final bool isPickerField = param['master_table'] != null &&
-                    param['master_table'].toString().isNotEmpty &&
-                    param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
-                    param['display_field'] != null && param['display_field'].toString().isNotEmpty;
+                // Get the full parameter config from state
+                final param = state.selectedApiParameters.firstWhere((p) => p['name'] == paramName);
 
-                // Determine display value based on userParameterValues and pickerOptions
+                // Determine if it's a picker field (config_type: database, and has master/display fields)
+                final bool isPickerField = (param['config_type']?.toString().toLowerCase() == 'database') &&
+                    (param['master_table']?.toString().isNotEmpty == true) &&
+                    (param['master_field']?.toString().isNotEmpty == true) &&
+                    (param['display_field']?.toString().isNotEmpty == true);
+
                 final String currentMasterValue = state.userParameterValues[paramName] ?? '';
                 String displayValueForController = currentMasterValue;
 
-                if (isPickerField &&
-                    state.pickerOptions.containsKey(paramName) &&
-                    currentMasterValue.isNotEmpty) {
+                if (isPickerField && state.pickerOptions.containsKey(paramName) && currentMasterValue.isNotEmpty) {
                   final option = state.pickerOptions[paramName]?.firstWhere(
                         (opt) => opt['value'] == currentMasterValue,
                     orElse: () => {'label': currentMasterValue, 'value': currentMasterValue},
@@ -276,6 +402,82 @@ class _ReportUIState extends State<ReportUI> {
                   _paramControllers[paramName]!.text = displayValueForController;
                 }
               }
+
+              // MODIFIED BLOCK: Prepare companyName and displayValuesForExport
+              String companyName = '';
+              String? companyNameParamLabelToExclude; // Store the label of the company param if found
+
+              final companyParam = state.selectedApiParameters.firstWhereOrNull(
+                    (param) => param['is_company_name_field'] == true,
+              );
+
+              if (companyParam != null) {
+                final paramName = companyParam['name'].toString();
+                companyNameParamLabelToExclude = companyParam['field_label']?.isNotEmpty == true ? companyParam['field_label'] : paramName;
+
+                // Determine companyName for the main header (priority: UI value if shown, else cache if not shown)
+                if (companyParam['show'] == true) {
+                  final String configType = companyParam['config_type']?.toString().toLowerCase() ?? '';
+                  if (configType == 'database' && state.pickerOptions.containsKey(paramName)) {
+                    final List<Map<String, String>> pickerOptions = state.pickerOptions[paramName] ?? [];
+                    companyName = pickerOptions.firstWhere(
+                          (opt) => opt['value'] == state.userParameterValues[paramName],
+                      orElse: () => {'label': state.userParameterValues[paramName] ?? '', 'value': state.userParameterValues[paramName] ?? ''},
+                    )['label']!;
+                  } else {
+                    companyName = state.userParameterValues[paramName] ?? '';
+                  }
+                } else if (companyParam['show'] == false && companyParam['display_value_cache']?.toString().isNotEmpty == true) {
+                  companyName = companyParam['display_value_cache'].toString();
+                }
+              }
+              debugPrint('UI: Company Name extracted (for main header): $companyName');
+
+
+              // Prepare displayValuesForExport (for the parameter list section in PDF/Excel)
+              final Map<String, String> displayValuesForExport = {};
+              for (var param in state.selectedApiParameters) {
+                final paramName = param['name'].toString();
+                final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
+
+                // --- IMPORTANT FILTERING LOGIC ---
+                // Skip this parameter if it's the company name field AND its label matches the one used for the main header
+                if (param['is_company_name_field'] == true && paramLabel == companyNameParamLabelToExclude) {
+                  debugPrint('UI: Excluding parameter "${paramLabel}" from displayValuesForExport as it is the main company field.');
+                  continue; // Skip adding this to the parameter list
+                }
+                // --- END FILTERING LOGIC ---
+
+                // Only include other parameters if they are shown and have a non-empty value
+                if (param['show'] == true) {
+                  final String currentApiValue = state.userParameterValues[paramName] ?? '';
+                  String displayValue = '';
+
+                  final String configType = param['config_type']?.toString().toLowerCase() ?? '';
+
+                  if ((configType == 'radio' || configType == 'checkbox') && currentApiValue.isNotEmpty) {
+                    final List<Map<String, String>> options = List<Map<String, String>>.from(param['options']?.map((e) => Map<String, String>.from(e ?? {})) ?? []);
+                    displayValue = options.firstWhere(
+                          (opt) => opt['value'] == currentApiValue,
+                      orElse: () => {'label': currentApiValue, 'value': currentApiValue},
+                    )['label']!;
+                  } else if (configType == 'database' && currentApiValue.isNotEmpty && state.pickerOptions.containsKey(paramName)) {
+                    final List<Map<String, String>> pickerOptions = state.pickerOptions[paramName] ?? [];
+                    displayValue = pickerOptions.firstWhere(
+                          (opt) => opt['value'] == currentApiValue,
+                      orElse: () => {'label': currentApiValue, 'value': currentApiValue},
+                    )['label']!;
+                  } else {
+                    displayValue = currentApiValue;
+                  }
+
+                  if (displayValue.isNotEmpty) {
+                    displayValuesForExport[paramLabel] = displayValue;
+                  }
+                }
+              }
+              debugPrint('UI: displayValuesForExport generated: $displayValuesForExport');
+
 
               return Stack( // Use Stack to allow overlaying the loader/empty message
                 children: [
@@ -495,6 +697,8 @@ class _ReportUIState extends State<ReportUI> {
                                                         reportLabel: reportLabel,
                                                         userParameterValues: state.userParameterValues,
                                                         actionsConfig: actionsConfigForMainReport,
+                                                        companyName: companyName, // Pass the extracted company name (fixed)
+                                                        displayParameterValues: displayValuesForExport, // Pass display values for export (fixed)
                                                       ),
                                                     ),
                                               ),
@@ -577,220 +781,240 @@ class _ReportUIState extends State<ReportUI> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: state.selectedApiParameters.where((
-                                              param) => param['show'] == true).map((param) {
+                                              param) => param['show'] == true).map((param) { // This `where` clause keeps it in UI
                                             final paramName = param['name'].toString();
                                             final paramLabel = param['field_label']
                                                 ?.isNotEmpty == true
                                                 ? param['field_label']
                                                 : paramName;
 
-                                            final isDateField = (param['type']
-                                                ?.toString()
-                                                .toLowerCase() == 'date') ||
-                                                (paramName.toLowerCase().contains('date') &&
+                                            final String configType = param['config_type']?.toString().toLowerCase() ?? '';
+
+                                            // Determine if it's a database picker field (database with master_table)
+                                            final bool isDatabasePicker = (configType == 'database') &&
+                                                (param['master_table']?.toString().isNotEmpty == true);
+
+                                            // Determine if it's a date field (config_type 'date' takes precedence, then heuristics)
+                                            final bool isDateField = (configType == 'date') ||
+                                                (configType != 'radio' && configType != 'checkbox' && !isDatabasePicker && // Not radio, checkbox, or a DB picker
+                                                    paramName.toLowerCase().contains('date') &&
                                                     state.userParameterValues.containsKey(paramName) &&
                                                     state.userParameterValues[paramName]!.isNotEmpty &&
                                                     _parseDateSmartly(state.userParameterValues[paramName]!).$1 != null
                                                 );
 
-                                            final isPickerField = param['master_table'] !=
-                                                null && param['master_table']
-                                                .toString()
-                                                .isNotEmpty &&
-                                                param['master_field'] != null &&
-                                                param['master_field']
-                                                    .toString()
-                                                    .isNotEmpty &&
-                                                param['display_field'] != null &&
-                                                param['display_field']
-                                                    .toString()
-                                                    .isNotEmpty;
-
-                                            final String masterField = param['master_field']
-                                                ?.toString() ?? '';
-                                            final String displayField = param['display_field']
-                                                ?.toString() ?? '';
-
-                                            final TextEditingController controller = _paramControllers[paramName]!;
-                                            final FocusNode focusNode = _paramFocusNodes[paramName]!;
-
+                                            // Determine which widget to build based on configType or derived type
                                             Widget parameterInputWidget;
-                                            if (isPickerField) {
-                                              parameterInputWidget =
-                                                  Autocomplete<Map<String, String>>(
-                                                    optionsBuilder: (TextEditingValue textEditingValue) {
-                                                      // LOG for picker options
-                                                      debugPrint('UI: Autocomplete for param $paramName - text: "${textEditingValue.text}"');
-                                                      if (!state.pickerOptions.containsKey(paramName) &&
-                                                          state.serverIP != null && state.userName != null &&
-                                                          state.password != null && state.databaseName != null) {
-                                                        debugPrint('UI: Dispatching FetchPickerOptions for $paramName (because not in state.pickerOptions)');
-                                                        context.read<ReportBlocGenerate>().add(
-                                                          FetchPickerOptions(
-                                                            paramName: paramName,
-                                                            serverIP: state.serverIP!,
-                                                            userName: state.userName!,
-                                                            password: state.password!,
-                                                            databaseName: state.databaseName!,
-                                                            masterTable: param['master_table'].toString(),
-                                                            masterField: masterField,
-                                                            displayField: displayField,
-                                                          ),
-                                                        );
-                                                      }
 
-                                                      final options = state.pickerOptions[paramName] ?? [];
-                                                      if (textEditingValue.text.isEmpty) {
-                                                        return options;
-                                                      }
-                                                      return options.where((option) =>
-                                                          option['label']!.toLowerCase()
-                                                              .contains(textEditingValue.text.toLowerCase()));
-                                                    },
-                                                    displayStringForOption: (Map<String, String> option) => option['label']!,
-                                                    onSelected: (Map<String, String> selection) {
-                                                      debugPrint('UI: Picker selected: ${selection['label']} for $paramName'); // LOG
-                                                      controller.text = selection['label']!;
+                                            if (configType == 'radio') {
+                                              parameterInputWidget = Padding(
+                                                padding: const EdgeInsets.only(bottom: 16.0),
+                                                child: _buildRadioParameter(
+                                                  param: param,
+                                                  currentValue: state.userParameterValues[paramName] ?? '',
+                                                  onChanged: (newValue) {
+                                                    context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue));
+                                                  },
+                                                ),
+                                              );
+                                            } else if (configType == 'checkbox') {
+                                              parameterInputWidget = Padding(
+                                                padding: const EdgeInsets.only(bottom: 16.0),
+                                                child: _buildCheckboxParameter(
+                                                  param: param,
+                                                  currentValue: state.userParameterValues[paramName] ?? '',
+                                                  onChanged: (newValue) {
+                                                    context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue));
+                                                  },
+                                                ),
+                                              );
+                                            } else if (isDatabasePicker) {
+                                              final TextEditingController controller = _paramControllers[paramName]!;
+                                              final FocusNode focusNode = _paramFocusNodes[paramName]!;
+                                              parameterInputWidget = Padding(
+                                                padding: const EdgeInsets.only(bottom: 16.0),
+                                                child: Autocomplete<Map<String, String>>(
+                                                  optionsBuilder: (TextEditingValue textEditingValue) {
+                                                    // LOG for picker options
+                                                    debugPrint('UI: Autocomplete for param $paramName - text: "${textEditingValue.text}"');
+                                                    if (!state.pickerOptions.containsKey(paramName) &&
+                                                        state.serverIP != null && state.userName != null &&
+                                                        state.password != null && state.databaseName != null) {
+                                                      debugPrint('UI: Dispatching FetchPickerOptions for $paramName (because not in state.pickerOptions)');
                                                       context.read<ReportBlocGenerate>().add(
-                                                        UpdateParameter(paramName, selection['value']!),
-                                                      );
-                                                    },
-                                                    fieldViewBuilder: (context, textEditingControllerFromAutocomplete, currentFocusNode, onFieldSubmitted) {
-                                                      if (textEditingControllerFromAutocomplete.text != controller.text) {
-                                                        textEditingControllerFromAutocomplete.text = controller.text;
-                                                      }
-                                                      return _buildTextField(
-                                                        controller: textEditingControllerFromAutocomplete,
-                                                        focusNode: currentFocusNode,
-                                                        label: paramLabel,
-                                                        enableClearButton: true,
-                                                        onClear: () {
-                                                          debugPrint('UI: Clearing picker field: $paramName'); // LOG
-                                                          textEditingControllerFromAutocomplete.clear();
-                                                          context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
-                                                        },
-                                                        onChanged: (value) {
-                                                          debugPrint('UI: Changed picker field: $paramName to "$value"'); // LOG
-                                                          context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, value));
-                                                        },
-                                                      );
-                                                    },
-                                                    optionsViewBuilder: (context, onSelected, options) {
-                                                      return Align(
-                                                        alignment: Alignment.topLeft,
-                                                        child: Material(
-                                                          elevation: 4,
-                                                          color: Colors.white,
-                                                          borderRadius: BorderRadius.circular(12),
-                                                          child: SizedBox(
-                                                            width: 300,
-                                                            height: options.length > 5 ? 250 : null, // Max height of 250, otherwise shrinkWrap
-                                                            child: ListView.builder(
-                                                              shrinkWrap: true,
-                                                              padding: const EdgeInsets.all(8),
-                                                              itemCount: options.length,
-                                                              itemBuilder: (context, index) {
-                                                                final option = options.elementAt(index);
-                                                                return ListTile(
-                                                                  title: Text(
-                                                                    option['label']!,
-                                                                    style: GoogleFonts.poppins(fontSize: 14),
-                                                                  ),
-                                                                  onTap: () => onSelected(option),
-                                                                );
-                                                              },
-                                                            ),
-                                                          ),
+                                                        FetchPickerOptions(
+                                                          paramName: paramName,
+                                                          serverIP: state.serverIP!,
+                                                          userName: state.userName!,
+                                                          password: state.password!,
+                                                          databaseName: state.databaseName!,
+                                                          masterTable: param['master_table'].toString(),
+                                                          masterField: param['master_field'].toString(),
+                                                          displayField: param['display_field'].toString(),
                                                         ),
                                                       );
-                                                    },
-                                                  );
-                                            } else if (isDateField) {
-                                              parameterInputWidget = _buildTextField(
-                                                label: paramLabel,
-                                                controller: controller,
-                                                focusNode: focusNode,
-                                                icon: Icons.calendar_today,
-                                                readOnly: true,
-                                                enableClearButton: true,
-                                                onClear: () {
-                                                  debugPrint('UI: Clearing date field: $paramName'); // LOG
-                                                  controller.clear();
-                                                  context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
-                                                },
-                                                onTap: () async {
-                                                  debugPrint('UI: Date picker tapped for $paramName'); // LOG
-                                                  DateTime? initialDate;
-                                                  DateFormat? detectedFormat;
+                                                    }
 
-                                                  final parseResult = _parseDateSmartly(controller.text);
-                                                  initialDate = parseResult.$1;
-                                                  detectedFormat = parseResult.$2;
-
-                                                  initialDate ??= DateTime.now();
-                                                  detectedFormat ??= _dateFormatsToTry.first;
-                                                  debugPrint('UI: Date picker initial date: $initialDate, detected format: ${detectedFormat.pattern}');
-
-                                                  final pickedDate = await showDatePicker(
-                                                    context: context,
-                                                    initialDate: initialDate,
-                                                    firstDate: DateTime(2000),
-                                                    lastDate: DateTime(2100),
-                                                    builder: (context, child) {
-                                                      return Theme(
-                                                        data: ThemeData.light().copyWith(
-                                                          colorScheme: const ColorScheme.light(
-                                                            primary: Colors.blueAccent,
-                                                            onPrimary: Colors.white,
-                                                            surface: Colors.white,
-                                                            onSurface: Colors.black87,
-                                                          ),
-                                                          dialogBackgroundColor: Colors.white,
-                                                          textButtonTheme: TextButtonThemeData(
-                                                            style: TextButton.styleFrom(
-                                                              foregroundColor: Colors.blueAccent,
-                                                              textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-                                                            ),
-                                                          ),
-                                                        ),
-                                                        child: child!,
-                                                      );
-                                                    },
-                                                  );
-                                                  if (pickedDate != null) {
-                                                    final formattedDate = detectedFormat.format(pickedDate);
-                                                    controller.text = formattedDate;
-                                                    debugPrint('UI: Date selected: $formattedDate for $paramName'); // LOG
+                                                    final options = state.pickerOptions[paramName] ?? [];
+                                                    if (textEditingValue.text.isEmpty) {
+                                                      return options;
+                                                    }
+                                                    return options.where((option) =>
+                                                        option['label']!.toLowerCase()
+                                                            .contains(textEditingValue.text.toLowerCase()));
+                                                  },
+                                                  displayStringForOption: (Map<String, String> option) => option['label']!,
+                                                  onSelected: (Map<String, String> selection) {
+                                                    debugPrint('UI: Picker selected: ${selection['label']} for $paramName'); // LOG
+                                                    controller.text = selection['label']!;
                                                     context.read<ReportBlocGenerate>().add(
-                                                      UpdateParameter(paramName, formattedDate),
+                                                      UpdateParameter(paramName, selection['value']!),
                                                     );
-                                                  }
-                                                },
+                                                  },
+                                                  fieldViewBuilder: (context, textEditingControllerFromAutocomplete, currentFocusNode, onFieldSubmitted) {
+                                                    if (textEditingControllerFromAutocomplete.text != controller.text) {
+                                                      textEditingControllerFromAutocomplete.text = controller.text;
+                                                    }
+                                                    return _buildTextField(
+                                                      controller: textEditingControllerFromAutocomplete,
+                                                      focusNode: currentFocusNode,
+                                                      label: paramLabel,
+                                                      enableClearButton: true,
+                                                      onClear: () {
+                                                        debugPrint('UI: Clearing picker field: $paramName'); // LOG
+                                                        textEditingControllerFromAutocomplete.clear();
+                                                        context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
+                                                      },
+                                                      onChanged: (value) {
+                                                        debugPrint('UI: Changed picker field: $paramName to "$value"'); // LOG
+                                                        context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, value));
+                                                      },
+                                                    );
+                                                  },
+                                                  optionsViewBuilder: (context, onSelected, options) {
+                                                    return Align(
+                                                      alignment: Alignment.topLeft,
+                                                      child: Material(
+                                                        elevation: 4,
+                                                        color: Colors.white,
+                                                        borderRadius: BorderRadius.circular(12),
+                                                        child: SizedBox(
+                                                          width: 300,
+                                                          height: options.length > 5 ? 250 : null, // Max height of 250, otherwise shrinkWrap
+                                                          child: ListView.builder(
+                                                            shrinkWrap: true,
+                                                            padding: const EdgeInsets.all(8),
+                                                            itemCount: options.length,
+                                                            itemBuilder: (context, index) {
+                                                              final option = options.elementAt(index);
+                                                              return ListTile(
+                                                                title: Text(
+                                                                  option['label']!,
+                                                                  style: GoogleFonts.poppins(fontSize: 14),
+                                                                ),
+                                                                onTap: () => onSelected(option),
+                                                              );
+                                                            },
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                              );
+                                            } else if (isDateField) {
+                                              final TextEditingController controller = _paramControllers[paramName]!;
+                                              final FocusNode focusNode = _paramFocusNodes[paramName]!;
+                                              parameterInputWidget = Padding(
+                                                padding: const EdgeInsets.only(bottom: 16.0),
+                                                child: _buildTextField(
+                                                  label: paramLabel,
+                                                  controller: controller,
+                                                  focusNode: focusNode,
+                                                  icon: Icons.calendar_today,
+                                                  readOnly: true,
+                                                  enableClearButton: true,
+                                                  onClear: () {
+                                                    debugPrint('UI: Clearing date field: $paramName'); // LOG
+                                                    controller.clear();
+                                                    context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
+                                                  },
+                                                  onTap: () async {
+                                                    debugPrint('UI: Date picker tapped for $paramName'); // LOG
+                                                    DateTime? initialDate;
+                                                    DateFormat? detectedFormat;
+
+                                                    final parseResult = _parseDateSmartly(controller.text);
+                                                    initialDate = parseResult.$1;
+                                                    detectedFormat = parseResult.$2;
+
+                                                    initialDate ??= DateTime.now();
+                                                    detectedFormat ??= _dateFormatsToTry.first;
+                                                    debugPrint('UI: Date picker initial date: $initialDate, detected format: ${detectedFormat.pattern}');
+
+                                                    final pickedDate = await showDatePicker(
+                                                      context: context,
+                                                      initialDate: initialDate,
+                                                      firstDate: DateTime(2000),
+                                                      lastDate: DateTime(2100),
+                                                      builder: (context, child) {
+                                                        return Theme(
+                                                          data: ThemeData.light().copyWith(
+                                                            colorScheme: const ColorScheme.light(
+                                                              primary: Colors.blueAccent,
+                                                              onPrimary: Colors.white,
+                                                              surface: Colors.white,
+                                                              onSurface: Colors.black87,
+                                                            ),
+                                                            dialogBackgroundColor: Colors.white,
+                                                            textButtonTheme: TextButtonThemeData(
+                                                              style: TextButton.styleFrom(
+                                                                foregroundColor: Colors.blueAccent,
+                                                                textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                                                              ),
+                                                            ),
+                                                          ),
+                                                          child: child!,
+                                                        );
+                                                      },
+                                                    );
+                                                    if (pickedDate != null) {
+                                                      final formattedDate = detectedFormat.format(pickedDate);
+                                                      controller.text = formattedDate;
+                                                      debugPrint('UI: Date selected: $formattedDate for $paramName'); // LOG
+                                                      context.read<ReportBlocGenerate>().add(
+                                                        UpdateParameter(paramName, formattedDate),
+                                                      );
+                                                    }
+                                                  },
+                                                ),
                                               );
                                             } else {
-                                              parameterInputWidget = _buildTextField(
-                                                controller: controller,
-                                                focusNode: focusNode,
-                                                label: paramLabel,
-                                                icon: Icons.text_fields,
-                                                enableClearButton: true,
-                                                onClear: () {
-                                                  debugPrint('UI: Clearing text field: $paramName'); // LOG
-                                                  controller.clear();
-                                                  context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
-                                                },
-                                                onChanged: (value) {
-                                                  debugPrint('UI: Changed text field: $paramName to "$value"'); // LOG
-                                                  context.read<ReportBlocGenerate>().add(
-                                                    UpdateParameter(paramName, value),
-                                                  );
-                                                },
+                                              // Default to a generic text field if config_type is unknown/empty
+                                              // or if config_type is 'database' but master_table is null/empty
+                                              parameterInputWidget = Padding(
+                                                padding: const EdgeInsets.only(bottom: 16.0),
+                                                child: _buildTextField(
+                                                  controller: _paramControllers[paramName]!, // Ensure controller exists
+                                                  focusNode: _paramFocusNodes[paramName]!, // Ensure focus node exists
+                                                  label: paramLabel,
+                                                  icon: Icons.text_fields,
+                                                  enableClearButton: true,
+                                                  onClear: () {
+                                                    debugPrint('UI: Clearing text field: $paramName'); // LOG
+                                                    _paramControllers[paramName]!.clear();
+                                                    context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
+                                                  },
+                                                  onChanged: (value) {
+                                                    debugPrint('UI: Changed text field: $paramName to "$value"'); // LOG
+                                                    context.read<ReportBlocGenerate>().add(
+                                                      UpdateParameter(paramName, value),
+                                                    );
+                                                  },
+                                                ),
                                               );
                                             }
-                                            return Padding(
-                                              padding: const EdgeInsets.only(bottom: 16.0),
-                                              child: parameterInputWidget,
-                                            );
+                                            return parameterInputWidget;
                                           }).toList(),
                                         ),
                                       ),

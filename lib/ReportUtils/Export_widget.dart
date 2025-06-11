@@ -1,3 +1,4 @@
+// lib/ReportDynamic/exportpdf.dart
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
@@ -64,8 +65,10 @@ class ExportWidget extends StatefulWidget {
   final List<Map<String, dynamic>>? fieldConfigs;
   final String reportLabel;
   final Map<String, String> parameterValues;
-  final List<Map<String, dynamic>>? apiParameters;
+  final Map<String, String> displayParameterValues; // Already filtered by ReportUI for visible & non-empty
+  final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
   final Map<String, List<Map<String, String>>>? pickerOptions;
+  final String companyName; // NEW: Add companyName to ExportWidget constructor
 
   const ExportWidget({
     required this.columns,
@@ -74,8 +77,10 @@ class ExportWidget extends StatefulWidget {
     this.fieldConfigs,
     required this.reportLabel,
     required this.parameterValues,
+    required this.displayParameterValues,
     this.apiParameters,
     this.pickerOptions,
+    required this.companyName, // NEW: Make companyName required
     super.key,
   });
 
@@ -98,12 +103,52 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('ExportWidget: Initialized with exportId=$_exportId, fileName=${widget.fileName}');
   }
 
+  // MODIFIED: Helper to get the company name for the header, considering 'show' and 'display_value_cache'
+  String? get _companyNameForHeader {
+    // Prioritize the companyName passed directly to ExportWidget (from ReportMainUI/TableMainUI)
+    if (widget.companyName.isNotEmpty) {
+      print('ExportWidget: Company name (from passed prop) found: ${widget.companyName}');
+      return widget.companyName;
+    }
+
+    // Fallback logic: If companyName was not directly passed or is empty, try to derive it from apiParameters.
+    // This is useful if the `companyName` field was not explicitly populated in the higher-level UI
+    // or if this widget is used in a context where `companyName` isn't directly computed by its parent.
+    if (widget.apiParameters != null) {
+      for (var param in widget.apiParameters!) {
+        if (param['is_company_name_field'] == true) {
+          final paramName = param['name'].toString();
+
+          // Case 1: Parameter is shown in UI (show: true). Use the value from displayParameterValues.
+          if (param['show'] == true) {
+            final companyDisplayName = widget.displayParameterValues[paramName];
+            if (companyDisplayName != null && companyDisplayName.isNotEmpty) {
+              print('ExportWidget: Company name (from UI/visible param in fallback) found: $companyDisplayName');
+              return companyDisplayName;
+            }
+          }
+          // Case 2: Parameter is NOT shown in UI (show: false). Use display_value_cache.
+          else if (param['display_value_cache'] != null && param['display_value_cache'].toString().isNotEmpty) {
+            final companyDisplayName = param['display_value_cache'].toString();
+            print('ExportWidget: Company name (from display_value_cache in fallback) found: $companyDisplayName');
+            return companyDisplayName;
+          }
+        }
+      }
+    }
+    print('ExportWidget: No company name found for header (after fallback).');
+    return null;
+  }
+
+
   @override
   Widget build(BuildContext context) {
     // Determine if export buttons should be enabled: data must not be empty AND no global export in progress.
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
 
     print('ExportWidget: Building with exportId=$_exportId, dataLength=${widget.plutoRows.length}, ExportLock.isExporting=${ExportLock.isExporting}');
+    print('ExportWidget: Derived company name for header: ${_companyNameForHeader ?? 'N/A'}');
+
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -189,7 +234,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     );
   }
 
-
   Future<void> _executeExportTask(BuildContext context, Future<void> Function() task, String taskName) async {
     print('$taskName: Starting export task, exportId=$_exportId');
     final startTime = DateTime.now();
@@ -221,8 +265,10 @@ class _ExportWidgetState extends State<ExportWidget> {
 
     bool dialogShown = false;
     if (context.mounted) {
-      Future.delayed(Duration.zero, () { // Use Duration.zero to schedule after current frame
-        if (context.mounted && ExportLock.isExporting) { // Double check if still exporting and context is valid
+      Future.delayed(Duration.zero, () {
+        // Use Duration.zero to schedule after current frame
+        if (context.mounted && ExportLock.isExporting) {
+          // Double check if still exporting and context is valid
           print('$taskName: Showing loader dialog, exportId=$_exportId');
           showDialog(
             context: context,
@@ -273,7 +319,8 @@ class _ExportWidgetState extends State<ExportWidget> {
   Future<Uint8List> _callPdfGenerationApi() async {
     print('Calling Node.js PDF API, exportId=$_exportId');
 
-    final Map<String, String> visibleAndFormattedParameters = _getVisibleAndFormattedParameters();
+    // Use widget.displayParameterValues directly (already filtered by ReportUI for visible & non-empty)
+    final Map<String, String> visibleAndFormattedParameters = widget.displayParameterValues;
 
     // Prepare serializable data for HTTP request
     final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
@@ -297,12 +344,11 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     }
     // Fallback if no columns with widths or all are actions
-    if (totalPlutoConfiguredWidth == 0 && widget.columns.isNotEmpty) {
+    if (totalPlutoConfiguredWidth == 0 && widget.columns.where((col) => col.field != '__actions__').isNotEmpty) {
       totalPlutoConfiguredWidth = widget.columns.where((col) => col.field != '__actions__').length * 100.0;
     } else if (totalPlutoConfiguredWidth == 0) {
-      totalPlutoConfiguredWidth = 1.0; // Avoid division by zero if there are no columns at all
+      totalPlutoConfiguredWidth = 1.0; // Avoid division by zero if there are no content columns at all
     }
-
 
     final Map<String, dynamic> requestBody = {
       'columns': serializableColumns,
@@ -311,11 +357,9 @@ class _ExportWidgetState extends State<ExportWidget> {
       'exportId': _exportId, // Pass for server-side logging/tracking if needed
       'fieldConfigs': widget.fieldConfigs, // These are crucial for server-side formatting
       'reportLabel': widget.reportLabel,
-      'parameterValues': widget.parameterValues, // Raw values
-      'apiParameters': widget.apiParameters, // Definitions
-      'pickerOptions': widget.pickerOptions, // For display value resolution if needed on server
-      'visibleAndFormattedParameters': visibleAndFormattedParameters, // Already formatted for display in header
-      'totalPlutoConfiguredWidth': totalPlutoConfiguredWidth, // Send this for accurate column width scaling
+      'visibleAndFormattedParameters': visibleAndFormattedParameters, // Already formatted and filtered by ReportUI
+      'companyNameForHeader': _companyNameForHeader, // Pass the company name
+      // 'totalPlutoConfiguredWidth': totalPlutoConfiguredWidth, // Node.js now calculates this dynamically
     };
 
     try {
@@ -339,7 +383,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
   }
 
-  // --- Export to Excel --- (No change, still uses local compute)
+  // --- Export to Excel --- (Modified to pass more params to isolate)
   Future<void> _exportToExcel(BuildContext context) async {
     await _executeExportTask(context, () async {
       final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
@@ -361,9 +405,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
-        'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters,
-        'pickerOptions': widget.pickerOptions,
+        'displayParameterValues': widget.displayParameterValues, // Already formatted and filtered
+        'companyNameForHeader': _companyNameForHeader, // Pass the company name
       });
 
       print('ExportToExcel: Saving Excel file using FileSaver, exportId=$_exportId');
@@ -385,7 +428,6 @@ class _ExportWidgetState extends State<ExportWidget> {
   }
 
   // --- Export to PDF (Download) --- (MODIFIED to use API)
-  // @override // No need for @override here as it's not overriding a method from a superclass unless explicitly defined.
   Future<void> _exportToPDF(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('ExportToPDF: Calling Node.js API to generate PDF, exportId=$_exportId');
@@ -410,7 +452,6 @@ class _ExportWidgetState extends State<ExportWidget> {
   }
 
   // --- Print Document --- (MODIFIED to use API)
-  // @override // Same as above, no need for @override
   Future<void> _printDocument(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('PrintDocument: Calling Node.js API to generate PDF for printing, exportId=$_exportId');
@@ -439,8 +480,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Print Document');
   }
 
-  // --- Send to Email --- (MODIFIED to use API for PDF)
-  // @override // Same as above, no need for @override
+  // --- Send to Email --- (MODIFIED to use API for PDF, and pass updated params to Excel isolate)
   Future<void> _sendToEmail(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('SendToEmail: Showing email input dialog, exportId=$_exportId');
@@ -512,9 +552,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
-        'parameterValues': widget.parameterValues,
-        'apiParameters': widget.apiParameters,
-        'pickerOptions': widget.pickerOptions,
+        'displayParameterValues': widget.displayParameterValues, // Already formatted and filtered
+        'companyNameForHeader': _companyNameForHeader, // Pass the company name
       });
 
       // Generate PDF file (now via API)
@@ -562,45 +601,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Send to Email');
   }
 
-  // Helper method to format parameters for display in PDF/Excel header (NO CHANGE)
-  Map<String, String> _getVisibleAndFormattedParameters() {
-    final Map<String, String> formattedParams = <String, String>{};
-    if (widget.apiParameters != null) {
-      for (var param in widget.apiParameters!) {
-        final paramName = param['name']?.toString();
-        if (paramName != null && param['show'] == true && widget.parameterValues.containsKey(paramName)) {
-          final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
-          final String rawValue = widget.parameterValues[paramName]!;
-
-          String displayValue = rawValue;
-
-          final isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
-              param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
-              param['display_field'] != null && param['display_field'].toString().isNotEmpty;
-
-          if (isPickerField && widget.pickerOptions != null && widget.pickerOptions!.containsKey(paramName)) {
-            final foundOption = widget.pickerOptions![paramName]?.firstWhere(
-                  (opt) => opt['value'] == rawValue,
-              orElse: () => {'label': rawValue, 'value': rawValue},
-            );
-            displayValue = foundOption!['label']!;
-          } else if ((param['type']?.toString().toLowerCase() == 'date') && rawValue.isNotEmpty) {
-            try {
-              final DateTime parsedDate = DateTime.parse(rawValue);
-              displayValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
-            } catch (e) {
-              // If parsing fails, use the rawValue as is
-            }
-          }
-          formattedParams[paramLabel] = displayValue;
-        }
-      }
-    } else {
-      formattedParams.addAll(widget.parameterValues);
-    }
-    return formattedParams;
-  }
-
   // --- Static Helper for Number Formatting (Used by Excel only now, but kept for consistency if needed elsewhere) ---
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
     String pattern = '##,##,##0';
@@ -615,7 +615,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     return formatter.format(number);
   }
 
-  // --- _generateExcel function (static for compute) --- (NO CHANGE)
+  // --- _generateExcel function (static for compute) --- (MODIFIED for company name)
   static Uint8List _generateExcel(Map<String, dynamic> params) {
     final exportId = params['exportId'] as String;
     print('GenerateExcel: Starting Excel generation in isolate, exportId=$exportId');
@@ -623,9 +623,8 @@ class _ExportWidgetState extends State<ExportWidget> {
     final rows = params['rows'] as List<Map<String, dynamic>>;
     final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
     final reportLabel = params['reportLabel'] as String;
-    final parameterValues = params['parameterValues'] as Map<String, String>;
-    final apiParameters = params['apiParameters'] as List<Map<String, dynamic>>?;
-    final pickerOptions = params['pickerOptions'] as Map<String, List<Map<String, String>>>?;
+    final displayParameterValues = params['displayParameterValues'] as Map<String, String>; // Already filtered
+    final companyNameForHeader = params['companyNameForHeader'] as String?; // NEW
 
     var excel = Excel.createExcel();
     var sheet = excel['Sheet1'];
@@ -641,6 +640,23 @@ class _ExportWidgetState extends State<ExportWidget> {
 
     int maxCols = headerLabels.length;
 
+    // NEW: Add Company Name if available
+    if (companyNameForHeader != null && companyNameForHeader.isNotEmpty) {
+      sheet.appendRow([TextCellValue(companyNameForHeader)]);
+      // Merge cells for the company name header
+      sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
+          CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
+        fontFamily: 'Calibri',
+        fontSize: 14, // Slightly smaller than report label
+        bold: true,
+        horizontalAlign: HorizontalAlign.Center,
+        verticalAlign: VerticalAlign.Center,
+      );
+      sheet.appendRow([]); // Empty row for spacing
+    }
+
+    // Add Report Label
     sheet.appendRow([TextCellValue(reportLabel)]);
     sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
         CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
@@ -651,51 +667,19 @@ class _ExportWidgetState extends State<ExportWidget> {
       horizontalAlign: HorizontalAlign.Center,
       verticalAlign: VerticalAlign.Center,
     );
-    sheet.appendRow([]);
+    sheet.appendRow([]); // Empty row for spacing
 
-    final Map<String, String> visibleAndFormattedParameters = {};
-    if (apiParameters != null) {
-      for (var param in apiParameters) {
-        final paramName = param['name']?.toString();
-        if (paramName != null && param['show'] == true && parameterValues.containsKey(paramName)) {
-          final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
-          final String rawValue = parameterValues[paramName]!;
-          String displayValue = rawValue;
-
-          final isPickerField = param['master_table'] != null && param['master_table'].toString().isNotEmpty &&
-              param['master_field'] != null && param['master_field'].toString().isNotEmpty &&
-              param['display_field'] != null && param['display_field'].toString().isNotEmpty;
-
-          if (isPickerField && pickerOptions != null && pickerOptions.containsKey(paramName)) {
-            final foundOption = pickerOptions[paramName]?.firstWhere(
-                  (opt) => opt['value'] == rawValue,
-              orElse: () => {'label': rawValue, 'value': rawValue},
-            );
-            displayValue = foundOption!['label']!;
-          } else if ((param['type']?.toString().toLowerCase() == 'date') && rawValue.isNotEmpty) {
-            try {
-              final DateTime parsedDate = DateTime.parse(rawValue);
-              displayValue = DateFormat('dd-MMM-yyyy').format(parsedDate);
-            } catch (e) {
-              // If parsing fails, use the rawValue as is
-            }
-          }
-          visibleAndFormattedParameters[paramLabel] = displayValue;
-        }
-      }
-    } else {
-      visibleAndFormattedParameters.addAll(parameterValues);
-    }
-
-    if (visibleAndFormattedParameters.isNotEmpty) {
-      for (var entry in visibleAndFormattedParameters.entries) {
+    // Use the already filtered displayParameterValues (only non-empty, visible params)
+    if (displayParameterValues.isNotEmpty) {
+      for (var entry in displayParameterValues.entries) {
+        // No additional check for entry.value.isNotEmpty needed here as ReportUI already ensures it
         sheet.appendRow([TextCellValue('${entry.key}: ${entry.value}')]);
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
           fontSize: 10,
         );
       }
-      sheet.appendRow([]);
+      sheet.appendRow([]); // Empty row for spacing after parameters
     }
 
     if (rows.isEmpty) {
@@ -730,7 +714,23 @@ class _ExportWidgetState extends State<ExportWidget> {
         final rawValue = rowData['cells'][fieldName];
         final config = fieldConfigMap[fieldName];
 
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
+        final isNumeric = [
+          'VQ_GrandTotal',
+          'Qty',
+          'Rate',
+          'NetRate',
+          'GrandTotal',
+          'Value',
+          'Amount',
+          'Excise',
+          'Cess',
+          'HSCess',
+          'Freight',
+          'TCS',
+          'CGST',
+          'SGST',
+          'IGST'
+        ].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
@@ -740,8 +740,11 @@ class _ExportWidgetState extends State<ExportWidget> {
         } else if (isNumeric && rawValue != null) {
           final doubleValue = double.tryParse(rawValue.toString()) ?? 0.0;
           return TextCellValue(_formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat));
-        } else if (config?['image']?.toString() == '1' && rawValue != null && (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://'))) {
-          return TextCellValue(rawValue.toString());
+        } else if (config?['image']?.toString() == '1' &&
+            rawValue != null &&
+            (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://'))) {
+          // For Excel, just put the URL or a placeholder text
+          return TextCellValue('Image Link: ${rawValue.toString()}');
         }
         return TextCellValue(rawValue?.toString() ?? '');
       }).toList();
@@ -752,7 +755,23 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
+        final isNumeric = [
+          'VQ_GrandTotal',
+          'Qty',
+          'Rate',
+          'NetRate',
+          'GrandTotal',
+          'Value',
+          'Amount',
+          'Excise',
+          'Cess',
+          'HSCess',
+          'Freight',
+          'TCS',
+          'CGST',
+          'SGST',
+          'IGST'
+        ].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
 
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: dataRowIndex)).cellStyle = CellStyle(
@@ -773,7 +792,23 @@ class _ExportWidgetState extends State<ExportWidget> {
       final totalRowValues = fieldNames.map((fieldName) {
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
+        final isNumeric = [
+          'VQ_GrandTotal',
+          'Qty',
+          'Rate',
+          'NetRate',
+          'GrandTotal',
+          'Value',
+          'Amount',
+          'Excise',
+          'Cess',
+          'HSCess',
+          'Freight',
+          'TCS',
+          'CGST',
+          'SGST',
+          'IGST'
+        ].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
@@ -796,7 +831,23 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = ['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount', 'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName) ||
+        final isNumeric = [
+          'VQ_GrandTotal',
+          'Qty',
+          'Rate',
+          'NetRate',
+          'GrandTotal',
+          'Value',
+          'Amount',
+          'Excise',
+          'Cess',
+          'HSCess',
+          'Freight',
+          'TCS',
+          'CGST',
+          'SGST',
+          'IGST'
+        ].contains(fieldName) ||
             (config?['data_type']?.toString().toLowerCase() == 'number');
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
 

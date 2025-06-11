@@ -8,6 +8,7 @@ import '../../ReportAPIService.dart';
 import 'EditDetailAdminBloc.dart';
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart'; // Import for debugPrint
 
 class EditDetailAdmin extends StatelessWidget {
   final Map<String, dynamic> apiData;
@@ -16,6 +17,7 @@ class EditDetailAdmin extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('EditDetailAdmin: Building with API Data: ${apiData['APIName']}');
     return BlocProvider(
       create: (context) => EditDetailAdminBloc(ReportAPIService(), apiData)
         ..add(FetchDatabases(
@@ -50,6 +52,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
   @override
   void initState() {
     super.initState();
+    debugPrint('_EditDetailAdminContentState: Initializing state.');
     _serverIPController.text = widget.apiData['ServerIP'] ?? '';
     _userNameController.text = widget.apiData['UserName'] ?? '';
     _passwordController.text = widget.apiData['Password'] ?? '';
@@ -57,58 +60,81 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     _apiServerURLController.text = widget.apiData['APIServerURl'] ?? '';
     _apiNameController.text = widget.apiData['APIName'] ?? '';
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (context.mounted) {
-        _initializeParameterControllers(context.read<EditDetailAdminBloc>().state.parameters);
-      }
-    });
-
     _serverIPController.addListener(() {
       _debouncedUpdate(() {
+        debugPrint('ServerIP Controller: Value changed to ${_serverIPController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateServerIP(_serverIPController.text));
       });
     });
     _userNameController.addListener(() {
       _debouncedUpdate(() {
+        debugPrint('UserName Controller: Value changed to ${_userNameController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateUserName(_userNameController.text));
       });
     });
     _passwordController.addListener(() {
       _debouncedUpdate(() {
+        debugPrint('Password Controller: Value changed to ${_passwordController.text}');
         context.read<EditDetailAdminBloc>().add(UpdatePassword(_passwordController.text));
       });
     });
     _apiServerURLController.addListener(() {
       _debouncedUpdate(() {
+        debugPrint('APIServerURL Controller: Value changed to ${_apiServerURLController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateApiServerURL(_apiServerURLController.text));
       });
     });
     _apiNameController.addListener(() {
       _debouncedUpdate(() {
+        debugPrint('APIName Controller: Value changed to ${_apiNameController.text}');
         context.read<EditDetailAdminBloc>().add(UpdateApiName(_apiNameController.text));
       });
     });
   }
 
+  // Modified _initializeParameterControllers to manage controller lifecycle and display
   void _initializeParameterControllers(List<Map<String, dynamic>> parameters) {
+    debugPrint('_initializeParameterControllers: Syncing ${parameters.length} parameters.');
+
+    // Identify controllers to dispose (no longer in parameters list)
+    final Set<int> currentIndices = parameters.asMap().keys.toSet();
+    final Set<int> existingControllerIndices = _paramControllers.keys.toSet();
+
+    for (final int index in existingControllerIndices.difference(currentIndices)) {
+      _paramControllers.remove(index)?.dispose(); // Dispose and remove
+      debugPrint('  Disposing controller for removed param index $index.');
+    }
+
+    // Initialize or update existing controllers
     for (var i = 0; i < parameters.length; i++) {
-      _paramControllers[i] ??= TextEditingController();
       final param = parameters[i];
-      String valueToDisplay;
 
-      if (param['config_type'] == 'radio' || param['config_type'] == 'checkbox') {
-        valueToDisplay = param['value']?.toString() ?? '';
-      } else {
-        valueToDisplay = param['display_value_cache']?.toString() ?? param['value']?.toString() ?? '';
+      // Ensure controller exists for this index. Create if not.
+      _paramControllers.putIfAbsent(i, () => TextEditingController());
+      final TextEditingController controller = _paramControllers[i]!; // Now guaranteed to be non-null
+
+      // *** FIX START ***
+      // Always display param['value'] in the TextField as per your requirement.
+      String textToDisplayInField = param['value']?.toString() ?? '';
+      // *** FIX END ***
+
+      debugPrint('  Param $i (${param['name']}): current UI text "${controller.text}", Bloc value "${param['value']}", Display cache "${param['display_value_cache']}", Text to display "${textToDisplayInField}" (config_type: ${param['config_type']})');
+
+
+      if (controller.text != textToDisplayInField) {
+        debugPrint('  Param $i (${param['name']}): Updating UI text from "${controller.text}" to "$textToDisplayInField"');
+        controller.text = textToDisplayInField;
+        controller.selection = TextSelection.fromPosition(TextPosition(offset: controller.text.length));
       }
 
-      if (_paramControllers[i]!.text != valueToDisplay) {
-        _paramControllers[i]!.text = valueToDisplay;
-      }
-      if (!_paramControllers[i]!.hasListeners) {
-        _paramControllers[i]!.addListener(() {
+      // Check for hasListeners and add if not present, to avoid adding multiple listeners
+      if (!controller.hasListeners) {
+        debugPrint('  Param $i (${param['name']}): Adding listener to controller.');
+        controller.addListener(() {
           _debouncedUpdate(() {
-            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(i, _paramControllers[i]!.text, _paramControllers[i]!.text));
+            debugPrint('  Param ${param['name']} Controller: Typed value changed to ${controller.text}');
+            // Send the raw typed text from the UI field to the Bloc
+            context.read<EditDetailAdminBloc>().add(UpdateParameterUIValue(i, controller.text));
           });
         });
       }
@@ -117,8 +143,9 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
 
   @override
   void dispose() {
+    debugPrint('_EditDetailAdminContentState: Disposing controllers.');
     _debounce?.cancel();
-    _paramControllers.values.forEach((controller) => controller.dispose());
+    _paramControllers.values.forEach((controller) => controller.dispose()); // Dispose all param controllers
     _serverIPController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
@@ -130,6 +157,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
 
   DateFormat? _inferDateFormat(String dateString) {
     if (dateString.isEmpty) return null;
+    debugPrint('Inferring date format for: "$dateString"');
 
     final List<String> commonFormats = [
       'dd-MMM-yyyy',
@@ -142,11 +170,13 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     for (String format in commonFormats) {
       try {
         DateFormat(format).parseStrict(dateString);
+        debugPrint('  Inferred format: $format');
         return DateFormat(format);
       } catch (e) {
         // Not this format, try next
       }
     }
+    debugPrint('  Could not infer format. Returning null.');
     return null;
   }
 
@@ -211,6 +241,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     required String label,
     IconData? icon,
   }) {
+    debugPrint('Building dropdown for $label with value: $value, items: ${items.length}');
     return DropdownButtonFormField<String>(
       value: value != null && items.contains(value) ? value : null,
       onChanged: onChanged,
@@ -264,6 +295,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     required VoidCallback onPressed,
     required IconData icon,
   }) {
+    debugPrint('Building button: $text');
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
@@ -296,10 +328,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     final datePattern2 = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$');
     final datePattern3 = RegExp(r'^\d{4}-\d{2}-\d{2}$');
 
-    return name.toLowerCase().contains('date') || datePattern1.hasMatch(value) || datePattern2.hasMatch(value) || datePattern3.hasMatch(value);
+    final bool isDate = name.toLowerCase().contains('date') ||
+        datePattern1.hasMatch(value) ||
+        datePattern2.hasMatch(value) ||
+        datePattern3.hasMatch(value);
+    debugPrint('Checking if parameter "${name}" (value: "$value") is date: $isDate');
+    return isDate;
   }
 
   Future<void> _selectDate(BuildContext context, TextEditingController controller, int index) async {
+    debugPrint('Selecting date for index $index, current value: ${controller.text}');
     DateTime? initialDate;
     DateFormat? inferredFormat;
 
@@ -308,12 +346,14 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
       if (inferredFormat != null) {
         try {
           initialDate = inferredFormat.parse(controller.text);
+          debugPrint('  Parsed initial date: $initialDate');
         } catch (e) {
+          debugPrint('  Error parsing initial date: $e. Using DateTime.now().');
           initialDate = DateTime.now();
         }
       }
     }
-    initialDate ??= DateTime(2000);
+    initialDate ??= DateTime(2000); // Fallback to a sensible default if parsing fails or text is empty
 
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -343,14 +383,20 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     );
 
     if (picked != null && context.mounted) {
+      debugPrint('Date picked: $picked');
       final DateFormat outputFormat = inferredFormat ?? DateFormat('dd-MMM-yyyy');
       final formattedDate = outputFormat.format(picked);
+      debugPrint('  Formatted date: $formattedDate');
       controller.text = formattedDate;
-      context.read<EditDetailAdminBloc>().add(UpdateParameterValue(index, formattedDate, formattedDate));
+      // When a date is picked, both value and display_value_cache can be the formatted date
+      context.read<EditDetailAdminBloc>().add(UpdateParameterUIValue(index, formattedDate));
+    } else {
+      debugPrint('Date picker dismissed or no date selected.');
     }
   }
 
   Future<String?> _showFieldLabelDialog(BuildContext context, String paramName, String? currentLabel) async {
+    debugPrint('Showing field label dialog for parameter: $paramName, current label: "$currentLabel"');
     final TextEditingController labelController = TextEditingController(text: currentLabel ?? '');
     String? fieldLabel;
 
@@ -371,7 +417,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () {
+              debugPrint('Field label dialog: Cancelled.');
+              Navigator.pop(context);
+            },
             child: Text(
               'Cancel',
               style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.w600),
@@ -381,8 +430,10 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
             onPressed: () {
               if (labelController.text.trim().isNotEmpty) {
                 fieldLabel = labelController.text.trim();
+                debugPrint('Field label dialog: OK, new label: "$fieldLabel"');
                 Navigator.pop(context);
               } else {
+                debugPrint('Field label dialog: Attempted to save empty label.');
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
                     content: Text(
@@ -412,11 +463,18 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
   }
 
   void _debouncedUpdate(VoidCallback callback) {
-    if (_debounce?.isActive ?? false) _debounce!.cancel();
-    _debounce = Timer(const Duration(milliseconds: 500), callback);
+    if (_debounce?.isActive ?? false) {
+      debugPrint('Debounce: Cancelling previous timer.');
+      _debounce!.cancel();
+    }
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      debugPrint('Debounce: Executing callback.');
+      callback();
+    });
   }
 
   List<Widget> _buildParameterRows(EditDetailAdminState state, BuildContext context) {
+    debugPrint('_buildParameterRows: Building UI for parameters.');
     final List<Widget> rows = [];
     final List<Map<String, dynamic>> allParamsOrdered = state.parameters;
 
@@ -424,26 +482,39 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
       final param = allParamsOrdered[i];
       final index = i;
 
-      String valueToDisplay;
-      if (param['config_type'] == 'radio' || param['config_type'] == 'checkbox') {
-        valueToDisplay = param['value']?.toString() ?? '';
-      } else {
-        valueToDisplay = param['display_value_cache']?.toString() ?? param['value']?.toString() ?? '';
+      // Ensure the controller exists and is a TextEditingController
+      _paramControllers.putIfAbsent(index, () => TextEditingController());
+      final TextEditingController paramController = _paramControllers[index]!; // Guaranteed non-null here
+
+      // *** FIX START ***
+      // Always display param['value'] in the TextField as per your requirement.
+      String textToDisplayInField = param['value']?.toString() ?? '';
+      // *** FIX END ***
+
+      debugPrint('  Param $i (${param['name']}): current UI text "${paramController.text}", Bloc value "${param['value']}", Display cache "${param['display_value_cache']}", Text to display "${textToDisplayInField}" (config_type: ${param['config_type']})');
+
+
+      if (paramController.text != textToDisplayInField) {
+        debugPrint('  Param $i (${param['name']}): Updating UI text from "${paramController.text}" to "$textToDisplayInField"');
+        paramController.text = textToDisplayInField;
+        paramController.selection = TextSelection.fromPosition(TextPosition(offset: paramController.text.length));
       }
 
-      _paramControllers[index] ??= TextEditingController(text: valueToDisplay);
-      if (_paramControllers[index]!.text != valueToDisplay) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (context.mounted) {
-            _paramControllers[index]?.text = valueToDisplay;
-          }
+      // Re-add listener if not present.
+      if (!paramController.hasListeners) {
+        debugPrint('  Param $i (${param['name']}): Re-adding listener to controller.');
+        paramController.addListener(() {
+          _debouncedUpdate(() {
+            debugPrint('  Param ${param['name']} Controller: Typed value changed to ${paramController.text}');
+            context.read<EditDetailAdminBloc>().add(UpdateParameterUIValue(i, paramController.text));
+          });
         });
       }
 
       final bool isDate = _isDateParameter(param['name'].toString(), param['value'].toString());
       final String configType = param['config_type'] ?? 'database';
 
-      IconData suffixIcon;
+      IconData suffixIcon = Icons.settings; // Safe default
       switch (configType) {
         case 'database':
           suffixIcon = Icons.storage;
@@ -454,8 +525,6 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         case 'checkbox':
           suffixIcon = Icons.check_box;
           break;
-        default:
-          suffixIcon = Icons.settings;
       }
 
       rows.add(
@@ -468,16 +537,19 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                   children: [
                     Expanded(
                       child: _buildTextField(
-                        controller: _paramControllers[index]!,
-                        label: param['field_label']?.isNotEmpty ?? false ? param['field_label'] : param['name'],
+                        controller: paramController, // Use the guaranteed non-null controller
+                        label: (param['field_label']?.toString().isNotEmpty == true)
+                            ? param['field_label']!.toString()
+                            : (param['name']?.toString() ?? 'Unnamed Parameter'),
                         isSmall: true,
                         isDateField: isDate,
-                        onTap: isDate ? () => _selectDate(context, _paramControllers[index]!, index) : null,
+                        onTap: isDate ? () => _selectDate(context, paramController, index) : null,
                         suffixIcon: isDate ? null : suffixIcon,
-                        readOnly: !isDate && (configType == 'database' || configType == 'radio' || configType == 'checkbox'),
+                        readOnly: isDate,
                         onSuffixIconTap: isDate
                             ? null
                             : () async {
+                          debugPrint('Opening config modal for parameter: ${param['name']}');
                           final blocState = context.read<EditDetailAdminBloc>().state;
                           final currentParam = blocState.parameters[index];
 
@@ -510,39 +582,34 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                           );
 
                           if (result != null && context.mounted) {
-                            final String newConfigType = result['config_type'];
-                            final String? newValue = result['value'];
-                            final String? newDisplayLabel = result['display_label'];
-                            final String? newMasterTable = result['master_table'];
-                            final String? newMasterField = result['master_field'];
-                            final String? newDisplayField = result['display_field'];
-                            final List<Map<String, dynamic>>? newOptions = result['options'];
-                            final List<String>? newSelectedValues = result['selected_values']?.cast<String>();
+                            debugPrint('Config modal returned result: $result');
 
                             context.read<EditDetailAdminBloc>().add(
-                                UpdateParameterConfigType(index, newConfigType));
+                              UpdateParameterFromModal(
+                                index: index,
+                                newConfigType: result['config_type'],
+                                newValue: result['value'], // This is the API value
+                                newDisplayLabel: result['display_label'], // This is the user-friendly label
+                                newMasterTable: result['master_table'],
+                                newMasterField: result['master_field'],
+                                newDisplayField: result['display_field'],
+                                newOptions: (result['options'] as List?)
+                                    ?.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{})
+                                    .toList(),
+                                newSelectedValues: result['selected_values']?.cast<String>(),
+                              ),
+                            );
 
-                            String finalDisplayValueForUI;
-                            if (newConfigType == 'radio' || newConfigType == 'checkbox') {
-                              finalDisplayValueForUI = newValue ?? '';
-                            } else {
-                              finalDisplayValueForUI = newDisplayLabel ?? newValue ?? '';
-                            }
+                            // *** FIX START ***
+                            // After modal returns, update UI text field to show the API value
+                            String finalValueForUI = result['value']?.toString() ?? '';
+                            paramController.text = finalValueForUI;
+                            paramController.selection = TextSelection.fromPosition(TextPosition(offset: paramController.text.length));
+                            debugPrint('  UI controller text updated to: "$finalValueForUI" (from modal newValue)');
+                            // *** FIX END ***
 
-                            _paramControllers[index]!.text = finalDisplayValueForUI;
-                            context.read<EditDetailAdminBloc>().add(UpdateParameterValue(
-                              index, newValue ?? '', newDisplayLabel ?? newValue ?? '',
-                            ));
-
-                            context.read<EditDetailAdminBloc>().add(UpdateParameterMasterSelection(
-                                index, newMasterTable, newMasterField, newDisplayField));
-
-                            if (newOptions != null) {
-                              context.read<EditDetailAdminBloc>().add(UpdateParameterOptions(index, newOptions));
-                            }
-                            if (newSelectedValues != null) {
-                              context.read<EditDetailAdminBloc>().add(UpdateParameterSelectedValues(index, newSelectedValues));
-                            }
+                          } else {
+                            debugPrint('Config modal dismissed or returned null.');
                           }
                         },
                       ),
@@ -553,6 +620,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                         onPressed: () async {
                           final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
                           if (fieldLabel != null && context.mounted) {
+                            debugPrint('Updating field label for ${param['name']} to "$fieldLabel"');
                             context.read<EditDetailAdminBloc>().add(UpdateParameterFieldLabel(index, fieldLabel));
                           }
                         },
@@ -569,6 +637,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                   groupValue: state.parameters.indexWhere((p) => (p['is_company_name_field'] as bool?) == true),
                   onChanged: (int? selectedIndex) {
                     if (selectedIndex != null && context.mounted) {
+                      debugPrint('Setting company name field to index $selectedIndex (${state.parameters[selectedIndex]['name']})');
                       context.read<EditDetailAdminBloc>().add(UpdateParameterIsCompanyNameField(selectedIndex));
                     }
                   },
@@ -579,6 +648,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
               Checkbox(
                 value: param['show'] ?? false,
                 onChanged: (value) async {
+                  debugPrint('Toggling "show" for parameter ${param['name']} to $value');
                   if (value == true) {
                     final fieldLabel = await _showFieldLabelDialog(context, param['name'], param['field_label']);
                     if (fieldLabel != null && context.mounted) {
@@ -601,13 +671,18 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('_EditDetailAdminContentState: Rebuilding widget tree.');
     return Scaffold(
       appBar: AppBarWidget(
         title: 'Edit API: ${widget.apiData['APIName']}',
-        onBackPress: () => Navigator.pop(context),
+        onBackPress: () {
+          debugPrint('Back button pressed.');
+          Navigator.pop(context);
+        },
       ),
       body: BlocConsumer<EditDetailAdminBloc, EditDetailAdminState>(
         listener: (context, state) {
+          debugPrint('BlocConsumer Listener: State updated. isLoading: ${state.isLoading}, error: ${state.error}, saveInitiated: ${state.saveInitiated}');
           if (state.error != null) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -636,11 +711,14 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                 duration: const Duration(seconds: 3),
               ),
             );
+            debugPrint('Save successful, popping navigator.');
             Navigator.pop(context, true);
           }
+          // Always re-initialize controllers to sync with state changes.
           _initializeParameterControllers(state.parameters);
         },
         builder: (context, state) {
+          debugPrint('BlocConsumer Builder: Current state - DatabaseName: ${state.databaseName}, Parameters: ${state.parameters.length}');
           return Stack(
             children: [
               SingleChildScrollView(
@@ -708,7 +786,8 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                                   items: state.availableDatabases,
                                   onChanged: (value) {
                                     if (value != null) {
-                                      _databaseNameController.text = value;
+                                      debugPrint('Database dropdown changed to: $value');
+                                      _databaseNameController.text = value; // Keep controller in sync
                                       context.read<EditDetailAdminBloc>().add(UpdateDatabaseName(value));
                                     }
                                   },
@@ -769,8 +848,11 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                                 text: 'Save',
                                 color: Colors.blueAccent,
                                 onPressed: state.isLoading
-                                    ? () {}
+                                    ? () {
+                                  debugPrint('Save button pressed (loading state).');
+                                }
                                     : () {
+                                  debugPrint('Save button pressed.');
                                   context.read<EditDetailAdminBloc>().add(SaveChanges());
                                 },
                                 icon: Icons.save,
@@ -780,8 +862,13 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                                 text: 'Cancel',
                                 color: Colors.grey,
                                 onPressed: state.isLoading
-                                    ? () {}
-                                    : () => Navigator.pop(context),
+                                    ? () {
+                                  debugPrint('Cancel button pressed (loading state).');
+                                }
+                                    : () {
+                                  debugPrint('Cancel button pressed.');
+                                  Navigator.pop(context);
+                                },
                                 icon: Icons.cancel,
                               ),
                             ],
@@ -833,13 +920,15 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         _buildHelpRow(
           icon: Icons.radio_button_checked,
           label: 'Mark as Company Name Field (Radio Button):',
-          description: 'Select one parameter to be used as the "Company Name" for specific features like linking data across reports. Only one can be selected per API.',
+          description:
+          'Select one parameter to be used as the "Company Name" for specific features like linking data across reports. Only one can be selected per API.',
           color: Colors.deepOrange,
         ),
         _buildHelpRow(
           icon: Icons.settings,
           label: 'Configure Parameter Input (Settings Icon):',
-          description: 'Click this icon next to the parameter value field to open a detailed configuration dialog. Here, you can define how the user inputs the value for this parameter:',
+          description:
+          'Click this icon next to the parameter value field to open a detailed configuration dialog. Here, you can define how the user inputs the value for this parameter:',
         ),
         Padding(
           padding: const EdgeInsets.only(left: 28.0),
@@ -849,19 +938,22 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
               _buildHelpRow(
                 icon: Icons.storage,
                 label: 'Database Picker (Tab in Dialog):',
-                description: 'Link this parameter to a table in your database. Users will get a dropdown/searchable list of values from the specified \'Master Field\' (API Value), with a friendly \'Display Field\' (User Value).',
+                description:
+                'Link this parameter to a table in your database. Users will get a dropdown/searchable list of values from the specified \'Master Field\' (API Value), with a friendly \'Display Field\' (User Value).',
                 isSubItem: true,
               ),
               _buildHelpRow(
                 icon: Icons.radio_button_checked,
                 label: 'Radio Buttons (Tab in Dialog):',
-                description: 'Define a fixed set of options. Users can choose only one value from this set. Provide an \'API Value\' (actual data) and a \'Display Field\' (what the user sees). The API value will be shown in the main parameter field.',
+                description:
+                'Define a fixed set of options. Users can choose only one value from this set. Provide an \'API Value\' (actual data) and a \'Display Field\' (what the user sees). The API value will be shown in the main parameter field.',
                 isSubItem: true,
               ),
               _buildHelpRow(
                 icon: Icons.check_box,
                 label: 'Checkboxes (Tab in Dialog):',
-                description: 'Define a fixed set of options. Users can select multiple values from this set. Provide an \'API Value\' and a \'Display Field\'. The API value(s) will be shown in the main parameter field (e.g., comma-separated).',
+                description:
+                'Define a fixed set of options. Users can select multiple values from this set. Provide an \'API Value\' and a \'Display Field\'. The API value(s) will be shown in the main parameter field (e.g., comma-separated).',
                 isSubItem: true,
               ),
             ],
@@ -946,18 +1038,18 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   List<String> _fields = [];
   String? _selectedMasterField;
   String? _selectedDisplayField;
-  List<Map<String, String>> _allFieldData = [];
+  List<Map<String, String>> _allFieldData = []; // Data fetched from master/display fields
   final TextEditingController _dbPickerSearchController = TextEditingController();
-  String _dbPickerSearchRawText = '';
+  String _dbPickerSearchRawText = ''; // To manage search filter state
 
   final TextEditingController _tableAutocompleteController = TextEditingController();
   final TextEditingController _masterFieldAutocompleteController = TextEditingController();
   final TextEditingController _displayFieldAutocompleteController = TextEditingController();
 
   // Radio/Checkbox options state
-  List<Map<String, String>> _options = [];
-  String? _radioSelectedValue;
-  List<String> _checkboxSelectedValues = [];
+  List<Map<String, String>> _options = []; // For static options
+  String? _radioSelectedValue; // For radio button selection
+  List<String> _checkboxSelectedValues = []; // For checkbox selections
 
   final TextEditingController _apiValueController = TextEditingController();
   final TextEditingController _displayFieldOptionController = TextEditingController();
@@ -968,6 +1060,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   @override
   void initState() {
     super.initState();
+    debugPrint('_ParameterConfigModalState: Initializing state.');
     _dbPickerSearchController.addListener(_onDbPickerSearchChanged);
 
     _selectedConfigType = widget.currentParam['config_type'] ?? 'database';
@@ -984,35 +1077,50 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
     _selectedDisplayField = widget.currentParam['display_field'];
     _displayFieldAutocompleteController.text = _selectedDisplayField ?? '';
 
-    _options = List<Map<String, String>>.from(
-        (widget.currentParam['options'] as List?)?.map((e) => Map<String, String>.from(e)) ?? []);
+    _options = (widget.currentParam['options'] as List<dynamic>?)
+        ?.map((e) => e is Map ? Map<String, String>.from(e.cast<String, String>()) : <String, String>{})
+        .where((map) => map.isNotEmpty)
+        .toList() ??
+        [];
+    debugPrint('  Modal initial options: ${_options.length} items');
 
     if (_selectedConfigType == 'radio') {
       _radioSelectedValue = widget.currentParam['value'];
+      debugPrint('  Modal initial radio selected value: $_radioSelectedValue');
     } else if (_selectedConfigType == 'checkbox') {
       _checkboxSelectedValues = List<String>.from(widget.currentParam['selected_values']?.cast<String>() ?? []);
+      debugPrint('  Modal initial checkbox selected values: $_checkboxSelectedValues');
     }
 
     if (_selectedConfigType == 'database') {
+      debugPrint('  Modal config type is database. Fetching tables.');
       _fetchTablesForSelectedDatabase();
     }
   }
 
   int _configTypeToIndex(String configType) {
     switch (configType) {
-      case 'database': return 0;
-      case 'radio': return 1;
-      case 'checkbox': return 2;
-      default: return 0;
+      case 'database':
+        return 0;
+      case 'radio':
+        return 1;
+      case 'checkbox':
+        return 2;
+      default:
+        return 0;
     }
   }
 
   String _indexToConfigType(int index) {
     switch (index) {
-      case 0: return 'database';
-      case 1: return 'radio';
-      case 2: return 'checkbox';
-      default: return 'database';
+      case 0:
+        return 'database';
+      case 1:
+        return 'radio';
+      case 2:
+        return 'checkbox';
+      default:
+        return 'database';
     }
   }
 
@@ -1020,7 +1128,9 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
     if (!_tabController.indexIsChanging) {
       setState(() {
         _selectedConfigType = _indexToConfigType(_tabController.index);
+        debugPrint('Modal: Tab selected: $_selectedConfigType');
         if (_selectedConfigType == 'database' && _tables.isEmpty && widget.databaseName != null) {
+          debugPrint('  Switching to database tab, tables are empty. Fetching tables.');
           _fetchTablesForSelectedDatabase();
         }
       });
@@ -1029,6 +1139,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
 
   @override
   void dispose() {
+    debugPrint('_ParameterConfigModalState: Disposing controllers.');
     _dbPickerSearchController.dispose();
     _apiValueController.dispose();
     _displayFieldOptionController.dispose();
@@ -1042,6 +1153,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   void _onDbPickerSearchChanged() {
     setState(() {
       _dbPickerSearchRawText = _dbPickerSearchController.text;
+      debugPrint('DB Picker Search changed: "$_dbPickerSearchRawText"');
     });
   }
 
@@ -1049,12 +1161,14 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
     if (_dbPickerSearchRawText.isEmpty) {
       return _allFieldData;
     }
+    debugPrint('Filtering field data for: "$_dbPickerSearchRawText"');
     return _allFieldData
         .where((item) => (item['label'] ?? '').toLowerCase().contains(_dbPickerSearchRawText.toLowerCase()))
         .toList();
   }
 
   Future<void> _fetchTablesForSelectedDatabase() async {
+    debugPrint('Attempting to fetch tables for selected database...');
     setState(() {
       _isLoading = true;
       _error = null;
@@ -1077,6 +1191,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         _error = "Database connection details are incomplete.";
         _isLoading = false;
       });
+      debugPrint('Error: Database connection details incomplete for fetching tables.');
       return;
     }
 
@@ -1090,10 +1205,14 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
       setState(() {
         _tables = tables;
         _isLoading = false;
+        debugPrint('Successfully fetched ${tables.length} tables.');
         if (widget.currentParam['master_table'] != null && tables.contains(widget.currentParam['master_table'])) {
           _selectedTable = widget.currentParam['master_table'];
           _tableAutocompleteController.text = _selectedTable!;
-          _fetchFieldsForTable(_selectedTable!);
+          debugPrint('  Pre-selected table: $_selectedTable');
+          _fetchFieldsForTable(_selectedTable!); // Call to fetch fields for pre-selected table
+        } else {
+          debugPrint('  No master_table pre-selected or found in fetched tables.');
         }
       });
     } catch (e) {
@@ -1101,10 +1220,12 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         _error = 'Failed to load tables for database "${widget.databaseName}": $e';
         _isLoading = false;
       });
+      debugPrint('Error fetching tables: $e');
     }
   }
 
   Future<void> _fetchFieldsForTable(String tableName) async {
+    debugPrint('Attempting to fetch fields for table: "$tableName"');
     setState(() {
       _isLoading = true;
       _error = null;
@@ -1123,6 +1244,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         _error = "Database connection details are incomplete for fields.";
         _isLoading = false;
       });
+      debugPrint('Error: Database connection details incomplete for fetching fields.');
       return;
     }
 
@@ -1137,21 +1259,34 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
       setState(() {
         _fields = fields;
         _isLoading = false;
+        debugPrint('Successfully fetched ${fields.length} fields for table "$tableName".');
 
+        // Attempt to pre-select master field if it exists and is in the fetched fields
         if (widget.currentParam['master_field'] != null && fields.contains(widget.currentParam['master_field'])) {
           _selectedMasterField = widget.currentParam['master_field'];
           _masterFieldAutocompleteController.text = _selectedMasterField!;
+          debugPrint('  Pre-selected master field: $_selectedMasterField');
+        } else {
+          debugPrint('  No master_field pre-selected or found in fetched fields.');
         }
 
+        // Attempt to pre-select display field. Prefer existing, then default to master field.
         if (widget.currentParam['display_field'] != null && fields.contains(widget.currentParam['display_field'])) {
           _selectedDisplayField = widget.currentParam['display_field'];
           _displayFieldAutocompleteController.text = _selectedDisplayField!;
+          debugPrint('  Pre-selected display field: $_selectedDisplayField');
         } else if (_selectedMasterField != null) {
+          // If display field is not set or not valid, default it to master field
           _selectedDisplayField = _selectedMasterField;
           _displayFieldAutocompleteController.text = _selectedMasterField!;
+          debugPrint('  Display field defaulted to master field: $_selectedDisplayField');
+        } else {
+          debugPrint('  No display_field pre-selected and no master field to default to.');
         }
 
+        // If both master and display fields are selected, fetch actual data for the picker list
         if (_selectedMasterField != null && _selectedDisplayField != null) {
+          debugPrint('  Master and display fields selected. Fetching field data...');
           _fetchFieldData();
         }
       });
@@ -1160,11 +1295,21 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         _error = 'Failed to load fields for table "$tableName": $e';
         _isLoading = false;
       });
+      debugPrint('Error fetching fields for table "$tableName": $e');
     }
   }
 
   Future<void> _fetchFieldData() async {
-    if (_selectedTable == null || _selectedMasterField == null || _selectedDisplayField == null) return;
+    debugPrint('Attempting to fetch actual field data for picker...');
+    if (_selectedTable == null || _selectedMasterField == null || _selectedDisplayField == null) {
+      setState(() {
+        _allFieldData = [];
+        _error = "Please select a table, master field, and display field to fetch data.";
+        _isLoading = false;
+      });
+      debugPrint('Error: Missing table, master, or display field for fetching data.');
+      return;
+    }
 
     setState(() {
       _isLoading = true;
@@ -1175,7 +1320,6 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
     });
 
     try {
-      // Safely fetch data and ensure each item is a Map<String, dynamic>
       final List<Map<String, dynamic>> rawData = await widget.apiService.fetchPickerData(
         server: widget.serverIP!,
         UID: widget.userName!,
@@ -1185,38 +1329,48 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         masterField: _selectedMasterField!,
         displayField: _selectedDisplayField!,
       );
+      debugPrint('Successfully fetched ${rawData.length} raw data items for picker.');
 
       final List<Map<String, String>> mappedData = [];
       for (var item in rawData) {
-        // Explicitly cast dynamic values to String or provide a default
         final String value = item[_selectedMasterField]?.toString() ?? '';
         final String label = item[_selectedDisplayField]?.toString() ?? '';
-        mappedData.add({
-          'value': value,
-          'label': label,
-        });
+        if (value.isNotEmpty && label.isNotEmpty) {
+          mappedData.add({
+            'value': value,
+            'label': label,
+          });
+        }
       }
+      debugPrint('Mapped ${mappedData.length} valid data items for picker.');
 
       setState(() {
         _allFieldData = mappedData;
         _isLoading = false;
 
         // Populate search controller with initial value if it matches.
-        // This logic is for when you open the dialog and the parameter already has a value.
-        if (widget.currentParam['config_type'] == 'database' && widget.currentParam['value'] != null && widget.currentParam['value'].toString().isNotEmpty) {
+        // This is for displaying the *label* in the modal's search field
+        // if the initial parameter value corresponds to a known label.
+        if (widget.currentParam['config_type'] == 'database' &&
+            widget.currentParam['value'] != null &&
+            widget.currentParam['value'].toString().isNotEmpty) {
           final String initialParamValue = widget.currentParam['value'].toString();
+
+          // Try to find a matching label for the initial value
           final matchedItem = mappedData.firstWhere(
                 (item) => item['value'] == initialParamValue,
             orElse: () => {},
           );
+
           if (matchedItem.isNotEmpty && matchedItem['label'] != null) {
             _dbPickerSearchController.text = matchedItem['label']!;
             _dbPickerSearchRawText = matchedItem['label']!;
+            debugPrint('  Found match in data. Setting modal search controller to label: "${matchedItem['label']!}"');
           } else {
-            // If the initial API value doesn't have a corresponding display label in fetched data,
-            // just show the raw API value itself in the search box.
+            // If no label found for the initial value, use the value itself or an empty string
             _dbPickerSearchController.text = initialParamValue;
             _dbPickerSearchRawText = initialParamValue;
+            debugPrint('  No exact label found for value. Setting modal search controller to initial param value: "$initialParamValue"');
           }
         }
       });
@@ -1226,19 +1380,23 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
         _isLoading = false;
         _allFieldData = [];
       });
+      debugPrint('Error fetching field data for picker: $e');
     }
   }
 
   void _addOption() {
     final apiValue = _apiValueController.text.trim();
     final displayField = _displayFieldOptionController.text.trim();
+    debugPrint('Adding option: API Value: "$apiValue", Display Field: "$displayField"');
     if (apiValue.isNotEmpty && displayField.isNotEmpty) {
       setState(() {
         _options.add({'label': displayField, 'value': apiValue});
         _apiValueController.clear();
         _displayFieldOptionController.clear();
+        debugPrint('Option added. Total options: ${_options.length}');
       });
     } else {
+      debugPrint('Failed to add option: API Value or Display Field is empty.');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Both API Value and Display Field are required.', style: GoogleFonts.poppins()),
@@ -1249,13 +1407,17 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   }
 
   void _removeOption(int index) {
+    debugPrint('Removing option at index: $index');
     setState(() {
       final removedOption = _options.removeAt(index);
       if (_selectedConfigType == 'radio' && _radioSelectedValue == removedOption['value']) {
         _radioSelectedValue = null;
+        debugPrint('  Removed selected radio value.');
       } else if (_selectedConfigType == 'checkbox' && _checkboxSelectedValues.contains(removedOption['value'])) {
         _checkboxSelectedValues.remove(removedOption['value']);
+        debugPrint('  Removed selected checkbox value.');
       }
+      debugPrint('Option removed. Remaining options: ${_options.length}');
     });
   }
 
@@ -1285,6 +1447,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('_ParameterConfigModal: Rebuilding modal content.');
     final mediaQuery = MediaQuery.of(context);
     final Size screenSize = mediaQuery.size;
 
@@ -1306,7 +1469,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Configure Parameter: ${widget.currentParam['name'].toUpperCase()}',
+                'Configure Parameter: ${widget.currentParam['name']?.toString().toUpperCase() ?? 'N/A'}',
                 style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),
@@ -1350,6 +1513,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     TextButton(
                       onPressed: () {
                         if (!context.mounted) return;
+                        debugPrint('Modal: Cancel button pressed.');
                         Navigator.pop(context);
                       },
                       child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.redAccent)),
@@ -1358,6 +1522,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     ElevatedButton(
                       onPressed: () {
                         if (!context.mounted) return;
+                        debugPrint('Modal: Select button pressed.');
                         _returnResult();
                       },
                       child: Text('Select', style: GoogleFonts.poppins(color: Colors.white)),
@@ -1374,6 +1539,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   }
 
   Widget _buildDatabasePickerView() {
+    debugPrint('Modal: Building Database Picker View.');
     return Column(
       children: [
         const SizedBox(height: 16),
@@ -1387,15 +1553,19 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                   return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
                 });
               },
-              fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
-                // IMPORTANT FIX: Sync the Autocomplete's internal controller with our dedicated controller.
+              fieldViewBuilder: (
+                  BuildContext context,
+                  TextEditingController textEditingController,
+                  FocusNode focusNode,
+                  VoidCallback onFieldSubmitted,
+                  ) {
                 if (textEditingController.text != _tableAutocompleteController.text) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (context.mounted) textEditingController.text = _tableAutocompleteController.text;
                   });
                 }
                 return TextFormField(
-                  controller: textEditingController, // Use the Autocomplete's provided controller
+                  controller: textEditingController,
                   focusNode: focusNode,
                   decoration: _buildDialogTextFieldDecoration(
                     'Select Table',
@@ -1403,8 +1573,9 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                         ? IconButton(
                       icon: const Icon(Icons.clear),
                       onPressed: () {
-                        textEditingController.clear(); // Clear the UI
-                        setState(() { // Update state and associated controllers
+                        debugPrint('Table Autocomplete: Clearing text and resetting state.');
+                        textEditingController.clear();
+                        setState(() {
                           _selectedTable = null;
                           _tableAutocompleteController.clear();
                           _selectedMasterField = null;
@@ -1421,10 +1592,9 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                   ),
                   style: GoogleFonts.poppins(),
                   onChanged: (value) {
-                    // This listener ensures that _tableAutocompleteController stays updated
-                    // even if the user types something not in the options or clears it.
                     _tableAutocompleteController.text = value;
                     if (!_tables.contains(value) && _selectedTable != null && _selectedTable != value) {
+                      debugPrint('Table Autocomplete: Value changed, table not in list. Resetting fields.');
                       setState(() {
                         _selectedTable = null;
                         _selectedMasterField = null;
@@ -1437,9 +1607,10 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                 );
               },
               onSelected: (String selection) {
+                debugPrint('Table Autocomplete: Selected table: "$selection"');
                 setState(() {
                   _selectedTable = selection;
-                  _tableAutocompleteController.text = selection; // Update dedicated controller
+                  _tableAutocompleteController.text = selection;
                   _selectedMasterField = null;
                   _masterFieldAutocompleteController.clear();
                   _selectedDisplayField = null;
@@ -1460,7 +1631,12 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
                   });
                 },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                fieldViewBuilder: (
+                    BuildContext context,
+                    TextEditingController textEditingController,
+                    FocusNode focusNode,
+                    VoidCallback onFieldSubmitted,
+                    ) {
                   if (textEditingController.text != _masterFieldAutocompleteController.text) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (context.mounted) textEditingController.text = _masterFieldAutocompleteController.text;
@@ -1476,6 +1652,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                           ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
+                          debugPrint('Master Field Autocomplete: Clearing text and resetting state.');
                           textEditingController.clear();
                           setState(() {
                             _selectedMasterField = null;
@@ -1491,8 +1668,9 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     ),
                     style: GoogleFonts.poppins(),
                     onChanged: (value) {
-                      _masterFieldAutocompleteController.text = value; // Keep dedicated controller updated
+                      _masterFieldAutocompleteController.text = value;
                       if (!_fields.contains(value) && _selectedMasterField != null && _selectedMasterField != value) {
+                        debugPrint('Master Field Autocomplete: Value changed, field not in list. Resetting.');
                         setState(() {
                           _selectedMasterField = null;
                           _selectedDisplayField = null;
@@ -1503,10 +1681,13 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                   );
                 },
                 onSelected: (String selection) {
+                  debugPrint('Master Field Autocomplete: Selected master field: "$selection"');
                   setState(() {
                     _selectedMasterField = selection;
                     _masterFieldAutocompleteController.text = selection;
-                    if (_selectedDisplayField == null || _selectedDisplayField == widget.currentParam['master_field'] || !(_fields.contains(_selectedDisplayField))) {
+                    if (_selectedDisplayField == null ||
+                        _selectedDisplayField == widget.currentParam['master_field'] ||
+                        !(_fields.contains(_selectedDisplayField))) {
                       _selectedDisplayField = selection;
                       _displayFieldAutocompleteController.text = selection;
                     }
@@ -1525,7 +1706,12 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
                   });
                 },
-                fieldViewBuilder: (BuildContext context, TextEditingController textEditingController, FocusNode focusNode, VoidCallback onFieldSubmitted) {
+                fieldViewBuilder: (
+                    BuildContext context,
+                    TextEditingController textEditingController,
+                    FocusNode focusNode,
+                    VoidCallback onFieldSubmitted,
+                    ) {
                   if (textEditingController.text != _displayFieldAutocompleteController.text) {
                     WidgetsBinding.instance.addPostFrameCallback((_){
                       if (context.mounted) textEditingController.text = _displayFieldAutocompleteController.text;
@@ -1541,6 +1727,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                           ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () {
+                          debugPrint('Display Field Autocomplete: Clearing text and resetting state.');
                           textEditingController.clear();
                           setState(() {
                             _selectedDisplayField = null;
@@ -1554,8 +1741,9 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     ),
                     style: GoogleFonts.poppins(),
                     onChanged: (value) {
-                      _displayFieldAutocompleteController.text = value; // Keep dedicated controller updated
+                      _displayFieldAutocompleteController.text = value;
                       if (!_fields.contains(value) && _selectedDisplayField != null && _selectedDisplayField != value) {
+                        debugPrint('Display Field Autocomplete: Value changed, field not in list. Resetting.');
                         setState(() {
                           _selectedDisplayField = null;
                           _allFieldData = [];
@@ -1565,6 +1753,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                   );
                 },
                 onSelected: (String selection) {
+                  debugPrint('Display Field Autocomplete: Selected display field: "$selection"');
                   setState(() {
                     _selectedDisplayField = selection;
                     _displayFieldAutocompleteController.text = selection;
@@ -1591,7 +1780,10 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     suffixIcon: _dbPickerSearchController.text.isNotEmpty
                         ? IconButton(
                       icon: const Icon(Icons.clear),
-                      onPressed: _dbPickerSearchController.clear,
+                      onPressed: () {
+                        debugPrint('Search field cleared.');
+                        _dbPickerSearchController.clear();
+                      },
                     )
                         : null,
                   ),
@@ -1614,13 +1806,17 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                       final item = _filteredFieldData[index];
                       final displayLabel = item['label'];
                       final masterValue = item['value'];
+                      debugPrint('  List item: label="$displayLabel", value="$masterValue"');
                       return ListTile(
                         title: Text(displayLabel ?? '', style: GoogleFonts.poppins()),
                         subtitle: (displayLabel != masterValue && masterValue != null && masterValue.isNotEmpty)
-                            ? Text('API Value: ($masterValue)', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))
+                            ? Text('API Value: ($masterValue)',
+                            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]))
                             : null,
                         onTap: () {
                           if (!context.mounted) return;
+                          debugPrint('List item tapped: label="$displayLabel", value="$masterValue"');
+                          // When a picker item is tapped, explicitly return both value and display_label
                           Navigator.pop(context, {
                             'config_type': 'database',
                             'value': masterValue,
@@ -1628,8 +1824,8 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                             'master_table': _selectedTable,
                             'master_field': _selectedMasterField,
                             'display_field': _selectedDisplayField,
-                            'options': [],
-                            'selected_values': [],
+                            'options': [], // Clear options as this is database picker
+                            'selected_values': [], // Clear selected values
                           });
                         },
                       );
@@ -1645,6 +1841,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
 
   Widget _buildOptionsConfigView(String type) {
     bool isRadio = type == 'radio';
+    debugPrint('Modal: Building Options Config View (Type: $type).');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1710,13 +1907,15 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
             itemCount: _options.length,
             itemBuilder: (context, index) {
               final option = _options[index];
+              debugPrint('  Option item: label="${option['label']}", value="${option['value']}"');
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 elevation: 2,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 child: ListTile(
                   title: Text(option['label']!, style: GoogleFonts.poppins(fontWeight: FontWeight.w500)),
-                  subtitle: Text('API Value: ${option['value']!}', style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600])),
+                  subtitle: Text('API Value: ${option['value']!}',
+                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600])),
                   leading: isRadio
                       ? Radio<String>(
                     value: option['value']!,
@@ -1724,6 +1923,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                     onChanged: (String? value) {
                       setState(() {
                         _radioSelectedValue = value;
+                        debugPrint('Radio button selected: $_radioSelectedValue');
                       });
                     },
                   )
@@ -1733,15 +1933,20 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
                       setState(() {
                         if (checked == true) {
                           _checkboxSelectedValues.add(option['value']!);
+                          debugPrint('Checkbox selected: ${option['value']!}');
                         } else {
                           _checkboxSelectedValues.remove(option['value']!);
+                          debugPrint('Checkbox unselected: ${option['value']!}');
                         }
                       });
                     },
                   ),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete, color: Colors.redAccent),
-                    onPressed: () => _removeOption(index),
+                    onPressed: () {
+                      debugPrint('Deleting option: ${option['label']}');
+                      _removeOption(index);
+                    },
                   ),
                 ),
               );
@@ -1753,6 +1958,7 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
   }
 
   void _returnResult() {
+    debugPrint('Modal: Returning result to parent widget. Config type: $_selectedConfigType');
     String? finalValue;
     String? finalDisplayLabel;
     Map<String, dynamic> result = {
@@ -1760,29 +1966,56 @@ class _ParameterConfigModalState extends State<_ParameterConfigModal> with Singl
       'master_table': null,
       'master_field': null,
       'display_field': null,
-      'options': _options,
+      'options': _options, // Always send all options data for radio/checkbox
       'selected_values': [],
     };
 
     if (_selectedConfigType == 'radio') {
       finalValue = _radioSelectedValue;
-      finalDisplayLabel = _options.firstWhere((opt) => opt['value'] == finalValue, orElse: () => {})['label'];
+      // Get the label for the selected radio value
+      finalDisplayLabel =
+      _options.firstWhere((opt) => opt['value'] == finalValue, orElse: () => {})['label'];
       result['selected_values'] = finalValue != null ? [finalValue] : [];
+      debugPrint('  Radio result: value="$finalValue", display_label="$finalDisplayLabel"');
     } else if (_selectedConfigType == 'checkbox') {
+      // For checkboxes, value is comma-separated API values
       finalValue = _checkboxSelectedValues.join(',');
-      finalDisplayLabel = _checkboxSelectedValues.map((val) =>
-      _options.firstWhere((opt) => opt['value'] == val, orElse: () => {})['label'] ?? '').join(', ');
+      // For checkboxes, display_label is comma-separated labels
+      finalDisplayLabel = _checkboxSelectedValues
+          .map((val) => _options.firstWhere((opt) => opt['value'] == val, orElse: () => {})['label'] ?? val)
+          .join(', ');
       result['selected_values'] = _checkboxSelectedValues;
+      debugPrint('  Checkbox result: value="$finalValue", display_label="$finalDisplayLabel"');
     } else {
-      finalValue = widget.currentParam['value'];
-      finalDisplayLabel = widget.currentParam['display_value_cache'];
+      // config_type == 'database'
+      // When 'Select' is pressed for database picker, prioritize value from search controller
+      // If the search controller's text matches a filtered item, use its value/label
+      debugPrint('  Database picker result: checking search controller value: "${_dbPickerSearchController.text}"');
+      final matchedItem = _allFieldData.firstWhere(
+            (item) => item['label']?.toLowerCase() == _dbPickerSearchController.text.toLowerCase(),
+        orElse: () => {},
+      );
+
+      if (matchedItem.isNotEmpty && matchedItem['value'] != null && matchedItem['label'] != null) {
+        finalValue = matchedItem['value'];
+        finalDisplayLabel = matchedItem['label'];
+        debugPrint('  Matched item found: value="$finalValue", display_label="$finalDisplayLabel"');
+      } else {
+        // If no match found, use the raw text from the search controller for finalValue
+        // and set finalDisplayLabel to null.
+        finalValue = _dbPickerSearchController.text.isNotEmpty ? _dbPickerSearchController.text : null;
+        finalDisplayLabel = null; // If no match, no distinct display label
+        debugPrint('  No exact match found. Using raw text for value, display_label is null: "$finalValue"');
+      }
+
       result['master_table'] = _selectedTable;
       result['master_field'] = _selectedMasterField;
       result['display_field'] = _selectedDisplayField;
     }
 
     result['value'] = finalValue;
-    result['display_label'] = finalDisplayLabel;
+    result['display_label'] = finalDisplayLabel; // Pass null if no label found/applicable
+    debugPrint('Modal will pop with result: $result');
     Navigator.pop(context, result);
   }
 }
