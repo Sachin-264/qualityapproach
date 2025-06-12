@@ -434,8 +434,7 @@ class ReportAPIService {
     }
   }
 
-  // MODIFIED: This method now explicitly constructs the URI using queryParameters map.
-  // It relies on getApiDetails to provide the base URL and default parameters.
+
   Future<List<Map<String, dynamic>>> fetchApiData(String apiName) async {
     // getApiDetails internally calls _ensureApiDetailsCacheLoaded(), so no need to call it directly here.
     final apiDetail = await getApiDetails(apiName);
@@ -516,7 +515,7 @@ class ReportAPIService {
       });
       debugPrint('ReportAPIService: Initializing params from API config base URL: $effectiveBaseUrl');
 
-      // Add parameters from the apiDetails['parameters'] list. These might override some from the URL.
+      // Add parameters from the apiDetail['parameters'] list. These might override some from the URL.
       (apiDetail['parameters'] as List<dynamic>?)?.forEach((param) {
         final paramName = param['name']?.toString();
         final paramValue = param['value']?.toString();
@@ -667,7 +666,7 @@ class ReportAPIService {
     }
   }
 
-// MODIFIED: Fetch all reports from demo_table - now decodes actions_config
+// MODIFIED: Fetch all reports from demo_table - now decodes actions_config and includes pdf_footer_datetime
   Future<List<Map<String, dynamic>>> fetchDemoTable() async {
     final url = _getEndpoints['get_demo_table'];
     if (url == null) {
@@ -702,6 +701,12 @@ class ReportAPIService {
               } else if (reportItem['actions_config'] == null) {
                 reportItem['actions_config'] = []; // Ensure it's an empty list if null
               }
+
+              // NEW: Handle pdf_footer_datetime
+              // Assuming it comes as '0' or '1' from backend
+              reportItem['pdf_footer_datetime'] = item['pdf_footer_datetime'] == '1' || item['pdf_footer_datetime'] == true;
+              debugPrint('Report ${reportItem['RecNo']} has pdf_footer_datetime: ${reportItem['pdf_footer_datetime']}');
+
               reports.add(reportItem);
             }
           }
@@ -762,7 +767,8 @@ class ReportAPIService {
     required String apiName,
     required String parameter,
     required List<Map<String, dynamic>> fields, // Fields are saved via demo_table_2 (not directly in saveReport)
-    List<Map<String, dynamic>> actions = const [], // NEW: Add actions parameter
+    List<Map<String, dynamic>> actions = const [],
+    required bool includePdfFooterDateTime, // NEW: Added parameter
   }) async {
     final url = _postEndpoints['post_demo_table'];
     if (url == null) {
@@ -777,7 +783,8 @@ class ReportAPIService {
       'Report_label': reportLabel,
       'API_name': apiName,
       'Parameter': parameter,
-      'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
+      'actions_config': jsonEncode(actions),
+      'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0, // NEW: Add this to payload
     };
     debugPrint('SaveReport URL: $url, Payload: $payload'); // ADDED LOG
 
@@ -1036,15 +1043,16 @@ class ReportAPIService {
     }
   }
 
-// MODIFIED: Added actions parameter
+// MODIFIED: Added actions and includePdfFooterDateTime parameters
   Future<void> editDemoTables({
     required int recNo,
     required String reportName,
     required String reportLabel,
     required String apiName,
     required String parameter,
-    required List<Map<String, dynamic>> fieldConfigs, // This list is already correctly formatted
-    required List<Map<String, dynamic>> actions, // NEW: actions parameter
+    required List<Map<String, dynamic>> fieldConfigs,
+    required List<Map<String, dynamic>> actions,
+    required bool includePdfFooterDateTime,
   }) async {
     final url = _postEndpoints['edit_demo_tables'];
     if (url == null) {
@@ -1052,8 +1060,6 @@ class ReportAPIService {
       throw Exception('POST API not found');
     }
 
-    // This is the CRITICAL change: Pass fieldConfigs directly as it's already correctly formatted.
-    // The previous code was re-mapping it, causing the `indian_format` to revert.
     final payload = {
       'RecNo': recNo.toString(),
       'Demo_table': {
@@ -1061,12 +1067,13 @@ class ReportAPIService {
         'Report_label': reportLabel.trim(),
         'API_name': apiName.trim(),
         'Parameter': parameter.trim(),
-        'actions_config': jsonEncode(actions), // NEW: Encode actions to JSON string
+        'actions_config': jsonEncode(actions),
+        'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0, // NEW: Add this to payload
       },
-      'Demo_table_2': fieldConfigs, // <-- Use the already processed fieldConfigs directly
+      'Demo_table_2': fieldConfigs,
     };
 
-    debugPrint('EditDemoTables URL: $url, Final Payload to send: ${jsonEncode(payload)}'); // ADDED LOG for final payload
+    debugPrint('EditDemoTables URL: $url, Final Payload for RecNo $recNo: ${jsonEncode(payload)}'); // ADDED LOG for final payload
 
     try {
       final response = await http.post(

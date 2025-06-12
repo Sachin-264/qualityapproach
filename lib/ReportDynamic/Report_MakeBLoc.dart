@@ -1,5 +1,8 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'ReportAPIService.dart';
+import 'package:flutter/foundation.dart'; // Import for debugPrint
+// No need for Uuid here if it's only used in EditDetailMakerBloc,
+// but if you anticipate needing it for new actions creation here, keep it.
 
 class ReportMakerEvent {}
 
@@ -106,17 +109,17 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
     on<UpdateFieldConfig>(_onUpdateFieldConfig);
     on<UpdateCurrentField>(_onUpdateCurrentField);
     on<UpdateReportType>(_onUpdateReportType);
-    on<SaveReport>(_onSaveReport);
+    on<SaveReport>(_onSaveReport); // This is the method to fix!
     on<ResetFields>(_onResetFields);
   }
 
   Future<void> _onLoadApis(LoadApis event, Emitter<ReportMakerState> emit) async {
     try {
       final List<String> apis = await apiService.getAvailableApis();
-      print('Bloc: Loaded APIs: $apis');
+      debugPrint('Bloc: Loaded APIs: $apis'); // Changed print to debugPrint
       emit(state.copyWith(apis: apis));
     } catch (e) {
-      print('Bloc: Error loading APIs: $e');
+      debugPrint('Bloc: Error loading APIs: $e'); // Changed print to debugPrint
       emit(state.copyWith(error: 'Failed to load APIs: $e'));
     }
   }
@@ -126,17 +129,17 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
     try {
       final data = await apiService.fetchApiData(event.apiName);
       final fields = data.isNotEmpty ? data[0].keys.toList().cast<String>() : <String>[];
-      print('Bloc: Fetched API data for ${event.apiName}. Fields: $fields');
+      debugPrint('Bloc: Fetched API data for ${event.apiName}. Fields: $fields'); // Changed print to debugPrint
       emit(state.copyWith(fields: fields, isLoading: false, error: null));
     } catch (e) {
-      print('Bloc: Error fetching API data for ${event.apiName}: $e');
+      debugPrint('Bloc: Error fetching API data for ${event.apiName}: $e'); // Changed print to debugPrint
       emit(state.copyWith(isLoading: false, error: 'Failed to fetch API data: $e'));
     }
   }
 
   void _onSelectField(SelectField event, Emitter<ReportMakerState> emit) {
     if (state.selectedFields.any((f) => f['Field_name'] == event.field)) {
-      print('Bloc: Field ${event.field} already selected. Skipping.');
+      debugPrint('Bloc: Field ${event.field} already selected. Skipping.'); // Changed print to debugPrint
       return;
     }
     final newField = {
@@ -157,10 +160,10 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
       'decimal_points': 0,
       'Breakpoint': false,
       'SubTotal': false,
-      'image': false, // NEW: Initialize image property
+      'image': false,
     };
     final updatedFields = [...state.selectedFields, newField];
-    print('Bloc: Selected field: ${event.field}, Current selectedFields count: ${updatedFields.length}');
+    debugPrint('Bloc: Selected field: ${event.field}, Current selectedFields count: ${updatedFields.length}'); // Changed print to debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newField,
@@ -179,16 +182,13 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
         .values
         .toList();
 
-    // Determine the new current field
     Map<String, dynamic>? newCurrentField;
     if (state.currentField?['Field_name'] == event.field) {
-      // If the deselected field was the current one, select the first available field, or null if none
       newCurrentField = updatedFields.isNotEmpty ? updatedFields.first : null;
     } else {
-      // Otherwise, keep the current field as is
       newCurrentField = state.currentField;
     }
-    print('Bloc: Deselected field: ${event.field}, Remaining selectedFields count: ${updatedFields.length}');
+    debugPrint('Bloc: Deselected field: ${event.field}, Remaining selectedFields count: ${updatedFields.length}'); // Changed print to debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newCurrentField,
@@ -197,20 +197,19 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
 
   void _onUpdateFieldConfig(UpdateFieldConfig event, Emitter<ReportMakerState> emit) {
     if (state.currentField == null) {
-      print('Bloc: Attempted to update field config with no current field selected.');
+      debugPrint('Bloc: Attempted to update field config with no current field selected.'); // Changed print to debugPrint
       return;
     }
-    // Prevent Group_by changes when reportType is Detailed
     if (event.key == 'Group_by' && state.reportType == 'Detailed') {
-      print('Bloc: Ignoring Group_by update in Detailed report type.');
+      debugPrint('Bloc: Ignoring Group_by update in Detailed report type.'); // Changed print to debugPrint
       return;
     }
     dynamic value = event.value;
     if (event.key == 'Sequence_no') {
       final parsed = value is int ? value : int.tryParse(value.toString());
       if (parsed == null || parsed <= 0) {
-        print('Bloc: Invalid Sequence_no value: $value. Ignoring.');
-        return; // Ignore invalid Sequence_no
+        debugPrint('Bloc: Invalid Sequence_no value: $value. Ignoring.'); // Changed print to debugPrint
+        return;
       }
       value = parsed;
     }
@@ -224,7 +223,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
         final bSeq = b['Sequence_no'] as int? ?? 9999;
         return aSeq.compareTo(bSeq);
       });
-    print('Bloc: Updated field config for ${state.currentField!['Field_name']}: ${event.key} = ${event.value}');
+    debugPrint('Bloc: Updated field config for ${state.currentField!['Field_name']}: ${event.key} = ${event.value}'); // Changed print to debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: updatedField,
@@ -232,7 +231,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
   }
 
   void _onUpdateCurrentField(UpdateCurrentField event, Emitter<ReportMakerState> emit) {
-    print('Bloc: Setting current field to: ${event.field['Field_name']}');
+    debugPrint('Bloc: Setting current field to: ${event.field['Field_name']}'); // Changed print to debugPrint
     emit(state.copyWith(currentField: event.field));
   }
 
@@ -248,21 +247,21 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
       final newCurrentField = state.currentField != null
           ? {...state.currentField!, 'Group_by': false, 'groupjson': ''}
           : null;
-      print('Bloc: Updated report type to Detailed. Group_by reset for all fields.');
+      debugPrint('Bloc: Updated report type to Detailed. Group_by reset for all fields.'); // Changed print to debugPrint
       emit(state.copyWith(
         reportType: event.reportType,
         selectedFields: updatedFields,
         currentField: newCurrentField,
       ));
     } else {
-      print('Bloc: Updated report type to ${event.reportType}.');
+      debugPrint('Bloc: Updated report type to ${event.reportType}.'); // Changed print to debugPrint
       emit(state.copyWith(reportType: event.reportType));
     }
   }
 
   Future<void> _onSaveReport(SaveReport event, Emitter<ReportMakerState> emit) async {
     if (state.selectedFields.isEmpty) {
-      print('Bloc: SaveReport failed: No fields selected.');
+      debugPrint('Bloc: SaveReport failed: No fields selected.'); // Changed print to debugPrint
       emit(state.copyWith(
         isLoading: false,
         error: 'No fields selected to save.',
@@ -273,33 +272,31 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
 
     emit(state.copyWith(isLoading: true, error: null, saveSuccess: false));
     try {
-      print('Bloc: Saving report metadata: Report_name=${event.reportName}, API_name=${event.apiName}');
+      debugPrint('Bloc: Saving report metadata: Report_name=${event.reportName}, API_name=${event.apiName}'); // Changed print to debugPrint
       final recNo = await apiService.saveReport(
         reportName: event.reportName,
         reportLabel: event.reportLabel,
         apiName: event.apiName,
         parameter: event.parameter,
-        fields: state.selectedFields, // This 'fields' argument is for demo_table only, not demo_table2.
-        // The saveReport logic in ReportAPIService needs adjustment if it also handles fields.
-        // Based on provided API, it only saves RecNo, Report_name, Report_label, API_name, Parameter.
-        // The saveFieldConfigs call below is what handles Demo_table_2.
+        fields: state.selectedFields,
+        actions: const [],
+        includePdfFooterDateTime: false,
       );
-      print('Bloc: Report metadata saved. Received RecNo: $recNo');
+      debugPrint('Bloc: Report metadata saved. Received RecNo: $recNo'); // Changed print to debugPrint
 
-      print('Bloc: Saving field configurations to Demo_table_2 for RecNo: $recNo');
+      debugPrint('Bloc: Saving field configurations to Demo_table_2 for RecNo: $recNo'); // Changed print to debugPrint
       await apiService.saveFieldConfigs(state.selectedFields, recNo);
-      print('Bloc: Field configurations saved successfully.');
+      debugPrint('Bloc: Field configurations saved successfully.'); // Changed print to debugPrint
 
       emit(state.copyWith(isLoading: false, error: null, saveSuccess: true));
     } catch (e) {
-      print('Bloc: Save error: $e');
+      debugPrint('Bloc: Save error: $e'); // Changed print to debugPrint
       emit(state.copyWith(isLoading: false, error: 'Failed to save report: $e', saveSuccess: false));
     }
   }
 
   void _onResetFields(ResetFields event, Emitter<ReportMakerState> emit) {
-    print('Bloc: Resetting fields and state.');
-    // Keep APIs list loaded, but reset other state
+    debugPrint('Bloc: Resetting fields and state.'); // Changed print to debugPrint
     emit(ReportMakerState(apis: state.apis));
   }
 }

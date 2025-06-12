@@ -105,7 +105,9 @@ class ReportMainUI extends StatelessWidget {
     subtotalCells['__actions__'] = PlutoCell(value: ''); // Dummy cell for actions column
     // Mark this row as a subtotal row for custom styling and grand total exclusion
     subtotalCells['__isSubtotal__'] = PlutoCell(value: true);
-    return PlutoRow(cells: subtotalCells);
+    // NEW: Add a dummy/empty raw data cell for subtotal rows
+    subtotalCells['__raw_data__'] = PlutoCell(value: {});
+    return PlutoRow(cells: subtotalCells); // Corrected: Removed userValue
   }
 
   @override
@@ -434,6 +436,21 @@ class ReportMainUI extends StatelessWidget {
               );
             }));
 
+            // NEW: Add a hidden column to store the full raw data for the row
+            columns.add(
+              PlutoColumn(
+                title: 'Raw Data (Hidden)',
+                field: '__raw_data__',
+                type: PlutoColumnType.text(),
+                hide: true, // This column is not visible to the user
+                width: 1, // Minimal width as it's hidden
+                enableFilterMenuItem: false,
+                enableSorting: false,
+                enableRowChecked: false,
+                enableContextMenu: false,
+              ),
+            );
+
             // Use the actions from the BLoC state for rendering the actions column
             final bool showActionsColumnFromState = state.actionsConfig.isNotEmpty;
             debugPrint('TableMainUI: Will render actions column: $showActionsColumnFromState (from BLoC state)');
@@ -456,6 +473,13 @@ class ReportMainUI extends StatelessWidget {
                       return const SizedBox.shrink();
                     }
 
+                    // *** MODIFICATION 2: Get the original raw data from the hidden cell ***
+                    // Ensure it's a Map<String, dynamic>
+                    final Map<String, dynamic> originalRowData =
+                        (rendererContext.row.cells['__raw_data__']?.value as Map<String, dynamic>?) ?? {};
+                    debugPrint('Action renderer: Original row data from __raw_data__ cell: $originalRowData');
+
+
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
@@ -474,11 +498,11 @@ class ReportMainUI extends StatelessWidget {
                             final paramName = paramConfig['parameterName']?.toString() ?? '';
                             final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
 
-                            final PlutoCell? cell = rendererContext.row.cells[sourceFieldName];
-                            String valueFromRow = '';
-                            if (cell != null && cell.value != null) {
-                              valueFromRow = cell.value.toString();
-                            }
+                            // *** MODIFICATION 2.1: Use originalRowData instead of rendererContext.row.cells ***
+                            // This ensures we get the value even if the column is not displayed.
+                            String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
+                            debugPrint('  Action param: $paramName, sourceFieldName: $sourceFieldName, valueFromRow: "$valueFromRow"');
+
                             if (paramName.isNotEmpty) {
                               dynamicApiParams[paramName] = valueFromRow;
                             }
@@ -573,6 +597,7 @@ class ReportMainUI extends StatelessWidget {
                                 } else if (actionType == 'print') {
                                   // Show template and color selection dialog
                                   final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(
+                                    // Fix: Changed dialogContext to context
                                     context: context,
                                     builder: (BuildContext dialogContext) {
                                       return const ReportTemplateSelectionDialog();
@@ -695,7 +720,9 @@ class ReportMainUI extends StatelessWidget {
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
-                finalRows.add(PlutoRow(cells: rowCells));
+                // *** MODIFICATION 1: Store the entire raw data map in the hidden cell ***
+                rowCells['__raw_data__'] = PlutoCell(value: data); // Store the original data map in the hidden cell
+                finalRows.add(PlutoRow(cells: rowCells)); // Corrected: Removed userValue
                 currentGroupDataRows.add(data);
 
                 for (var colName in subtotalColumnNames) {
@@ -734,7 +761,9 @@ class ReportMainUI extends StatelessWidget {
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
-                return PlutoRow(cells: rowCells);
+                // *** MODIFICATION 1: Store the entire raw data map in the hidden cell ***
+                rowCells['__raw_data__'] = PlutoCell(value: data); // Store the original data map in the hidden cell
+                return PlutoRow(cells: rowCells); // Corrected: Removed userValue
               }));
             }
 

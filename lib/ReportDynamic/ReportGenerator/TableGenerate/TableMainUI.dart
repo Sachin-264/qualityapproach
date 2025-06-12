@@ -1,29 +1,29 @@
-// ReportDynamic/TableGenerator/TableMainUI.dart
+// lib/ReportDynamic/TableGenerator/TableMainUI.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-import 'package:intl/intl.dart'; // REQUIRED for formatIndianNumber
-// Assuming this path is correct for your project
-import 'package:qualityapproach/ReportDynamic/ReportGenerator/PrintTemp/printpreview.dart';
-import 'package:qualityapproach/ReportDynamic/ReportGenerator/PrintTemp/print_template_selection.dart'; // Add this for print template selection
+import 'package:intl/intl.dart';
 
 import '../../../ReportUtils/Appbar.dart';
 import '../../../ReportUtils/CustomPlutogrid.dart';
-import '../../../ReportUtils/Export_widget.dart'; // This is the file we're modifying
+import '../../../ReportUtils/Export_widget.dart';
 import '../../../ReportUtils/subtleloader.dart';
-import '../../ReportAPIService.dart'; // Adjust path
-import 'TableBLoc.dart'; // Ensure TableBLoc.dart has the ReportState with actionsConfig
+import '../../ReportAPIService.dart';
+import 'TableBLoc.dart'; // Direct import (no alias here)
+import '../PrintTemp/printpreview.dart'; // Add this if print is needed
+import '../PrintTemp/print_template_selection.dart'; // Add this if print is needed
+
 
 class TableMainUI extends StatelessWidget {
   final String recNo;
   final String apiName;
   final String reportLabel;
   final Map<String, String> userParameterValues;
-  final List<Map<String, dynamic>> actionsConfig; // Actions specific to this table UI
-  final Map<String, String> displayParameterValues; // Added for ExportWidget
-  final String companyName; // NEW: Added companyName to TableMainUI
+  final List<Map<String, dynamic>> actionsConfig;
+  final Map<String, String> displayParameterValues;
+  final String companyName;
 
   const TableMainUI({
     super.key,
@@ -31,47 +31,37 @@ class TableMainUI extends StatelessWidget {
     required this.apiName,
     required this.reportLabel,
     required this.userParameterValues,
-    this.actionsConfig = const [], // This TableMainUI instance will use the actions it's configured with
+    this.actionsConfig = const [],
     required this.displayParameterValues,
-    required this.companyName, // NEW: Make companyName required
+    required this.companyName,
   });
 
-  // Helper function to format numbers using Indian locale
-  // This function now uses the intl package for more robust and accurate formatting.
   static String formatIndianNumber(double number, int decimalPoints) {
-    // Build the pattern dynamically for decimal places.
-    // '##,##,##0' ensures the Indian grouping (lakh/crore).
-    // '.${'0' * decimalPoints}' ensures the required decimal places, padding with zeros if needed.
     String pattern = '##,##,##0';
     if (decimalPoints > 0) {
       pattern += '.${'0' * decimalPoints}';
     }
-
     final NumberFormat indianFormat = NumberFormat(
       pattern,
-      'en_IN', // Use 'en_IN' locale for Indian number formatting
+      'en_IN',
     );
-
     return indianFormat.format(number);
   }
 
-  // Helper function to create a subtotal row
   PlutoRow _createSubtotalRow({
     required String groupName,
     required Map<String, double> subtotals,
     required List<Map<String, dynamic>> sortedFieldConfigs,
     required String? breakpointColumnName,
     required bool hasActionsColumn,
-    required List<Map<String, dynamic>> actionsConfigForSubtotalRow, // Renamed for clarity
-    required Map<String, bool> numericColumnMap, // New: Added numericColumnMap
-    required Map<String, int> subtotalColumnDecimals, // New: Added subtotalColumnDecimals
-    required Map<String, bool> indianFormatColumnMap, // New: Added indianFormatColumnMap
+    required List<Map<String, dynamic>> actionsConfigForSubtotalRow,
+    required Map<String, bool> numericColumnMap,
+    required Map<String, int> subtotalColumnDecimals,
+    required Map<String, bool> indianFormatColumnMap,
   }) {
     final Map<String, PlutoCell> subtotalCells = {};
-    // Iterate over all possible field names to ensure we populate cells for them
     final allFieldNames = sortedFieldConfigs.map((c) => c['Field_name'].toString()).toSet();
-    // Also include any 'parameterValue' from actionsConfig to ensure those cells exist
-    for (var action in actionsConfigForSubtotalRow) { // Use the passed actionsConfig
+    for (var action in actionsConfigForSubtotalRow) {
       final params = List<dynamic>.from(action['params'] ?? []);
       for (var param in params) {
         allFieldNames.add(param['parameterValue'].toString());
@@ -81,51 +71,40 @@ class TableMainUI extends StatelessWidget {
     for (var fieldName in allFieldNames) {
       final config = sortedFieldConfigs.firstWhere(
             (cfg) => cfg['Field_name']?.toString() == fieldName,
-        // CORRECTED: Provide a default PlutoColumnType.text()
         orElse: () => {'Field_name': fieldName, 'data_type': 'text', 'decimal_points': '0', 'indian_format': '0'},
       );
       final isSubtotalColumn = config['SubTotal']?.toString() == '1';
-      final isNumeric = numericColumnMap[fieldName] ?? false; // Use the passed numericColumnMap
+      final isNumeric = numericColumnMap[fieldName] ?? false;
 
       if (fieldName == breakpointColumnName) {
         subtotalCells[fieldName] = PlutoCell(value: 'Subtotal ($groupName)');
-      } else if (isSubtotalColumn && isNumeric) { // Ensure it's marked for subtotal AND is numeric
+      } else if (isSubtotalColumn && isNumeric) {
         final sum = subtotals[fieldName] ?? 0.0;
-        // Store as double for internal handling. The column renderer will format it.
         subtotalCells[fieldName] = PlutoCell(value: sum);
       } else {
-        subtotalCells[fieldName] = PlutoCell(value: ''); // Empty for non-subtotal columns
+        subtotalCells[fieldName] = PlutoCell(value: '');
       }
     }
-    subtotalCells['__actions__'] = PlutoCell(value: ''); // Dummy cell for actions column
-    // Mark this row as a subtotal row for custom styling and grand total exclusion
+    subtotalCells['__actions__'] = PlutoCell(value: '');
     subtotalCells['__isSubtotal__'] = PlutoCell(value: true);
+    subtotalCells['__raw_data__'] = PlutoCell(value: {});
     return PlutoRow(cells: subtotalCells);
   }
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
-    debugPrint('TableMainUI: Company Name passed: ${companyName}'); // NEW: Log company name
-
-    // IMPORTANT: Now we use the `actionsConfig` that was passed to this specific instance's constructor.
-    // The BLoC's state will contain the actions for the currently loaded API, but this widget instance
-    // will operate on the actions it was configured with. This is the correct behavior for nested
-    // reports, as the nested report should display its own actions, not its parent's.
-    // However, for the nested TableMainUI, its actionsConfig from the constructor is typically empty,
-    // and its BLoC will fetch its actions from the API definition.
-    // We will now correctly use state.actionsConfig for rendering the actions column
-    // as it represents the actions specific to the currently loaded report data.
+    print('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
+    print('TableMainUI: Company Name passed: $companyName');
 
     return Scaffold(
       appBar: AppBarWidget(
         title: reportLabel,
         onBackPress: () => Navigator.pop(context),
       ),
-      body: BlocListener<TableBlocGenerate, ReportState>( // Use TableBlocGenerate
+      body: BlocListener<TableBlocGenerate, ReportState>(
         listener: (context, state) {
           if (state.error != null) {
-            debugPrint('TableMainUI Listener error: ${state.error}');
+            print('TableMainUI Listener error: ${state.error}');
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(state.error!),
@@ -134,26 +113,21 @@ class TableMainUI extends StatelessWidget {
             );
           }
         },
-        child: BlocBuilder<TableBlocGenerate, ReportState>( // Use TableBlocGenerate
+        child: BlocBuilder<TableBlocGenerate, ReportState>(
           builder: (context, state) {
-            debugPrint('TableMainUI BlocBuilder rebuild for "${reportLabel}": isLoading=${state.isLoading}, '
+            print('TableMainUI BlocBuilder rebuild for "$reportLabel": isLoading=${state.isLoading}, '
                 'fieldConfigs.length=${state.fieldConfigs.length}, '
                 'reportData.length=${state.reportData.length}, '
-                'state.actionsConfig.length=${state.actionsConfig.length}'); // Log state's actions
-            debugPrint('TableMainUI BlocBuilder: Actions in BLoC state for "$reportLabel": ${state.actionsConfig.length} items.');
+                'state.actionsConfig.length=${state.actionsConfig.length}');
+            print('TableMainUI BlocBuilder: Actions in BLoC state for "$reportLabel": ${state.actionsConfig.length} items.');
 
-
-            // --- IMPROVEMENT START: Reorder rendering conditions to prevent flicker ---
-
-            // 1. If currently loading, always show the loader.
             if (state.isLoading) {
-              debugPrint('TableMainUI: Showing loader for "${reportLabel}"');
+              print('TableMainUI: Showing loader for "$reportLabel"');
               return const Center(child: SubtleLoader());
             }
 
-            // 2. If not loading but there's an error, show the error.
             if (state.error != null) {
-              debugPrint('TableMainUI: Showing error for "${reportLabel}": ${state.error}');
+              print('TableMainUI: Showing error for "$reportLabel": ${state.error}');
               return Center(
                 child: Text(
                   'Error: ${state.error}',
@@ -163,9 +137,8 @@ class TableMainUI extends StatelessWidget {
               );
             }
 
-            // 3. If not loading, no error, but field configurations are empty, it's a configuration issue.
             if (state.fieldConfigs.isEmpty) {
-              debugPrint('TableMainUI: No field configurations available for "${reportLabel}"');
+              print('TableMainUI: No field configurations available for "$reportLabel"');
               return Center(
                 child: Text(
                   'No field configurations available for this report. Please check the report design.',
@@ -175,9 +148,8 @@ class TableMainUI extends StatelessWidget {
               );
             }
 
-            // 4. If not loading, no error, field configurations exist, but report data is empty.
             if (state.reportData.isEmpty) {
-              debugPrint('TableMainUI: No report data available for "${reportLabel}" for selected parameters.');
+              print('TableMainUI: No report data available for "$reportLabel" for selected parameters.');
               return Center(
                 child: Text(
                   'No report data available for the selected parameters.',
@@ -186,10 +158,7 @@ class TableMainUI extends StatelessWidget {
                 ),
               );
             }
-            // --- IMPROVEMENT END: Reorder rendering conditions ---
 
-
-            // If we reach here, it means we have data and configurations to display.
             final sortedFieldConfigs = List<Map<String, dynamic>>.from(state.fieldConfigs)
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0')
                   .compareTo(int.parse(b['Sequence_no']?.toString() ?? '0')));
@@ -199,39 +168,35 @@ class TableMainUI extends StatelessWidget {
             final Map<String, int> subtotalColumnDecimals = {};
             final Map<String, bool> numericColumnMap = {};
             final Map<String, bool> imageColumnMap = {};
-            final Map<String, bool> indianFormatColumnMap = {}; // New: Map to store indian_format flag
+            final Map<String, bool> indianFormatColumnMap = {};
 
-            bool hasGrandTotals = false;
+            bool hasGrandTotals = false; // Flag to indicate if any column has 'Total: 1'
 
-            // --- Diagnostic Log for Field Configurations ---
-            debugPrint('--- TableMainUI: Field Configs for "$reportLabel" (RecNo: $recNo) ---');
+            print('--- TableMainUI: Field Configs for "$reportLabel" (RecNo: $recNo) ---');
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? 'N/A';
               final fieldLabel = config['Field_label']?.toString() ?? 'N/A';
               final dataType = config['data_type']?.toString().toLowerCase();
 
-              // --- IMPROVED ISNUMERIC DETECTION LOGIC ---
               bool currentFieldIsNumeric = false;
               if (dataType == 'number' || dataType == 'decimal' || dataType == 'integer') {
                 currentFieldIsNumeric = true;
               } else if (
               ['vq_grandtotal', 'qty', 'rate', 'netrate', 'grandtotal', 'value', 'amount',
-                'excise', 'cess', 'hscess', 'freight', 'tcs'].contains(fieldName.toLowerCase())
+                'excise', 'cess', 'hscess', 'freight', 'tcs', 'cgst', 'sgst', 'igst'].contains(fieldName.toLowerCase())
               ) {
                 currentFieldIsNumeric = true;
               }
-              // Also consider Total or SubTotal flags for numeric inference if data_type isn't explicitly 'number'
-              if (!currentFieldIsNumeric && (config['Total']?.toString() == '1' || config['SubTotal']?.toString() == '1')) {
+              // If it's marked for Total or SubTotal, always treat as numeric.
+              if (config['Total']?.toString() == '1' || config['SubTotal']?.toString() == '1') {
                 currentFieldIsNumeric = true;
               }
-              numericColumnMap[fieldName] = currentFieldIsNumeric;
-              // --- END IMPROVED ISNUMERIC DETECTION LOGIC ---
 
+              numericColumnMap[fieldName] = currentFieldIsNumeric;
 
               final isImage = config['image']?.toString() == '1';
               imageColumnMap[fieldName] = isImage;
 
-              // New: Read 'indian_format' flag
               final bool useIndianFormat = config['indian_format']?.toString() == '1';
               indianFormatColumnMap[fieldName] = useIndianFormat;
 
@@ -242,23 +207,24 @@ class TableMainUI extends StatelessWidget {
                 subtotalColumnNames.add(fieldName);
                 subtotalColumnDecimals[fieldName] = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
               }
+              // Check if any column has 'Total: 1' to enable grand total footer
               if (config['Total']?.toString() == '1' && currentFieldIsNumeric) {
                 hasGrandTotals = true;
               }
-              debugPrint('  Field: $fieldName, Label: $fieldLabel, Type: $dataType, '
+              print('  Field: $fieldName, Label: $fieldLabel, Type: $dataType, '
                   'Total: ${config['Total']}, SubTotal: ${config['SubTotal']}, Breakpoint: ${config['Breakpoint']}, '
                   'Decimal: ${config['decimal_points']}, Width: ${config['width']}, DetectedNumeric: ${numericColumnMap[fieldName]}, indian_format: $useIndianFormat');
             }
-            debugPrint('  Calculated Properties: hasGrandTotals=$hasGrandTotals, breakpointColumnName=$breakpointColumnName, subtotalColumns=$subtotalColumnNames');
-            debugPrint('----------------------------------------------------');
-            // --- End Diagnostic Log ---
-
-            final headerMap = {
-              for (var config in sortedFieldConfigs)
-                config['Field_label']?.toString() ?? '': config['Field_name']?.toString() ?? ''
-            };
+            print('  Calculated Properties: hasGrandTotals=$hasGrandTotals, breakpointColumnName=$breakpointColumnName, subtotalColumns=$subtotalColumnNames');
+            print('----------------------------------------------------');
 
             final List<PlutoColumn> columns = [];
+
+            // Get all visible field names (excluding actions and raw data)
+            final List<String> allVisibleFieldNames = sortedFieldConfigs
+                .map((c) => c['Field_name'].toString())
+                .where((fName) => fName != '__actions__')
+                .toList();
 
             columns.addAll(sortedFieldConfigs.asMap().entries.map((entry) {
               final i = entry.key;
@@ -266,14 +232,14 @@ class TableMainUI extends StatelessWidget {
               final fieldName = config['Field_name']?.toString() ?? '';
               final fieldLabel = config['Field_label']?.toString() ?? '';
               final width = double.tryParse(config['width']?.toString() ?? '120') ?? 120.0;
-              final total = config['Total']?.toString() == '1';
+              final total = config['Total']?.toString() == '1'; // Check if this column contributes to grand total
               final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
-              final decimalPoints = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
-              final bool isNumericField = numericColumnMap[fieldName] ?? false; // Use the map here
+              final int decimalPoints = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
+              final bool isNumericField = numericColumnMap[fieldName] ?? false;
               final bool isImageColumn = imageColumnMap[fieldName] ?? false;
-              final bool useIndianFormatForColumn = indianFormatColumnMap[fieldName] ?? false; // New: Get conditional flag
+              final bool useIndianFormatForColumn = indianFormatColumnMap[fieldName] ?? false;
 
-              String plutoGridFormatString = '#,##0'; // For PlutoGrid's internal formatting
+              String plutoGridFormatString = '#,##0';
               if (decimalPoints > 0) {
                 plutoGridFormatString += '.' + '0' * decimalPoints;
               }
@@ -281,8 +247,6 @@ class TableMainUI extends StatelessWidget {
               return PlutoColumn(
                 title: fieldLabel,
                 field: fieldName,
-                // Use PlutoColumnType.number for internal sorting/filtering,
-                // but the `renderer` will control visual formatting.
                 type: isNumericField ? PlutoColumnType.number(format: plutoGridFormatString) : PlutoColumnType.text(),
                 width: width,
                 textAlign: alignment == 'center'
@@ -291,15 +255,17 @@ class TableMainUI extends StatelessWidget {
                     ? PlutoColumnTextAlign.right
                     : PlutoColumnTextAlign.left,
                 enableFilterMenuItem: true,
+                // REVERTED: Show footer renderer for grand totals in UI
                 footerRenderer: (rendererContext) {
-                  if (!hasGrandTotals) {
+                  if (!hasGrandTotals) { // Only show if any column has 'Total: 1'
                     return const SizedBox.shrink();
                   }
 
-                  if (i == 0) { // Place 'Grand Total' label on the first column
+                  // Place 'Grand Total' label on the first column (index 0)
+                  if (i == 0) {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.count,
+                      type: PlutoAggregateColumnType.count, // Type count just for layout
                       alignment: Alignment.centerLeft,
                       titleSpanBuilder: (text) {
                         return [
@@ -313,7 +279,7 @@ class TableMainUI extends StatelessWidget {
                   } else if (total && isNumericField) { // Only render sum for numeric columns marked as 'Total'
                     double sum = 0.0;
                     for (var row in rendererContext.stateManager.rows) {
-                      // Exclude subtotal rows from grand total calculation
+                      // Exclude subtotal rows from grand total calculation for footer
                       if (row.cells.containsKey('__isSubtotal__') && row.cells['__isSubtotal__']!.value == true) {
                         continue;
                       }
@@ -321,18 +287,16 @@ class TableMainUI extends StatelessWidget {
                       final parsedValue = double.tryParse(cellValue.toString()) ?? 0.0;
                       sum += parsedValue;
                     }
-                    // Apply Indian formatting for grand total IF the flag is true
                     final String formattedTotal = useIndianFormatForColumn
                         ? formatIndianNumber(sum, decimalPoints)
-                        : sum.toStringAsFixed(decimalPoints); // Fallback to standard if not Indian format
+                        : sum.toStringAsFixed(decimalPoints);
 
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.sum,
-                      format: plutoGridFormatString, // Internal format
+                      type: PlutoAggregateColumnType.sum, // Use sum type for actual calculation
+                      format: plutoGridFormatString,
                       alignment: Alignment.centerRight,
                       titleSpanBuilder: (text) {
-                        // Custom rendering to apply your determined format
                         return [
                           TextSpan(
                             text: formattedTotal,
@@ -348,6 +312,9 @@ class TableMainUI extends StatelessWidget {
                   final rawCellValue = rendererContext.cell.value;
                   final String valueString = rawCellValue?.toString() ?? '';
                   final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
+                  // No need to check for __isGrandTotal__ flag here as we are not injecting it as a row anymore
+                  // final isGrandTotalRow = rendererContext.row.cells.containsKey('__isGrandTotal__') && rendererContext.row.cells['__isGrandTotal__']!.value == true;
+
 
                   if (isImageColumn && valueString.isNotEmpty && (valueString.startsWith('http://') || valueString.startsWith('https://'))) {
                     return Padding(
@@ -374,7 +341,7 @@ class TableMainUI extends StatelessWidget {
                             );
                           },
                           errorBuilder: (BuildContext context, Object exception, StackTrace? stackTrace) {
-                            debugPrint('Image loading error for $fieldName: $exception, URL: $valueString');
+                            print('Image loading error for $fieldName: $exception, URL: $valueString');
                             return Center(
                               child: Icon(Icons.broken_image, color: Colors.red[300], size: 24),
                             );
@@ -386,12 +353,11 @@ class TableMainUI extends StatelessWidget {
 
                   Widget textWidget;
 
-                  if (isNumericField && valueString.isNotEmpty) {
-                    final number = double.tryParse(valueString) ?? 0.0;
-                    // Apply Indian formatting for data cells IF the flag is true
+                  if (isNumericField && rawCellValue != null) {
+                    final number = double.tryParse(rawCellValue.toString()) ?? 0.0;
                     final String formattedNumber = useIndianFormatForColumn
                         ? formatIndianNumber(number, decimalPoints)
-                        : number.toStringAsFixed(decimalPoints); // Fallback to standard if not Indian format
+                        : number.toStringAsFixed(decimalPoints);
 
                     textWidget = Text(
                       formattedNumber,
@@ -426,9 +392,23 @@ class TableMainUI extends StatelessWidget {
               );
             }));
 
-            // Use the actions from the BLoC state for rendering the actions column
+            // Add a hidden column to store the full raw data for the row
+            columns.add(
+              PlutoColumn(
+                title: 'Raw Data (Hidden)',
+                field: '__raw_data__',
+                type: PlutoColumnType.text(),
+                hide: true,
+                width: 1,
+                enableFilterMenuItem: false,
+                enableSorting: false,
+                enableRowChecked: false,
+                enableContextMenu: false,
+              ),
+            );
+
             final bool showActionsColumnFromState = state.actionsConfig.isNotEmpty;
-            debugPrint('TableMainUI: Will render actions column: $showActionsColumnFromState (from BLoC state)');
+            print('TableMainUI: Will render actions column: $showActionsColumnFromState (from BLoC state)');
 
             if (showActionsColumnFromState) {
               columns.add(
@@ -436,7 +416,7 @@ class TableMainUI extends StatelessWidget {
                   title: 'Actions',
                   field: '__actions__',
                   type: PlutoColumnType.text(),
-                  width: state.actionsConfig.length * 100.0, // Use BLoC state's actions for width
+                  width: state.actionsConfig.length * 100.0,
                   minWidth: 120,
                   enableFilterMenuItem: false,
                   enableSorting: false,
@@ -444,15 +424,23 @@ class TableMainUI extends StatelessWidget {
                   enableContextMenu: false,
                   renderer: (rendererContext) {
                     final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
-                    if (isSubtotalRow) {
+                    // No need to check for __isGrandTotal__ flag here
+                    // final isGrandTotalRow = rendererContext.row.cells.containsKey('__isGrandTotal__') && rendererContext.row.cells['__isGrandTotal__']!.value == true;
+
+                    if (isSubtotalRow /* || isGrandTotalRow */) { // Removed isGrandTotalRow
                       return const SizedBox.shrink();
                     }
+
+                    final Map<String, dynamic> originalRowData =
+                        (rendererContext.row.cells['__raw_data__']?.value as Map<String, dynamic>?) ?? {};
+                    print('Action renderer: Original row data from __raw_data__ cell: $originalRowData');
+
 
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: state.actionsConfig.map((action) { // Use BLoC state's actions here
+                        children: state.actionsConfig.map((action) {
                           final String actionName = action['name']?.toString() ?? 'Action';
                           final String actionType = action['type']?.toString() ?? 'unknown';
                           final String actionApiUrlTemplate = action['api']?.toString() ?? '';
@@ -466,11 +454,9 @@ class TableMainUI extends StatelessWidget {
                             final paramName = paramConfig['parameterName']?.toString() ?? '';
                             final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
 
-                            final PlutoCell? cell = rendererContext.row.cells[sourceFieldName];
-                            String valueFromRow = '';
-                            if (cell != null && cell.value != null) {
-                              valueFromRow = cell.value.toString();
-                            }
+                            String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
+                            print('  Action param: $paramName, sourceFieldName: $sourceFieldName, valueFromRow: "$valueFromRow"');
+
                             if (paramName.isNotEmpty) {
                               dynamicApiParams[paramName] = valueFromRow;
                             }
@@ -479,60 +465,64 @@ class TableMainUI extends StatelessWidget {
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
-                              onPressed: () async { // Changed to async for await dialog
-                                debugPrint('TableMainUI Action button pressed: $actionName (Type: $actionType)');
-                                debugPrint('TableMainUI Action API URL (template): $actionApiUrlTemplate');
-                                debugPrint('TableMainUI Dynamic Params for action: $dynamicApiParams');
+                              onPressed: () async {
+                                print('TableMainUI Action button pressed: $actionName (Type: $actionType)');
+                                print('TableMainUI Action API URL (template): $actionApiUrlTemplate');
+                                print('TableMainUI Dynamic Params for action: $dynamicApiParams');
 
                                 if (actionType == 'table') {
-                                  // --- IMPORTANT: Prepare display values for nested TableMainUI ---
                                   final Map<String, String> nestedDisplayValuesForExport = {};
                                   for (var param in state.selectedApiParameters) {
                                     final pName = param['name'].toString();
-                                    final pValue = state.userParameterValues[pName] ?? '';
+                                    final String currentApiValue = state.userParameterValues[pName] ?? '';
 
-                                    String dValue = '';
+                                    String displayValue = '';
+
                                     if (param['is_company_name_field'] == true) {
-                                      // If the company field is *shown* in UI, use the value from user input/picker
-                                      if (param['show'] == true && pValue.isNotEmpty) {
+                                      if (param['show'] == true && currentApiValue.isNotEmpty) {
                                         final String configType = param['config_type']?.toString().toLowerCase() ?? '';
                                         if (configType == 'database' && state.pickerOptions.containsKey(pName)) {
                                           final List<Map<String, String>> pickerOptions = state.pickerOptions[pName] ?? [];
-                                          dValue = pickerOptions.firstWhere(
-                                                (opt) => opt['value'] == pValue,
-                                            orElse: () => {'label': pValue, 'value': pValue},
+                                          displayValue = pickerOptions.firstWhere(
+                                                (opt) => opt['value'] == currentApiValue,
+                                            orElse: () => {'label': currentApiValue, 'value': currentApiValue},
                                           )['label']!;
                                         } else {
-                                          dValue = pValue; // For other types of company fields
+                                          displayValue = currentApiValue;
                                         }
                                       }
-                                      // If the company field is *not shown* (show: false), use its display_value_cache
                                       else if (param['show'] == false && param['display_value_cache']?.toString().isNotEmpty == true) {
-                                        dValue = param['display_value_cache'].toString();
+                                        displayValue = param['display_value_cache'].toString();
                                       }
-                                    } else { // For all other parameters
+                                    } else {
                                       final pConfigType = param['config_type']?.toString().toLowerCase() ?? '';
-                                      if (pConfigType == 'radio' || pConfigType == 'checkbox') {
-                                        final opts = List<Map<String, String>>.from(param['options']?.map((e) => Map<String, String>.from(e)) ?? []);
-                                        dValue = opts.firstWhere((opt) => opt['value'] == pValue, orElse: () => {'label': pValue, 'value': pValue})['label']!;
-                                      } else if (pConfigType == 'database' && pValue.isNotEmpty && state.pickerOptions.containsKey(pName)) {
+
+                                      if ((pConfigType == 'radio' || pConfigType == 'checkbox') && currentApiValue.isNotEmpty) {
+                                        final opts = List<Map<String, String>>.from(param['options']?.map((e) => Map<String, String>.from(e ?? {})) ?? []);
+                                        displayValue = opts.firstWhere(
+                                              (opt) => opt['value'] == currentApiValue,
+                                          orElse: () => {'label': currentApiValue, 'value': currentApiValue},
+                                        )['label']!;
+                                      } else if (pConfigType == 'database' && currentApiValue.isNotEmpty && state.pickerOptions.containsKey(pName)) {
                                         final pOpts = state.pickerOptions[pName] ?? [];
-                                        dValue = pOpts.firstWhere((opt) => opt['value'] == pValue, orElse: () => {'label': pValue, 'value': pValue})['label']!;
+                                        displayValue = pOpts.firstWhere(
+                                              (opt) => opt['value'] == currentApiValue,
+                                          orElse: () => {'label': currentApiValue, 'value': currentApiValue},
+                                        )['label']!;
                                       } else {
-                                        dValue = pValue;
+                                        displayValue = currentApiValue;
                                       }
                                     }
-                                    if (dValue.isNotEmpty) {
+                                    if (displayValue.isNotEmpty) {
                                       final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : pName;
-                                      nestedDisplayValuesForExport[paramLabel] = dValue;
+                                      nestedDisplayValuesForExport[paramLabel] = displayValue;
                                     }
                                   }
-                                  // --- End preparation for nested TableMainUI ---
 
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => BlocProvider(
+                                      builder: (context) => BlocProvider<TableBlocGenerate>(
                                         create: (context) => TableBlocGenerate(ReportAPIService())
                                           ..add(FetchApiDetails(actionApiNameResolved, const []))
                                           ..add(FetchFieldConfigs(
@@ -547,15 +537,14 @@ class TableMainUI extends StatelessWidget {
                                           apiName: actionApiNameResolved,
                                           reportLabel: actionReportLabel,
                                           userParameterValues: dynamicApiParams,
-                                          actionsConfig: const [], // Actions will be fetched by the nested TableBloc
-                                          displayParameterValues: nestedDisplayValuesForExport, // Pass display values to nested UI
-                                          companyName: companyName, // NEW: Pass companyName to nested TableMainUI
+                                          actionsConfig: const [],
+                                          displayParameterValues: nestedDisplayValuesForExport,
+                                          companyName: companyName,
                                         ),
                                       ),
                                     ),
                                   );
                                 } else if (actionType == 'print') {
-                                  // Show template and color selection dialog
                                   final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(
                                     context: context,
                                     builder: (BuildContext dialogContext) {
@@ -564,8 +553,6 @@ class TableMainUI extends StatelessWidget {
                                   );
 
                                   if (result != null) {
-                                    // debugPrint('Selected print template: ${result.template.displayName}, Color: ${result.color}');
-                                    // Navigate to PrintPreviewPage
                                     Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -579,7 +566,7 @@ class TableMainUI extends StatelessWidget {
                                       ),
                                     );
                                   } else {
-                                    debugPrint('No print template or color selected.');
+                                    print('No print template or color selected.');
                                   }
                                 } else if (actionType == 'form') {
                                   ScaffoldMessenger.of(context).showSnackBar(
@@ -616,10 +603,13 @@ class TableMainUI extends StatelessWidget {
             }
 
             final List<PlutoRow> finalRows = [];
-            List<Map<String, dynamic>> currentReportData = List.from(state.reportData);
+            List<Map<String, dynamic>> processedReportData = List.from(state.reportData);
+
+            // Revert: No longer adding a Grand Total row to `finalRows` here.
+            // _createGrandTotalRow and its call have been removed.
 
             if (breakpointColumnName != null) {
-              currentReportData.sort((a, b) {
+              processedReportData.sort((a, b) {
                 final aValue = a[breakpointColumnName]?.toString() ?? '';
                 final bValue = b[breakpointColumnName]?.toString() ?? '';
                 return aValue.compareTo(bValue);
@@ -638,11 +628,11 @@ class TableMainUI extends StatelessWidget {
                     subtotals: currentGroupSubtotals,
                     sortedFieldConfigs: sortedFieldConfigs,
                     breakpointColumnName: breakpointColumnName,
-                    hasActionsColumn: showActionsColumnFromState, // Use BLoC state's actions
-                    actionsConfigForSubtotalRow: state.actionsConfig, // Pass this to the helper
-                    numericColumnMap: numericColumnMap, // Pass the numeric map
-                    subtotalColumnDecimals: subtotalColumnDecimals, // Pass subtotal decimals
-                    indianFormatColumnMap: indianFormatColumnMap, // Pass indian format map
+                    hasActionsColumn: showActionsColumnFromState,
+                    actionsConfigForSubtotalRow: state.actionsConfig,
+                    numericColumnMap: numericColumnMap,
+                    subtotalColumnDecimals: subtotalColumnDecimals,
+                    indianFormatColumnMap: indianFormatColumnMap,
                   ));
                 }
                 currentGroupSubtotals = {
@@ -651,8 +641,8 @@ class TableMainUI extends StatelessWidget {
                 currentGroupDataRows.clear();
               }
 
-              for (int i = 0; i < currentReportData.length; i++) {
-                final data = currentReportData[i];
+              for (int i = 0; i < processedReportData.length; i++) {
+                final data = processedReportData[i];
                 final rowBreakpointValue = data[breakpointColumnName]?.toString() ?? '';
 
                 if (currentBreakpointValue != null && rowBreakpointValue != currentBreakpointValue) {
@@ -660,13 +650,11 @@ class TableMainUI extends StatelessWidget {
                 }
 
                 final rowCells = <String, PlutoCell>{};
-                // Iterate through sortedFieldConfigs to ensure all expected fields are present
                 for (var config in sortedFieldConfigs) {
                   final fieldName = config['Field_name']?.toString() ?? '';
-                  final rawValue = data[fieldName]; // Get value from data row
-                  final bool isNumeric = numericColumnMap[fieldName] ?? false; // Use the value determined earlier
+                  final rawValue = data[fieldName];
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false;
 
-                  // Ensure value is non-null for PlutoCell
                   dynamic cellValue;
                   if (isNumeric) {
                     cellValue = double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0;
@@ -676,10 +664,11 @@ class TableMainUI extends StatelessWidget {
                   rowCells[fieldName] = PlutoCell(value: cellValue);
                 }
 
-                if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
+                if (showActionsColumnFromState) {
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
+                rowCells['__raw_data__'] = PlutoCell(value: data);
                 finalRows.add(PlutoRow(cells: rowCells));
                 currentGroupDataRows.add(data);
 
@@ -693,20 +682,18 @@ class TableMainUI extends StatelessWidget {
 
                 currentBreakpointValue = rowBreakpointValue;
 
-                if (i == currentReportData.length - 1) {
+                if (i == processedReportData.length - 1) {
                   addSubtotalRowForGroup(currentBreakpointValue, currentGroupDataRows);
                 }
               }
             } else {
-              finalRows.addAll(state.reportData.map((data) {
+              finalRows.addAll(processedReportData.map((data) {
                 final rowCells = <String, PlutoCell>{};
-                // Iterate through sortedFieldConfigs to ensure all expected fields are present
                 for (var config in sortedFieldConfigs) {
                   final fieldName = config['Field_name']?.toString() ?? '';
-                  final rawValue = data[fieldName]; // Get value from data row
-                  final bool isNumeric = numericColumnMap[fieldName] ?? false; // Use the value determined earlier
+                  final rawValue = data[fieldName];
+                  final bool isNumeric = numericColumnMap[fieldName] ?? false;
 
-                  // Ensure value is non-null for PlutoCell
                   dynamic cellValue;
                   if (isNumeric) {
                     cellValue = double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0;
@@ -715,33 +702,34 @@ class TableMainUI extends StatelessWidget {
                   }
                   rowCells[fieldName] = PlutoCell(value: cellValue);
                 }
-                if (showActionsColumnFromState) { // Add dummy cell only if actions column is present
+
+                if (showActionsColumnFromState) {
                   rowCells['__actions__'] = PlutoCell(value: '');
                 }
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
+                rowCells['__raw_data__'] = PlutoCell(value: data);
                 return PlutoRow(cells: rowCells);
               }));
             }
 
-            debugPrint('TableMainUI: CustomPlutoGrid created for "${reportLabel}" with columns=${columns.length}, rows=${finalRows.length}');
+            print('TableMainUI: Final PlutoRows count before passing to ExportWidget: ${finalRows.length}');
+            print('TableMainUI: CustomPlutoGrid created for "$reportLabel" with columns=${columns.length}, rows=${finalRows.length}');
 
             return Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  // CORRECTED: Pass PlutoColumns and PlutoRows instead of raw data
                   ExportWidget(
-                    columns: columns, // Pass the PlutoColumns
-                    plutoRows: finalRows, // Pass the PlutoRows (processed data with subtotals)
+                    columns: columns,
+                    plutoRows: finalRows,
                     fileName: reportLabel,
-                    // headerMap: headerMap, // Still useful for initial header mapping logic if needed
-                    fieldConfigs: sortedFieldConfigs, // Still useful for detailed config
+                    fieldConfigs: sortedFieldConfigs,
                     reportLabel: reportLabel,
                     parameterValues: userParameterValues,
-                    displayParameterValues: displayParameterValues, // Pass the map here
+                    displayParameterValues: displayParameterValues,
                     apiParameters: state.selectedApiParameters,
                     pickerOptions: state.pickerOptions,
-                    companyName: companyName, // Pass the company name here
+                    companyName: companyName,
                   ),
                   const SizedBox(height: 16),
                   Expanded(

@@ -1,7 +1,6 @@
-// lib/ReportDynamic/ReportMaker/EditDetailMakerBloc.dart
-import 'package:flutter/cupertino.dart'; // Keep this if used for platform-specific widgets, otherwise remove
+import 'package:flutter/foundation.dart'; // For debugPrint
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:http/http.dart' as http; // Unused, can be removed if not directly used for http calls
+import 'package:pdf/pdf.dart'; // Needed for PdfColors constants in printTemplate feature
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
@@ -44,6 +43,7 @@ class SaveReport extends EditDetailMakerEvent {
   final String parameter;
   final bool needsAction;
   final List<Map<String, dynamic>> actions;
+  final bool includePdfFooterDateTime; // NEW: Added field
 
   SaveReport({
     required this.recNo,
@@ -53,6 +53,7 @@ class SaveReport extends EditDetailMakerEvent {
     required this.parameter,
     required this.needsAction,
     required this.actions,
+    required this.includePdfFooterDateTime, // Required in constructor
   });
 }
 
@@ -122,6 +123,11 @@ class UpdateTableActionReport extends EditDetailMakerEvent {
 class FetchAllReports extends EditDetailMakerEvent {}
 class FetchAllApiDetails extends EditDetailMakerEvent {}
 
+// NEW: Event for PDF footer date/time
+class ToggleIncludePdfFooterDateTime extends EditDetailMakerEvent {
+  final bool include;
+  ToggleIncludePdfFooterDateTime(this.include);
+}
 
 class EditDetailMakerState {
   final List<String> fields; // All possible fields from the API
@@ -142,9 +148,10 @@ class EditDetailMakerState {
   final Map<String, Map<String, dynamic>> reportDetailsMap;
   final Map<String, Map<String, dynamic>> allApisDetails;
 
-  final int? initialRecNo; // NEW: Store the initial RecNo
-  final String? initialApiName; // NEW: Store the initial ApiName
+  final int? initialRecNo;
+  final String? initialApiName;
 
+  final bool includePdfFooterDateTime; // NEW: Added field
 
   EditDetailMakerState({
     this.fields = const [],
@@ -162,8 +169,9 @@ class EditDetailMakerState {
     this.allReportLabels = const [],
     this.reportDetailsMap = const {},
     this.allApisDetails = const {},
-    this.initialRecNo, // Add to constructor
-    this.initialApiName, // Add to constructor
+    this.initialRecNo,
+    this.initialApiName,
+    this.includePdfFooterDateTime = false, // Initialize to false by default
   });
 
   EditDetailMakerState copyWith({
@@ -182,8 +190,9 @@ class EditDetailMakerState {
     List<String>? allReportLabels,
     Map<String, Map<String, dynamic>>? reportDetailsMap,
     Map<String, Map<String, dynamic>>? allApisDetails,
-    int? initialRecNo, // Add to copyWith
-    String? initialApiName, // Add to copyWith
+    int? initialRecNo,
+    String? initialApiName,
+    bool? includePdfFooterDateTime, // Add to copyWith
   }) {
     return EditDetailMakerState(
       fields: fields ?? this.fields,
@@ -191,7 +200,7 @@ class EditDetailMakerState {
       preselectedFields: preselectedFields ?? this.preselectedFields,
       currentField: currentField ?? this.currentField,
       isLoading: isLoading ?? this.isLoading,
-      error: error, // Pass null explicitly if you want to clear error
+      error: error,
       saveSuccess: saveSuccess ?? this.saveSuccess,
       needsAction: needsAction ?? this.needsAction,
       actions: actions ?? this.actions,
@@ -201,8 +210,9 @@ class EditDetailMakerState {
       allReportLabels: allReportLabels ?? this.allReportLabels,
       reportDetailsMap: reportDetailsMap ?? this.reportDetailsMap,
       allApisDetails: allApisDetails ?? this.allApisDetails,
-      initialRecNo: initialRecNo ?? this.initialRecNo, // Update copyWith logic
-      initialApiName: initialApiName ?? this.initialApiName, // Update copyWith logic
+      initialRecNo: initialRecNo ?? this.initialRecNo,
+      initialApiName: initialApiName ?? this.initialApiName,
+      includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime, // Update copyWith logic
     );
   }
 }
@@ -212,7 +222,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   final Uuid _uuid = const Uuid();
 
   EditDetailMakerBloc(this.apiService) : super(EditDetailMakerState()) {
-    debugPrint('Bloc: EditDetailMakerBloc initialized');
+    debugPrint('Bloc: EditDetailMakerBloc initialized'); // Retained debugPrint
     on<LoadPreselectedFields>(_onLoadPreselectedFields);
     on<SelectField>(_onSelectField);
     on<DeselectField>(_onDeselectField);
@@ -235,14 +245,15 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     on<UpdateTableActionReport>(_onUpdateTableActionReport);
     on<FetchAllReports>(_onFetchAllReports);
     on<FetchAllApiDetails>(_onFetchAllApiDetails);
+    on<ToggleIncludePdfFooterDateTime>(_onToggleIncludePdfFooterDateTime); // NEW: Register event
   }
 
   Future<void> _onLoadPreselectedFields(LoadPreselectedFields event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: Handling LoadPreselectedFields: recNo=${event.recNo}, apiName=${event.apiName}');
+    debugPrint('Bloc: Handling LoadPreselectedFields: recNo=${event.recNo}, apiName=${event.apiName}'); // Retained debugPrint
     emit(state.copyWith(
       isLoading: true,
-      error: null, // Clear any previous errors
-      saveSuccess: false, // Reset save success status
+      error: null,
+      saveSuccess: false,
       fields: [],
       selectedFields: [],
       preselectedFields: [],
@@ -250,20 +261,21 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       needsAction: false,
       actions: [],
       apiParametersCache: {},
-      allReportLabels: [], // Clear on load
-      reportDetailsMap: {}, // Clear on load
-      allApisDetails: {}, // Clear on load
-      initialRecNo: event.recNo, // Store the initial RecNo
-      initialApiName: event.apiName, // Store the initial ApiName
+      allReportLabels: [],
+      reportDetailsMap: {},
+      allApisDetails: {},
+      initialRecNo: event.recNo,
+      initialApiName: event.apiName,
+      includePdfFooterDateTime: false, // Reset this to default before loading
     ));
 
     try {
-      debugPrint('Bloc: Fetching fields, preselected fields, all demo_table reports, and all API details concurrently');
+      debugPrint('Bloc: Fetching fields, preselected fields, all demo_table reports, and all API details concurrently'); // Retained debugPrint
       final results = await Future.wait([
-        apiService.fetchApiData(event.apiName), // Get API fields for selection
-        apiService.fetchDemoTable2(event.recNo.toString()), // Get fields for current report
-        apiService.fetchDemoTable(), // Get all reports to find actions_config and report labels
-        apiService.getAvailableApis().then((apiNames) async { // Get all API names, then fetch details for each
+        apiService.fetchApiData(event.apiName),
+        apiService.fetchDemoTable2(event.recNo.toString()),
+        apiService.fetchDemoTable(),
+        apiService.getAvailableApis().then((apiNames) async {
           final Map<String, Map<String, dynamic>> allApisDetails = {};
           for (String apiName in apiNames) {
             allApisDetails[apiName] = await apiService.getApiDetails(apiName);
@@ -277,14 +289,12 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       final allReports = results[2] as List<Map<String, dynamic>>;
       final Map<String, Map<String, dynamic>> allApisDetails = results[3] as Map<String, Map<String, dynamic>>;
 
-      debugPrint('Bloc: All data fetched successfully');
-      debugPrint('Bloc: Available API details populated: ${allApisDetails.length}');
+      debugPrint('Bloc: All data fetched successfully'); // Retained debugPrint
+      debugPrint('Bloc: Available API details populated: ${allApisDetails.length}'); // Retained debugPrint
 
-      final List<String> fields = apiData.isNotEmpty ? apiData[0].keys.map((key) => key.toString()).toList() : [];
-      debugPrint('Bloc: Fields extracted from API: ${fields.length}');
+      List<String> fieldsFromApi = apiData.isNotEmpty ? apiData[0].keys.map((key) => key.toString()).toList() : [];
+      debugPrint('Bloc: Fields extracted from API: ${fieldsFromApi.length}'); // Retained debugPrint
 
-
-// Process allReports for available Report_labels and their details
       final List<String> availableReportLabels = [];
       final Map<String, Map<String, dynamic>> reportDetailsMap = {};
       for (var report in allReports) {
@@ -296,12 +306,11 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
           reportDetailsMap[label] = {
             ...report,
             'RecNo': recNo,
-            'API_name': apiName, // Ensure API_name is stored
+            'API_name': apiName,
           };
         }
       }
-      debugPrint('Bloc: Available report labels: ${availableReportLabels.length}');
-
+      debugPrint('Bloc: Available report labels: ${availableReportLabels.length}'); // Retained debugPrint
 
       final formattedFields = preselectedFieldsRaw.map((field) {
         final formatted = {
@@ -312,12 +321,11 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
           'Total': _parseBoolFromApi(field['Total']),
           'num_alignment': field['num_alignment']?.toString().toLowerCase() ?? 'left',
           'time': _parseBoolFromApi(field['time']),
-          'num_format': _parseBoolFromApi(field['indian_format']), // IMPORTANT: Use correct key 'indian_format' and parse to 'num_format' (internal state)
+          'num_format': _parseBoolFromApi(field['indian_format']),
           'decimal_points': int.tryParse(field['decimal_points']?.toString() ?? '') ?? 0,
           'Breakpoint': _parseBoolFromApi(field['Breakpoint']),
           'SubTotal': _parseBoolFromApi(field['SubTotal']),
           'image': _parseBoolFromApi(field['image']),
-// Defaulting other fields if not present in API, ensuring they are booleans/strings
           'Group_by': _parseBoolFromApi(field['Group_by']),
           'Filter': _parseBoolFromApi(field['Filter']),
           'filterJson': field['filterJson']?.toString() ?? '',
@@ -329,81 +337,109 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       }).toList();
       formattedFields.sort((a, b) => (a['Sequence_no'] as int).compareTo(b['Sequence_no'] as int));
 
+      // >>> CRITICAL FIX RE-IMPLEMENTATION: Ensure state.fields includes preselected fields <<<
+      final Set<String> allUniqueFieldNames = Set.from(fieldsFromApi);
+      for (var field in formattedFields) {
+        allUniqueFieldNames.add(field['Field_name'] as String);
+      }
+      final List<String> finalFields = allUniqueFieldNames.toList();
+      finalFields.sort(); // Keep them sorted for consistent display
+      debugPrint('Bloc: Final fields for display (including preselected): ${finalFields.length}'); // Retained debugPrint
+
+
       bool needsAction = false;
       List<Map<String, dynamic>> actions = [];
+      bool includePdfFooterDateTime = false; // NEW: Initialize from loaded report config
+
       final currentReportEntry = allReports.firstWhere(
             (report) => (report['RecNo']?.toString() ?? '0') == event.recNo.toString(),
         orElse: () {
-          debugPrint('Bloc: Current report with RecNo ${event.recNo} not found in allReports.');
+          debugPrint('Bloc: Current report with RecNo ${event.recNo} not found in allReports.'); // Retained debugPrint
           return {};
         },
       );
 
-      if (currentReportEntry.isNotEmpty && currentReportEntry['actions_config'] != null) {
-        final dynamic actionsConfigRaw = currentReportEntry['actions_config'];
-        if (actionsConfigRaw is List) {
-          actions = List<Map<String, dynamic>>.from(actionsConfigRaw);
-        } else if (actionsConfigRaw is String && actionsConfigRaw.isNotEmpty) {
-          try {
-            actions = List<Map<String, dynamic>>.from(jsonDecode(actionsConfigRaw));
-          } catch (e) {
-            debugPrint('Bloc: Error decoding actions_config: $e. Raw: $actionsConfigRaw');
-            actions = [];
-          }
-        }
-        needsAction = actions.isNotEmpty;
-        debugPrint('Bloc: Loaded actions_config for RecNo ${event.recNo}: ${actions.length} actions. needsAction=$needsAction');
+      if (currentReportEntry.isNotEmpty) {
+        // Load includePdfFooterDateTime
+        includePdfFooterDateTime = _parseBoolFromApi(currentReportEntry['pdf_footer_datetime']); // NEW: Load from 'pdf_footer_datetime' key
+        debugPrint('Bloc: Loaded pdf_footer_datetime for RecNo ${event.recNo}: $includePdfFooterDateTime'); // Retained debugPrint
 
-        final List<Map<String, dynamic>> tempActions = List.from(actions);
-        for (int i = 0; i < tempActions.length; i++) {
-          final action = tempActions[i];
-// Ensure action 'id' is a string UUID for consistency if not already
-          if (action['id'] == null || action['id'] is! String) {
-            tempActions[i]['id'] = _uuid.v4();
-          }
 
-          if (action['type'] == 'print' && action['api'] != null && (action['api'] as String).isNotEmpty) {
-// Immediately extract parameters for print actions
-            add(ExtractParametersFromUrl(action['id'], action['api']));
-          } else if (action['type'] == 'table' && action['reportLabel'] != null && (action['reportLabel'] as String).isNotEmpty) {
-            final selectedReportLabel = action['reportLabel'] as String;
-            final linkedReport = reportDetailsMap[selectedReportLabel];
-
-            if (linkedReport != null) {
-              final apiName = linkedReport['API_name']?.toString();
-              final recNoResolved = linkedReport['RecNo']?.toString();
-              tempActions[i]['recNo_resolved'] = recNoResolved;
-              tempActions[i]['reportLabel'] = selectedReportLabel; // Ensure reportLabel is also set for Autocomplete initialValue
-
-              if (apiName != null && apiName.isNotEmpty) {
-                final apiDetail = allApisDetails[apiName];
-                if (apiDetail != null) {
-                  final apiUrl = apiDetail['url']?.toString() ?? '';
-                  tempActions[i]['api'] = apiUrl;
-                  tempActions[i]['apiName_resolved'] = apiName;
-// Immediately fetch parameters for table actions based on resolved API_name
-                  add(FetchParametersFromApiConfig(action['id'], apiName));
-                } else {
-                  debugPrint('Bloc: API details not found for API Name: $apiName for report label: $selectedReportLabel');
-                  tempActions[i]['api'] = '';
-                  tempActions[i]['params'] = [];
-                  tempActions[i]['apiName_resolved'] = '';
-                }
-              }
-            } else {
-              debugPrint('Bloc: Linked report not found for label: $selectedReportLabel. Clearing API info for action.');
-              tempActions[i]['api'] = '';
-              tempActions[i]['params'] = [];
-              tempActions[i]['apiName_resolved'] = '';
-              tempActions[i]['recNo_resolved'] = '';
+        if (currentReportEntry['actions_config'] != null) {
+          final dynamic actionsConfigRaw = currentReportEntry['actions_config'];
+          if (actionsConfigRaw is List) {
+            actions = List<Map<String, dynamic>>.from(actionsConfigRaw);
+          } else if (actionsConfigRaw is String && actionsConfigRaw.isNotEmpty) {
+            try {
+              actions = List<Map<String, dynamic>>.from(jsonDecode(actionsConfigRaw));
+            } catch (e) {
+              debugPrint('Bloc: Error decoding actions_config: $e. Raw: $actionsConfigRaw'); // Retained debugPrint
+              actions = [];
             }
           }
+          needsAction = actions.isNotEmpty;
+          debugPrint('Bloc: Loaded actions_config for RecNo ${event.recNo}: ${actions.length} actions. needsAction=$needsAction'); // Retained debugPrint
+
+          final List<Map<String, dynamic>> tempActions = List.from(actions);
+          for (int i = 0; i < tempActions.length; i++) {
+            final action = tempActions[i];
+            if (action['id'] == null || action['id'] is! String) {
+              tempActions[i]['id'] = _uuid.v4();
+            }
+
+            // NEW: Default printTemplate and printColor if not already set (e.g., for old configurations)
+            if (action['type'] == 'print') {
+              if (action['printTemplate'] == null) {
+                tempActions[i]['printTemplate'] = 'premium';
+              }
+              if (action['printColor'] == null) {
+                tempActions[i]['printColor'] = 'Blue';
+              }
+            }
+
+
+            if (action['type'] == 'print' && action['api'] != null && (action['api'] as String).isNotEmpty) {
+              add(ExtractParametersFromUrl(action['id'], action['api']));
+            } else if (action['type'] == 'table' && action['reportLabel'] != null && (action['reportLabel'] as String).isNotEmpty) {
+              final selectedReportLabel = action['reportLabel'] as String;
+              final linkedReport = reportDetailsMap[selectedReportLabel];
+
+              if (linkedReport != null) {
+                final apiName = linkedReport['API_name']?.toString();
+                final recNoResolved = linkedReport['RecNo']?.toString();
+                tempActions[i]['recNo_resolved'] = recNoResolved;
+                tempActions[i]['reportLabel'] = selectedReportLabel;
+
+                if (apiName != null && apiName.isNotEmpty) {
+                  final apiDetail = allApisDetails[apiName];
+                  if (apiDetail != null) {
+                    final apiUrl = apiDetail['url']?.toString() ?? '';
+                    tempActions[i]['api'] = apiUrl;
+                    tempActions[i]['apiName_resolved'] = apiName;
+                    add(FetchParametersFromApiConfig(action['id'], apiName));
+                  } else {
+                    debugPrint('Bloc: API details not found for API Name: $apiName for report label: $selectedReportLabel'); // Retained debugPrint
+                    tempActions[i]['api'] = '';
+                    tempActions[i]['params'] = [];
+                    tempActions[i]['apiName_resolved'] = '';
+                  }
+                }
+              } else {
+                debugPrint('Bloc: Linked report not found for label: $selectedReportLabel. Clearing API info for action.'); // Retained debugPrint
+                tempActions[i]['api'] = '';
+                tempActions[i]['params'] = [];
+                tempActions[i]['apiName_resolved'] = '';
+                tempActions[i]['recNo_resolved'] = '';
+              }
+            }
+          }
+          actions = tempActions;
         }
-        actions = tempActions;
       }
 
+
       emit(state.copyWith(
-        fields: fields,
+        fields: finalFields, // Use finalFields here
         selectedFields: formattedFields,
         preselectedFields: formattedFields,
         currentField: formattedFields.isNotEmpty ? formattedFields.first : null,
@@ -414,11 +450,12 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         allReportLabels: availableReportLabels,
         reportDetailsMap: reportDetailsMap,
         allApisDetails: allApisDetails,
+        includePdfFooterDateTime: includePdfFooterDateTime, // NEW: Set this loaded value
       ));
-      debugPrint('Bloc: Final state emitted successfully after loading existing actions.');
+      debugPrint('Bloc: Final state emitted successfully after loading existing actions.'); // Retained debugPrint
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Error in LoadPreselectedFields: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Error in LoadPreselectedFields: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(
         isLoading: false,
         error: 'Failed to load fields and report details: $e',
@@ -437,9 +474,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
 
   void _onSelectField(SelectField event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: Handling SelectField: field=${event.field}');
+    debugPrint('Bloc: Handling SelectField: field=${event.field}'); // Retained debugPrint
     if (state.selectedFields.any((f) => f['Field_name'] == event.field)) {
-      debugPrint('Bloc: Field already selected: ${event.field}, skipping');
+      debugPrint('Bloc: Field already selected: ${event.field}, skipping'); // Retained debugPrint
       return;
     }
 
@@ -466,7 +503,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     final updatedFields = [...state.selectedFields, newField];
     updatedFields.sort((a, b) => (a['Sequence_no'] as int).compareTo(b['Sequence_no'] as int));
 
-    debugPrint('Bloc: Selected field: ${event.field}, Updated selectedFields: ${updatedFields.length}');
+    debugPrint('Bloc: Selected field: ${event.field}, Updated selectedFields: ${updatedFields.length}'); // Retained debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newField,
@@ -474,7 +511,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onDeselectField(DeselectField event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: Handling DeselectField: field=${event.field}');
+    debugPrint('Bloc: Handling DeselectField: field=${event.field}'); // Retained debugPrint
     final updatedFields = state.selectedFields
         .where((f) => f['Field_name'] != event.field)
         .toList();
@@ -492,7 +529,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         : state.currentField) // else keep current if it's still in the list
         : null;
 
-    debugPrint('Bloc: Deselected field: ${event.field}, Updated selectedFields: ${updatedFields.length}');
+    debugPrint('Bloc: Deselected field: ${event.field}, Updated selectedFields: ${updatedFields.length}'); // Retained debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: newCurrentField,
@@ -500,26 +537,26 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onUpdateFieldConfig(UpdateFieldConfig event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: Handling UpdateFieldConfig: key=${event.key}, value=${event.value}');
+    debugPrint('Bloc: Handling UpdateFieldConfig: key=${event.key}, value=${event.value}'); // Retained debugPrint
     if (state.currentField == null) {
-      debugPrint('Bloc: No current field to update');
+      debugPrint('Bloc: No current field to update'); // Retained debugPrint
       return;
     }
     dynamic value = event.value;
     if (event.key == 'Sequence_no' || event.key == 'width' || event.key == 'decimal_points') {
       final parsed = value is int ? value : int.tryParse(value.toString());
       if (parsed == null && value != null && value.toString().isNotEmpty) { // If value is not null/empty but parsing failed
-        debugPrint('Bloc: Invalid value for ${event.key}: $value (must be integer)');
+        debugPrint('Bloc: Invalid value for ${event.key}: $value (must be integer)'); // Retained debugPrint
         return; // Don't update state with invalid input
       }
       if (parsed != null && (event.key != 'decimal_points' && parsed < 0)) { // Allow 0 for decimal_points, but not negative
-        debugPrint('Bloc: Invalid value for ${event.key}: $value (must be non-negative integer)');
+        debugPrint('Bloc: Invalid value for ${event.key}: $value (must be non-negative integer)'); // Retained debugPrint
         return;
       }
       value = parsed; // Store parsed int or null
     } else if (['Total', 'num_format', 'time', 'Breakpoint', 'SubTotal', 'image'].contains(event.key)) { // Use 'num_format' here
       value = event.value == true;
-      debugPrint('Bloc: Updating boolean field ${event.key}: $value');
+      debugPrint('Bloc: Updating boolean field ${event.key}: $value'); // Retained debugPrint
     }
     final updatedField = {...state.currentField!, event.key: value};
     final updatedFields = state.selectedFields.map((field) {
@@ -532,7 +569,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       return aSeq.compareTo(bSeq);
     });
 
-    debugPrint('Bloc: Updated field: ${updatedField['Field_name']}, ${event.key}=$value, updatedFields count=${updatedFields.length}');
+    debugPrint('Bloc: Updated field: ${updatedField['Field_name']}, ${event.key}=$value, updatedFields count=${updatedFields.length}'); // Retained debugPrint
     emit(state.copyWith(
       selectedFields: updatedFields,
       currentField: updatedField,
@@ -541,14 +578,14 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onUpdateCurrentField(UpdateCurrentField event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: Handling UpdateCurrentField: field=${event.field['Field_name']}');
+    debugPrint('Bloc: Handling UpdateCurrentField: field=${event.field['Field_name']}'); // Retained debugPrint
     emit(state.copyWith(currentField: event.field));
   }
 
   Future<void> _onSaveReport(SaveReport event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: Handling SaveReport: recNo=${event.recNo}, reportName=${event.reportName}');
+    debugPrint('Bloc: Handling SaveReport: recNo=${event.recNo}, reportName=${event.reportName}'); // Retained debugPrint
     if (state.selectedFields.isEmpty) {
-      debugPrint('Bloc: Save failed: No fields selected');
+      debugPrint('Bloc: Save failed: No fields selected'); // Retained debugPrint
       emit(state.copyWith(
         isLoading: false,
         error: 'No fields selected to save.',
@@ -559,9 +596,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
     emit(state.copyWith(isLoading: true, error: null, saveSuccess: false));
     try {
-      debugPrint('Bloc: Preparing report metadata for saving.');
+      debugPrint('Bloc: Preparing report metadata for saving.'); // Retained debugPrint
 
-      debugPrint('Bloc: Processing field configs for saving.');
+      debugPrint('Bloc: Processing field configs for saving.'); // Retained debugPrint
       final fieldConfigs = state.selectedFields.map((field) {
         return {
           'Field_name': field['Field_name']?.toString() ?? '',
@@ -585,12 +622,10 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         };
       }).toList();
 
-      // --- ADDED LOGGING HERE ---
-      debugPrint('Bloc: Payload for Demo_table_2 (fieldConfigs) for RecNo ${event.recNo}:');
+      debugPrint('Bloc: Payload for Demo_table_2 (fieldConfigs) for RecNo ${event.recNo}:'); // Retained debugPrint
       for (var config in fieldConfigs) {
-        debugPrint('  Field: ${config['Field_name']}, indian_format: ${config['indian_format']}, decimal_points: ${config['decimal_points']}');
+        debugPrint('  Field: ${config['Field_name']}, indian_format: ${config['indian_format']}, decimal_points: ${config['decimal_points']}'); // Retained debugPrint
       }
-      // --- END ADDED LOGGING ---
 
 
       final processedActionsToSave = state.actions.map((action) {
@@ -602,13 +637,20 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
             'apiName_resolved': action['apiName_resolved'],
             'recNo_resolved': action['recNo_resolved'],
           };
+        } else if (action['type'] == 'print') { // NEW: Add printTemplate and printColor to saved action
+          return {
+            ...action,
+            'printTemplate': action['printTemplate']?.toString() ?? 'premium',
+            'printColor': action['printColor']?.toString() ?? 'Blue',
+          };
         }
         return action;
       }).toList();
 
       final List<Map<String, dynamic>> actionsToSaveFinal = event.needsAction ? processedActionsToSave : [];
 
-      debugPrint('Bloc: Calling apiService.editDemoTables for RecNo: ${event.recNo}');
+      debugPrint('Bloc: Calling apiService.editDemoTables for RecNo: ${event.recNo}'); // Retained debugPrint
+      debugPrint('Bloc: includePdfFooterDateTime being sent to API: ${event.includePdfFooterDateTime}'); // Retained debugPrint
       await apiService.editDemoTables(
         recNo: event.recNo,
         reportName: event.reportName,
@@ -617,13 +659,14 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         parameter: 'default',
         fieldConfigs: fieldConfigs,
         actions: actionsToSaveFinal,
+        includePdfFooterDateTime: event.includePdfFooterDateTime, // NEW: Pass to API service
       );
 
-      debugPrint('Bloc: Save successful');
+      debugPrint('Bloc: Save successful'); // Retained debugPrint
       emit(state.copyWith(isLoading: false, error: null, saveSuccess: true));
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Save error: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Save error: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(isLoading: false, error: 'Failed to update report: $e', saveSuccess: false));
     }
   }
@@ -636,10 +679,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
 
   void _onResetFields(ResetFields event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: Handling ResetFields');
-// Ensure initialRecNo exists before trying to use it
+    debugPrint('Bloc: Handling ResetFields'); // Retained debugPrint
     if (state.initialRecNo == null) {
-      debugPrint('Bloc: Cannot reset fields, initialRecNo is null.');
+      debugPrint('Bloc: Cannot reset fields, initialRecNo is null.'); // Retained debugPrint
       emit(state.copyWith(
         error: 'Initial report details not loaded. Please reload the page.',
         saveSuccess: false,
@@ -658,64 +700,82 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       allReportLabels: state.allReportLabels,
       reportDetailsMap: state.reportDetailsMap,
       allApisDetails: state.allApisDetails,
+      includePdfFooterDateTime: false, // Reset this to default (it will be re-loaded below)
     ));
 
-// Re-trigger the initial action loading if needed based on original config
     final currentReportEntry = state.reportDetailsMap.values.firstWhere(
-          (report) => (report['RecNo']?.toString() ?? '0') == state.initialRecNo!.toString(), // FIX: Use state.initialRecNo
+          (report) => (report['RecNo']?.toString() ?? '0') == state.initialRecNo!.toString(),
       orElse: () {
-        debugPrint('Bloc: Current report with RecNo ${state.initialRecNo} not found in allReports during reset.');
+        debugPrint('Bloc: Current report with RecNo ${state.initialRecNo} not found in allReports during reset.'); // Retained debugPrint
         return {};
       },
     );
-    if (currentReportEntry.isNotEmpty && currentReportEntry['actions_config'] != null) {
-      final dynamic actionsConfigRaw = currentReportEntry['actions_config'];
-      List<Map<String, dynamic>> initialActions = [];
-      if (actionsConfigRaw is List) {
-        initialActions = List<Map<String, dynamic>>.from(actionsConfigRaw);
-      } else if (actionsConfigRaw is String && actionsConfigRaw.isNotEmpty) {
-        try {
-          initialActions = List<Map<String, dynamic>>.from(jsonDecode(actionsConfigRaw));
-        } catch (e) {
-          debugPrint('Bloc: Error decoding actions_config during reset: $e');
-        }
-      }
-      if (initialActions.isNotEmpty) {
-        final List<Map<String, dynamic>> tempActions = List.from(initialActions);
-        for (int i = 0; i < tempActions.length; i++) {
-          final action = tempActions[i];
-          if (action['id'] == null || action['id'] is! String) {
-            tempActions[i]['id'] = _uuid.v4(); // Assign new UUID if missing
+    if (currentReportEntry.isNotEmpty) {
+      // Re-load includePdfFooterDateTime on reset from original config
+      final bool initialPdfFooterDateTime = _parseBoolFromApi(currentReportEntry['pdf_footer_datetime']);
+      debugPrint('Bloc: Re-loaded pdf_footer_datetime during reset: $initialPdfFooterDateTime'); // Retained debugPrint
+      emit(state.copyWith(includePdfFooterDateTime: initialPdfFooterDateTime));
+
+      if (currentReportEntry['actions_config'] != null) {
+        final dynamic actionsConfigRaw = currentReportEntry['actions_config'];
+        List<Map<String, dynamic>> initialActions = [];
+        if (actionsConfigRaw is List) {
+          initialActions = List<Map<String, dynamic>>.from(actionsConfigRaw);
+        } else if (actionsConfigRaw is String && actionsConfigRaw.isNotEmpty) {
+          try {
+            initialActions = List<Map<String, dynamic>>.from(jsonDecode(actionsConfigRaw));
+          } catch (e) {
+            debugPrint('Bloc: Error decoding actions_config during reset: $e'); // Retained debugPrint
           }
-          if (action['type'] == 'print' && action['api'] != null && (action['api'] as String).isNotEmpty) {
-            add(ExtractParametersFromUrl(action['id'], action['api']));
-          } else if (action['type'] == 'table' && action['reportLabel'] != null && (action['reportLabel'] as String).isNotEmpty) {
-            final selectedReportLabel = action['reportLabel'] as String;
-            final linkedReport = state.reportDetailsMap[selectedReportLabel];
-            if (linkedReport != null) {
-              final apiName = linkedReport['API_name']?.toString();
-              if (apiName != null && apiName.isNotEmpty) {
-                tempActions[i]['api'] = state.allApisDetails[apiName]?['url']?.toString() ?? '';
-                tempActions[i]['apiName_resolved'] = apiName;
-                tempActions[i]['recNo_resolved'] = linkedReport['RecNo']?.toString() ?? '';
-                add(FetchParametersFromApiConfig(action['id'], apiName));
+        }
+        if (initialActions.isNotEmpty) {
+          final List<Map<String, dynamic>> tempActions = List.from(initialActions);
+          for (int i = 0; i < tempActions.length; i++) {
+            final action = tempActions[i];
+            if (action['id'] == null || action['id'] is! String) {
+              tempActions[i]['id'] = _uuid.v4();
+            }
+
+            // NEW: Default printTemplate and printColor if not already set (e.g., for old configurations)
+            if (action['type'] == 'print') {
+              if (action['printTemplate'] == null) {
+                tempActions[i]['printTemplate'] = 'premium';
+              }
+              if (action['printColor'] == null) {
+                tempActions[i]['printColor'] = 'Blue';
+              }
+            }
+
+            if (action['type'] == 'print' && action['api'] != null && (action['api'] as String).isNotEmpty) {
+              add(ExtractParametersFromUrl(action['id'], action['api']));
+            } else if (action['type'] == 'table' && action['reportLabel'] != null && (action['reportLabel'] as String).isNotEmpty) {
+              final selectedReportLabel = action['reportLabel'] as String;
+              final linkedReport = state.reportDetailsMap[selectedReportLabel];
+              if (linkedReport != null) {
+                final apiName = linkedReport['API_name']?.toString();
+                if (apiName != null && apiName.isNotEmpty) {
+                  tempActions[i]['api'] = state.allApisDetails[apiName]?['url']?.toString() ?? '';
+                  tempActions[i]['apiName_resolved'] = apiName;
+                  tempActions[i]['recNo_resolved'] = linkedReport['RecNo']?.toString() ?? '';
+                  add(FetchParametersFromApiConfig(action['id'], apiName));
+                }
               }
             }
           }
+          emit(state.copyWith(actions: tempActions, needsAction: true));
         }
-        emit(state.copyWith(actions: tempActions, needsAction: true));
       }
     }
-    debugPrint('Bloc: State reset to preselected fields and re-initialized actions.');
+    debugPrint('Bloc: State reset to preselected fields and re-initialized actions and footer datetime.'); // Retained debugPrint
   }
 
   void _onToggleNeedsAction(ToggleNeedsActionEvent event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: ToggleNeedsAction: ${event.needsAction}');
+    debugPrint('Bloc: ToggleNeedsAction: ${event.needsAction}'); // Retained debugPrint
     emit(state.copyWith(needsAction: event.needsAction));
   }
 
   void _onAddAction(AddAction event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: AddAction type=${event.type}, id=${event.id}');
+    debugPrint('Bloc: AddAction type=${event.type}, id=${event.id}'); // Retained debugPrint
     if (state.actions.length >= 5) {
       emit(state.copyWith(error: 'Maximum 5 actions allowed.'));
       return;
@@ -725,23 +785,36 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       return;
     }
 
-    final newAction = {
-      'id': event.id,
-      'type': event.type,
-      'name': '${event.type.toCapitalized()} ${state.actions.length + 1}',
-      'api': '',
-      'reportLabel': '', // Only used by 'table' type
-      'apiName_resolved': '', // Only used by 'table' type
-      'recNo_resolved': '', // Only used by 'table' type
-      'params': <Map<String, dynamic>>[],
-    };
+    final Map<String, dynamic> newAction;
+    if (event.type == 'print') {
+      newAction = {
+        'id': event.id,
+        'type': event.type,
+        'name': '${event.type.toCapitalized()} ${state.actions.length + 1}',
+        'api': '',
+        'params': <Map<String, dynamic>>[],
+        'printTemplate': 'premium', // Default print template
+        'printColor': 'Blue', // Default print color
+      };
+    } else {
+      newAction = {
+        'id': event.id,
+        'type': event.type,
+        'name': '${event.type.toCapitalized()} ${state.actions.length + 1}',
+        'api': '',
+        'reportLabel': '',
+        'apiName_resolved': '',
+        'recNo_resolved': '',
+        'params': <Map<String, dynamic>>[],
+      };
+    }
 
     final updatedActions = List<Map<String, dynamic>>.from(state.actions)..add(newAction);
     emit(state.copyWith(actions: updatedActions, error: null));
   }
 
   void _onRemoveAction(RemoveAction event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: RemoveAction id=${event.id}');
+    debugPrint('Bloc: RemoveAction id=${event.id}'); // Retained debugPrint
     final updatedActions = state.actions.where((action) => action['id'] != event.id).toList();
     final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
     updatedCache.remove(event.id);
@@ -750,15 +823,11 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onUpdateActionConfig(UpdateActionConfig event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: UpdateActionConfig id=${event.actionId}, key=${event.key}, value=${event.value}');
+    debugPrint('Bloc: UpdateActionConfig id=${event.actionId}, key=${event.key}, value=${event.value}'); // Retained debugPrint
     final updatedActions = state.actions.map((action) {
       if (action['id'] == event.actionId) {
         final Map<String, dynamic> updatedAction = Map<String, dynamic>.from(action);
         updatedAction[event.key] = event.value;
-
-// No need to dispatch ExtractParametersFromUrl here for 'api' change,
-// as that's handled in the UI with debouncing for 'print' action.
-// For 'table' action, 'api' is resolved by 'reportLabel' change.
 
         return updatedAction;
       }
@@ -768,7 +837,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onAddActionParameter(AddActionParameter event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: AddActionParameter actionId=${event.actionId}, paramId=${event.paramId}');
+    debugPrint('Bloc: AddActionParameter actionId=${event.actionId}, paramId=${event.paramId}'); // Retained debugPrint
     final updatedActions = state.actions.map((action) {
       if (action['id'] == event.actionId) {
         final List<Map<String, dynamic>> params = List<Map<String, dynamic>>.from(action['params'] ?? []);
@@ -785,7 +854,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onRemoveActionParameter(RemoveActionParameter event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: RemoveActionParameter actionId=${event.actionId}, paramId=${event.paramId}');
+    debugPrint('Bloc: RemoveActionParameter actionId=${event.actionId}, paramId=${event.paramId}'); // Retained debugPrint
     final updatedActions = state.actions.map((action) {
       if (action['id'] == event.actionId) {
         final List<Map<String, dynamic>> params = List<Map<String, dynamic>>.from(action['params'] ?? []);
@@ -798,7 +867,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   void _onUpdateActionParameter(UpdateActionParameter event, Emitter<EditDetailMakerState> emit) {
-    debugPrint('Bloc: UpdateActionParameter actionId=${event.actionId}, paramId=${event.paramId}, key=${event.key}, value=${event.value}');
+    debugPrint('Bloc: UpdateActionParameter actionId=${event.actionId}, paramId=${event.paramId}, key=${event.key}, value=${event.value}'); // Retained debugPrint
     final updatedActions = state.actions.map((action) {
       if (action['id'] == event.actionId) {
         final List<Map<String, dynamic>> params = List<Map<String, dynamic>>.from(action['params'] ?? []);
@@ -816,7 +885,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   Future<void> _onExtractParametersFromUrl(ExtractParametersFromUrl event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: ExtractParametersFromUrl for actionId=${event.actionId}, apiUrl=${event.apiUrl}');
+    debugPrint('Bloc: ExtractParametersFromUrl for actionId=${event.actionId}, apiUrl=${event.apiUrl}'); // Retained debugPrint
 
     emit(state.copyWith(isFetchingApiParams: true, currentActionIdFetching: event.actionId, error: null));
 
@@ -828,14 +897,13 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         parameters.removeWhere((p) => ['type', 'ucode', 'val8'].contains(p.toLowerCase())); // Filter out common fixed parameters
       }
 
-      debugPrint('Bloc: Extracted parameters from URL for ${event.actionId}: $parameters');
+      debugPrint('Bloc: Extracted parameters from URL for ${event.actionId}: $parameters'); // Retained debugPrint
       final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
       updatedCache[event.actionId] = parameters;
 
       final updatedActions = state.actions.map((action) {
         if (action['id'] == event.actionId) {
           final List<Map<String, dynamic>> currentParams = List<Map<String, dynamic>>.from(action['params'] ?? []);
-// Only keep parameters that are still found in the extracted list
           final filteredParams = currentParams.where((p) => parameters.contains(p['parameterName'])).toList();
           return {...action, 'params': filteredParams};
         }
@@ -851,8 +919,8 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         error: null,
       ));
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Error extracting API parameters from URL for ${event.actionId}: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Error extracting API parameters from URL for ${event.actionId}: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(
         isFetchingApiParams: false,
         currentActionIdFetching: null,
@@ -862,12 +930,11 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   Future<void> _onFetchParametersFromApiConfig(FetchParametersFromApiConfig event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: FetchParametersFromApiConfig for actionId=${event.actionId}, apiName=${event.apiName}');
+    debugPrint('Bloc: FetchParametersFromApiConfig for actionId=${event.actionId}, apiName=${event.apiName}'); // Retained debugPrint
     emit(state.copyWith(isFetchingApiParams: true, currentActionIdFetching: event.actionId, error: null));
 
     try {
       Map<String, dynamic>? apiDetail = state.allApisDetails[event.apiName];
-// If API details not in cache, fetch it.
       if (apiDetail == null) {
         apiDetail = await apiService.getApiDetails(event.apiName); // This service call also updates its internal cache
         final newAllApisDetails = Map<String, Map<String, dynamic>>.from(state.allApisDetails);
@@ -882,7 +949,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         parameterNames.removeWhere((p) => ['type', 'ucode', 'val8'].contains(p.toLowerCase())); // Filter out common fixed parameters
       }
 
-      debugPrint('Bloc: Extracted config parameters for ${event.actionId} (API: ${event.apiName}): $parameterNames');
+      debugPrint('Bloc: Extracted config parameters for ${event.actionId} (API: ${event.apiName}): $parameterNames'); // Retained debugPrint
       final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
       updatedCache[event.actionId] = parameterNames;
 
@@ -903,8 +970,8 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         error: null,
       ));
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Error fetching API config parameters for ${event.actionId}: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Error fetching API config parameters for ${event.actionId}: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(
         isFetchingApiParams: false,
         currentActionIdFetching: null,
@@ -914,13 +981,13 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   Future<void> _onUpdateTableActionReport(UpdateTableActionReport event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: Handling UpdateTableActionReport for actionId=${event.actionId}, reportLabel=${event.reportLabel}');
+    debugPrint('Bloc: Handling UpdateTableActionReport for actionId=${event.actionId}, reportLabel=${event.reportLabel}'); // Retained debugPrint
 
     final updatedActions = List<Map<String, dynamic>>.from(state.actions);
     final actionIndex = updatedActions.indexWhere((a) => a['id'] == event.actionId);
 
     if (actionIndex != -1) {
-      debugPrint('Bloc: Found action at index $actionIndex.');
+      debugPrint('Bloc: Found action at index $actionIndex.'); // Retained debugPrint
       final selectedReportData = state.reportDetailsMap[event.reportLabel];
       String resolvedApiUrl = '';
       String? resolvedApiName;
@@ -929,49 +996,47 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       List<Map<String, dynamic>> newParams = []; // Clear parameters on report label change
 
       if (event.reportLabel.isEmpty) {
-        debugPrint('Bloc: Report label cleared. Clearing resolved API and params.');
+        debugPrint('Bloc: Report label cleared. Clearing resolved API and params.'); // Retained debugPrint
         resolvedApiUrl = '';
         resolvedApiName = '';
         recNoResolved = '';
       } else if (selectedReportData != null) {
-        debugPrint('Bloc: Found report details for label: ${event.reportLabel}');
+        debugPrint('Bloc: Found report details for label: ${event.reportLabel}'); // Retained debugPrint
         resolvedApiName = selectedReportData['API_name']?.toString();
         recNoResolved = selectedReportData['RecNo']?.toString();
-        debugPrint('Bloc: Resolved RecNo from report details: $recNoResolved');
+        debugPrint('Bloc: Resolved RecNo from report details: $recNoResolved'); // Retained debugPrint
 
         if (resolvedApiName != null && resolvedApiName.isNotEmpty) {
-          debugPrint('Bloc: Resolved API_name from report details: $resolvedApiName');
-// Try to get API details from cache first
+          debugPrint('Bloc: Resolved API_name from report details: $resolvedApiName'); // Retained debugPrint
           final apiDetail = state.allApisDetails[resolvedApiName];
           if (apiDetail != null) {
             resolvedApiUrl = apiDetail['url']?.toString() ?? '';
-            debugPrint('Bloc: Found API details for resolved API_name: $resolvedApiName, URL: $resolvedApiUrl (from cache)');
+            debugPrint('Bloc: Found API details for resolved API_name: $resolvedApiName, URL: $resolvedApiUrl (from cache)'); // Retained debugPrint
           } else {
-// If not in cache, explicitly fetch it and update state's allApisDetails
             try {
               final fetchedApiDetail = await apiService.getApiDetails(resolvedApiName);
               resolvedApiUrl = fetchedApiDetail['url']?.toString() ?? '';
               final newAllApisDetails = Map<String, Map<String, dynamic>>.from(state.allApisDetails);
               newAllApisDetails[resolvedApiName] = fetchedApiDetail;
               emit(state.copyWith(allApisDetails: newAllApisDetails));
-              debugPrint('Bloc: Fetched API details for resolved API_name: $resolvedApiName, URL: $resolvedApiUrl (explicit fetch)');
+              debugPrint('Bloc: Fetched API details for resolved API_name: $resolvedApiName, URL: $resolvedApiUrl (explicit fetch)'); // Retained debugPrint
             } catch (e) {
               error = 'API details (URL) not found for API Name: $resolvedApiName. Error: $e';
-              debugPrint('Bloc: ERROR: $error');
+              debugPrint('Bloc: ERROR: $e'); // Retained debugPrint
             }
           }
         } else {
           error = 'API Name not found for Report Label: ${event.reportLabel}. Check demo_table configuration.';
-          debugPrint('Bloc: ERROR: $error');
+          debugPrint('Bloc: ERROR: $error'); // Retained debugPrint
         }
       } else {
         error = 'Report details not found for label: ${event.reportLabel}. This report might not exist in demo_table.';
-        debugPrint('Bloc: ERROR: $error');
+        debugPrint('Bloc: ERROR: $error'); // Retained debugPrint
       }
 
       final updatedAction = Map<String, dynamic>.from(updatedActions[actionIndex]);
       updatedAction['reportLabel'] = event.reportLabel;
-      updatedAction['api'] = resolvedApiUrl; // Set resolved API URL
+      updatedAction['api'] = resolvedApiUrl;
       updatedAction['apiName_resolved'] = resolvedApiName;
       updatedAction['recNo_resolved'] = recNoResolved;
       updatedAction['params'] = newParams; // Clear old parameters
@@ -980,26 +1045,25 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
       final updatedCache = Map<String, List<String>>.from(state.apiParametersCache);
       if (error != null || event.reportLabel.isEmpty) {
-        updatedCache.remove(event.actionId); // Clear cached parameters if there's an error or label is cleared
+        updatedCache.remove(event.actionId);
       }
 
       emit(state.copyWith(actions: updatedActions, error: error, apiParametersCache: updatedCache));
 
       if (resolvedApiName != null && resolvedApiName.isNotEmpty && error == null && resolvedApiUrl.isNotEmpty) {
-        debugPrint('Bloc: Dispatching FetchParametersFromApiConfig for actionId: ${event.actionId}, apiName: $resolvedApiName');
+        debugPrint('Bloc: Dispatching FetchParametersFromApiConfig for actionId: ${event.actionId}, apiName: $resolvedApiName'); // Retained debugPrint
         add(FetchParametersFromApiConfig(event.actionId, resolvedApiName));
       } else {
-        debugPrint('Bloc: Not dispatching FetchParametersFromApiConfig due to missing resolved API name, URL or error.');
+        debugPrint('Bloc: Not dispatching FetchParametersFromApiConfig due to missing resolved API name, URL or error.'); // Retained debugPrint
       }
     } else {
-      debugPrint('Bloc: UpdateTableActionReport: Action with ID ${event.actionId} not found.');
+      debugPrint('Bloc: UpdateTableActionReport: Action with ID ${event.actionId} not found.'); // Retained debugPrint
     }
   }
 
 
-// These are manually triggered in case of a problem, usually done by LoadPreselectedFields
   Future<void> _onFetchAllReports(FetchAllReports event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: FetchAllReports initiated (manual trigger, usually handled by LoadPreselectedFields)');
+    debugPrint('Bloc: FetchAllReports initiated (manual trigger, usually handled by LoadPreselectedFields)'); // Retained debugPrint
     try {
       final reports = await apiService.fetchDemoTable();
       final List<String> availableReportLabels = [];
@@ -1018,16 +1082,16 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         }
       }
       emit(state.copyWith(allReportLabels: availableReportLabels, reportDetailsMap: reportDetailsMap));
-      debugPrint('Bloc: Fetched ${reports.length} reports for autocomplete.');
+      debugPrint('Bloc: Fetched ${reports.length} reports for autocomplete.'); // Retained debugPrint
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Error fetching all reports: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Error fetching all reports: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(error: 'Failed to load reports for autocomplete: $e'));
     }
   }
 
   Future<void> _onFetchAllApiDetails(FetchAllApiDetails event, Emitter<EditDetailMakerState> emit) async {
-    debugPrint('Bloc: FetchAllApiDetails initiated (manual trigger, usually handled by LoadPreselectedFields)');
+    debugPrint('Bloc: FetchAllApiDetails initiated (manual trigger, usually handled by LoadPreselectedFields)'); // Retained debugPrint
     try {
       final List<String> apiNames = await apiService.getAvailableApis();
       final Map<String, Map<String, dynamic>> apiDetailsMap = {};
@@ -1035,12 +1099,18 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         apiDetailsMap[name] = await apiService.getApiDetails(name);
       }
       emit(state.copyWith(allApisDetails: apiDetailsMap));
-      debugPrint('Bloc: Fetched ${apiNames.length} API details.');
+      debugPrint('Bloc: Fetched ${apiNames.length} API details.'); // Retained debugPrint
     } catch (e, stackTrace) {
-      debugPrint('Bloc: Error fetching all API details: $e');
-      debugPrint('Bloc: Stack trace: $stackTrace');
+      debugPrint('Bloc: Error fetching all API details: $e'); // Retained debugPrint
+      debugPrint('Bloc: Stack trace: $stackTrace'); // Retained debugPrint
       emit(state.copyWith(error: 'Failed to load API details: $e'));
     }
+  }
+
+  // NEW: Handler for ToggleIncludePdfFooterDateTime event
+  void _onToggleIncludePdfFooterDateTime(ToggleIncludePdfFooterDateTime event, Emitter<EditDetailMakerState> emit) {
+    debugPrint('Bloc: Toggling includePdfFooterDateTime to: ${event.include}'); // Retained debugPrint
+    emit(state.copyWith(includePdfFooterDateTime: event.include));
   }
 }
 

@@ -60,7 +60,7 @@ class DownloadTracker {
 
 class ExportWidget extends StatefulWidget {
   final List<PlutoColumn> columns;
-  final List<PlutoRow> plutoRows;
+  final List<PlutoRow> plutoRows; // This now only contains data rows and subtotals. Grand total is in UI footer.
   final String fileName;
   final List<Map<String, dynamic>>? fieldConfigs;
   final String reportLabel;
@@ -68,7 +68,7 @@ class ExportWidget extends StatefulWidget {
   final Map<String, String> displayParameterValues; // Already filtered by ReportUI for visible & non-empty
   final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
   final Map<String, List<Map<String, String>>>? pickerOptions;
-  final String companyName; // NEW: Add companyName to ExportWidget constructor
+  final String companyName;
 
   const ExportWidget({
     required this.columns,
@@ -80,7 +80,7 @@ class ExportWidget extends StatefulWidget {
     required this.displayParameterValues,
     this.apiParameters,
     this.pickerOptions,
-    required this.companyName, // NEW: Make companyName required
+    required this.companyName,
     super.key,
   });
 
@@ -93,9 +93,9 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _pdfDebouncer = Debouncer(const Duration(milliseconds: 500));
   final _emailDebouncer = Debouncer(const Duration(milliseconds: 500));
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
-  final String _exportId = UniqueKey().toString(); // Unique ID for each widget instance/export lifecycle
+  final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'http://localhost:3000'; // <<-- YOUR NODE.JS API BASE URL
+  static const String _pdfApiBaseUrl = 'http://localhost:3000';
 
   @override
   void initState() {
@@ -103,32 +103,22 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('ExportWidget: Initialized with exportId=$_exportId, fileName=${widget.fileName}');
   }
 
-  // MODIFIED: Helper to get the company name for the header, considering 'show' and 'display_value_cache'
   String? get _companyNameForHeader {
-    // Prioritize the companyName passed directly to ExportWidget (from ReportMainUI/TableMainUI)
     if (widget.companyName.isNotEmpty) {
       print('ExportWidget: Company name (from passed prop) found: ${widget.companyName}');
       return widget.companyName;
     }
-
-    // Fallback logic: If companyName was not directly passed or is empty, try to derive it from apiParameters.
-    // This is useful if the `companyName` field was not explicitly populated in the higher-level UI
-    // or if this widget is used in a context where `companyName` isn't directly computed by its parent.
     if (widget.apiParameters != null) {
       for (var param in widget.apiParameters!) {
         if (param['is_company_name_field'] == true) {
           final paramName = param['name'].toString();
-
-          // Case 1: Parameter is shown in UI (show: true). Use the value from displayParameterValues.
           if (param['show'] == true) {
             final companyDisplayName = widget.displayParameterValues[paramName];
             if (companyDisplayName != null && companyDisplayName.isNotEmpty) {
               print('ExportWidget: Company name (from UI/visible param in fallback) found: $companyDisplayName');
               return companyDisplayName;
             }
-          }
-          // Case 2: Parameter is NOT shown in UI (show: false). Use display_value_cache.
-          else if (param['display_value_cache'] != null && param['display_value_cache'].toString().isNotEmpty) {
+          } else if (param['display_value_cache'] != null && param['display_value_cache'].toString().isNotEmpty) {
             final companyDisplayName = param['display_value_cache'].toString();
             print('ExportWidget: Company name (from display_value_cache in fallback) found: $companyDisplayName');
             return companyDisplayName;
@@ -140,15 +130,11 @@ class _ExportWidgetState extends State<ExportWidget> {
     return null;
   }
 
-
   @override
   Widget build(BuildContext context) {
-    // Determine if export buttons should be enabled: data must not be empty AND no global export in progress.
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
-
     print('ExportWidget: Building with exportId=$_exportId, dataLength=${widget.plutoRows.length}, ExportLock.isExporting=${ExportLock.isExporting}');
     print('ExportWidget: Derived company name for header: ${_companyNameForHeader ?? 'N/A'}');
-
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -163,9 +149,9 @@ class _ExportWidgetState extends State<ExportWidget> {
                 await _exportToExcel(context);
               });
             }
-                : null, // Button disabled if canExport is false
+                : null,
             style: ElevatedButton.styleFrom(
-              backgroundColor: canExport ? Colors.green : Colors.grey, // Visual feedback for disabled state
+              backgroundColor: canExport ? Colors.green : Colors.grey,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             ),
             child: Text(
@@ -179,7 +165,7 @@ class _ExportWidgetState extends State<ExportWidget> {
                 ? () async {
               print('ExportWidget: PDF button clicked, exportId=$_exportId');
               await _pdfDebouncer.debounce(() async {
-                await _exportToPDF(context); // This will download the PDF
+                await _exportToPDF(context);
               });
             }
                 : null,
@@ -216,8 +202,7 @@ class _ExportWidgetState extends State<ExportWidget> {
             onPressed: canExport
                 ? () async {
               print('ExportWidget: Print button clicked, exportId=$_exportId');
-              // No debouncer for Print because it's usually a direct action to a system dialog
-              await _printDocument(context); // This will trigger the print dialog
+              await _printDocument(context);
             }
                 : null,
             style: ElevatedButton.styleFrom(
@@ -258,17 +243,15 @@ class _ExportWidgetState extends State<ExportWidget> {
       return;
     }
 
-    ExportLock.startExport(); // Acquire global lock FIRST
+    ExportLock.startExport();
     if (context.mounted) {
-      setState(() {}); // Rebuild widget to gray out buttons IMMEDIATELY
+      setState(() {});
     }
 
     bool dialogShown = false;
     if (context.mounted) {
       Future.delayed(Duration.zero, () {
-        // Use Duration.zero to schedule after current frame
         if (context.mounted && ExportLock.isExporting) {
-          // Double check if still exporting and context is valid
           print('$taskName: Showing loader dialog, exportId=$_exportId');
           showDialog(
             context: context,
@@ -281,11 +264,10 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
 
     try {
-      await task(); // Execute the specific export task
+      await task();
     } catch (e) {
       print('$taskName: Exception caught: $e, exportId=$_exportId');
       String errorMessage = 'Failed to $taskName. Please try again.';
-      // More specific error messages for PDF API errors
       if (e.toString().contains('Failed to generate PDF on server')) {
         errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
       } else if (e.toString().contains('Connection refused')) {
@@ -304,9 +286,9 @@ class _ExportWidgetState extends State<ExportWidget> {
         print('$taskName: Dismissing loader dialog, exportId=$_exportId');
         Navigator.of(context).pop();
       }
-      ExportLock.endExport(); // Release global lock
+      ExportLock.endExport();
       if (context.mounted) {
-        setState(() {}); // Rebuild widget to re-enable buttons
+        setState(() {});
       }
       print('$taskName: Resetting state and releasing global lock, exportId=$_exportId');
     }
@@ -315,56 +297,137 @@ class _ExportWidgetState extends State<ExportWidget> {
     print('$taskName: Total export time: ${endTime.difference(startTime).inMilliseconds} ms, exportId=$_exportId');
   }
 
+  // Helper to calculate grand totals from provided PlutoRows
+  Map<String, dynamic>? _calculateGrandTotals(
+      List<PlutoColumn> columns,
+      List<PlutoRow> plutoRows,
+      List<Map<String, dynamic>>? fieldConfigs,
+      ) {
+    bool hasGrandTotals = false;
+    if (fieldConfigs != null) {
+      hasGrandTotals = fieldConfigs.any((config) => config['Total']?.toString() == '1');
+    }
+
+    if (!hasGrandTotals) {
+      print('CalculateGrandTotals: No columns marked for Total. Returning null.');
+      return null;
+    }
+
+    final Map<String, dynamic> grandTotals = {};
+    final Map<String, Map<String, dynamic>> fieldConfigMap = {
+      for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
+    };
+
+    // Use filtered columns for PDF export (which also affects what fields are considered for total)
+    final List<String> relevantFieldNames = columns
+        .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
+        .map((col) => col.field)
+        .toList();
+
+    for (var fieldName in relevantFieldNames) {
+      final config = fieldConfigMap[fieldName];
+      final isTotalColumn = config?['Total']?.toString() == '1';
+
+      // Replicate the isNumeric logic from TableMainUI/ReportMainUI
+      bool isNumericField = (config?['data_type']?.toString().toLowerCase() == 'number') ||
+          (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
+            'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
+      // Crucial: If Total or SubTotal is marked, it IS numeric for aggregation purposes.
+      if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
+        isNumericField = true;
+      }
+
+      if (isTotalColumn && isNumericField) {
+        double sum = 0.0;
+        for (var row in plutoRows) {
+          // Exclude subtotal rows from grand total calculation
+          if (row.cells.containsKey('__isSubtotal__') && row.cells['__isSubtotal__']!.value == true) {
+            continue;
+          }
+          final cellValue = row.cells[fieldName]?.value;
+          final parsedValue = double.tryParse(cellValue.toString()) ?? 0.0;
+          sum += parsedValue;
+        }
+        grandTotals[fieldName] = sum;
+        print('CalculateGrandTotals: Total for $fieldName: $sum');
+      } else if (relevantFieldNames.indexOf(fieldName) == 0) {
+        grandTotals[fieldName] = 'Grand Total'; // Label for the first column
+      } else {
+        grandTotals[fieldName] = ''; // Empty for other non-total columns
+      }
+    }
+    print('CalculateGrandTotals: Final grand totals: $grandTotals');
+    return grandTotals;
+  }
+
   // --- Helper to call Node.js PDF Generation API ---
   Future<Uint8List> _callPdfGenerationApi() async {
     print('Calling Node.js PDF API, exportId=$_exportId');
 
-    // Use widget.displayParameterValues directly (already filtered by ReportUI for visible & non-empty)
     final Map<String, String> visibleAndFormattedParameters = widget.displayParameterValues;
 
-    // Prepare serializable data for HTTP request
-    final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
+    final List<Map<String, dynamic>> serializableColumns = widget.columns
+        .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
+        .map((col) => {
       'field': col.field,
       'title': col.title,
-      'type': col.type.runtimeType.toString(), // Simple type representation (e.g., PlutoColumnType.text)
+      'type': col.type.runtimeType.toString(),
       'width': col.width,
     }).toList();
+    print('ExportWidget: PDF Export Columns (filtered): ${serializableColumns.map((c) => c['field']).toList()}');
 
-    final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
-      'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
-      '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
-    }).toList();
-
-    // Calculate total configured width to help Node.js with proportional column sizing
-    double totalPlutoConfiguredWidth = 0.0;
-    for (var col in widget.columns) {
-      // Exclude the __actions__ column from width calculation for content columns
-      if (col.field != '__actions__') {
-        totalPlutoConfiguredWidth += (col.width ?? 100.0);
+    final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) {
+      final Map<String, dynamic> serializableRowCells = {};
+      for (var col in widget.columns) {
+        if (col.field != '__actions__' && col.field != '__raw_data__') {
+          serializableRowCells[col.field] = row.cells[col.field]?.value;
+        }
       }
+      final Map<String, dynamic> rowDataForApi = {
+        'cells': serializableRowCells,
+      };
+      if (row.cells.containsKey('__isSubtotal__')) {
+        rowDataForApi['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
+      }
+      return rowDataForApi;
+    }).toList();
+    print('ExportWidget: Number of rows for PDF: ${serializableRows.length}');
+
+    final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
+        widget.columns, widget.plutoRows, widget.fieldConfigs);
+    print('ExportWidget: Grand Total data for PDF: $grandTotalData');
+
+
+    double totalPdfConfiguredWidth = 0.0;
+    for (var col in serializableColumns) {
+      totalPdfConfiguredWidth += (col['width'] ?? 100.0);
     }
-    // Fallback if no columns with widths or all are actions
-    if (totalPlutoConfiguredWidth == 0 && widget.columns.where((col) => col.field != '__actions__').isNotEmpty) {
-      totalPlutoConfiguredWidth = widget.columns.where((col) => col.field != '__actions__').length * 100.0;
-    } else if (totalPlutoConfiguredWidth == 0) {
-      totalPlutoConfiguredWidth = 1.0; // Avoid division by zero if there are no content columns at all
+    if (totalPdfConfiguredWidth == 0 && serializableColumns.isNotEmpty) {
+      totalPdfConfiguredWidth = serializableColumns.length * 100.0;
+    } else if (totalPdfConfiguredWidth == 0) {
+      totalPdfConfiguredWidth = 1.0;
     }
+    print('ExportWidget: Total configured width for PDF (filtered columns): $totalPdfConfiguredWidth');
+
 
     final Map<String, dynamic> requestBody = {
       'columns': serializableColumns,
       'rows': serializableRows,
       'fileName': widget.fileName,
-      'exportId': _exportId, // Pass for server-side logging/tracking if needed
-      'fieldConfigs': widget.fieldConfigs, // These are crucial for server-side formatting
+      'exportId': _exportId,
+      'fieldConfigs': widget.fieldConfigs,
       'reportLabel': widget.reportLabel,
-      'visibleAndFormattedParameters': visibleAndFormattedParameters, // Already formatted and filtered by ReportUI
-      'companyNameForHeader': _companyNameForHeader, // Pass the company name
-      // 'totalPlutoConfiguredWidth': totalPlutoConfiguredWidth, // Node.js now calculates this dynamically
+      'visibleAndFormattedParameters': visibleAndFormattedParameters,
+      'companyNameForHeader': _companyNameForHeader,
+      'totalPlutoConfiguredWidth': totalPdfConfiguredWidth,
+      'grandTotalData': grandTotalData, // NEW: Send grand total separately
     };
+    print('ExportWidget: Request body size for PDF: ${jsonEncode(requestBody).length} bytes');
+
 
     try {
       final response = await http.post(
-        Uri.parse('$_pdfApiBaseUrl/generate-pdf'), // <<-- USING THE DEFINED API URL
+        Uri.parse('$_pdfApiBaseUrl/generate-pdf'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(requestBody),
       );
@@ -379,34 +442,48 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     } catch (e) {
       print('Error calling Node.js PDF API: $e, exportId=$_exportId');
-      rethrow; // Re-throw to be caught by _executeExportTask
+      rethrow;
     }
   }
 
-  // --- Export to Excel --- (Modified to pass more params to isolate)
+  // --- Export to Excel ---
   Future<void> _exportToExcel(BuildContext context) async {
     await _executeExportTask(context, () async {
-      final List<Map<String, dynamic>> serializableColumns = widget.columns.map((col) => {
+      final List<Map<String, dynamic>> serializableColumns = widget.columns
+          .where((col) => col.field != '__raw_data__')
+          .map((col) => {
         'field': col.field,
         'title': col.title,
         'type': col.type.runtimeType.toString(),
         'width': col.width,
       }).toList();
 
-      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) => {
-        'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
-        '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
+      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) {
+        final Map<String, dynamic> cellsMap = {};
+        for (var col in widget.columns) {
+          cellsMap[col.field] = row.cells[col.field]?.value;
+        }
+        if (row.cells.containsKey('__isSubtotal__')) {
+          cellsMap['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
+        }
+        return cellsMap;
       }).toList();
+
+      final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
+          widget.columns, widget.plutoRows, widget.fieldConfigs);
+      print('ExportWidget: Grand Total data for Excel: $grandTotalData');
+
 
       print('ExportToExcel: Calling compute to generate Excel, exportId=$_exportId');
       final excelBytes = await compute(_generateExcel, {
         'columns': serializableColumns,
-        'rows': serializableRows,
+        'rows': serializableRows, // These are the PlutoRows as-is, including subtotal flags
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
-        'displayParameterValues': widget.displayParameterValues, // Already formatted and filtered
-        'companyNameForHeader': _companyNameForHeader, // Pass the company name
+        'displayParameterValues': widget.displayParameterValues,
+        'companyNameForHeader': _companyNameForHeader,
+        'grandTotalData': grandTotalData, // NEW: Send grand total separately to Excel
       });
 
       print('ExportToExcel: Saving Excel file using FileSaver, exportId=$_exportId');
@@ -427,11 +504,11 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Export to Excel');
   }
 
-  // --- Export to PDF (Download) --- (MODIFIED to use API)
+  // --- Export to PDF (Download) ---
   Future<void> _exportToPDF(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('ExportToPDF: Calling Node.js API to generate PDF, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
+      final pdfBytes = await _callPdfGenerationApi();
 
       print('ExportToPDF: Saving PDF file using FileSaver, exportId=$_exportId');
       final fileName = '${widget.fileName}.pdf';
@@ -451,11 +528,11 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Export to PDF');
   }
 
-  // --- Print Document --- (MODIFIED to use API)
+  // --- Print Document ---
   Future<void> _printDocument(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('PrintDocument: Calling Node.js API to generate PDF for printing, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
+      final pdfBytes = await _callPdfGenerationApi();
 
       if (kIsWeb) {
         print('PrintDocument: Platform is web. Using Printing.layoutPdf for direct browser print dialog, exportId=$_exportId');
@@ -480,7 +557,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Print Document');
   }
 
-  // --- Send to Email --- (MODIFIED to use API for PDF, and pass updated params to Excel isolate)
+  // --- Send to Email ---
   Future<void> _sendToEmail(BuildContext context) async {
     await _executeExportTask(context, () async {
       print('SendToEmail: Showing email input dialog, exportId=$_exportId');
@@ -533,18 +610,31 @@ class _ExportWidgetState extends State<ExportWidget> {
         throw Exception('Email sending cancelled by user.');
       }
 
-      // Generate Excel file (still client-side via compute)
       print('SendToEmail: Generating Excel file for email attachment, exportId=$_exportId');
-      final List<Map<String, dynamic>> serializableColumnsForExcel = widget.columns.map((col) => {
+      final List<Map<String, dynamic>> serializableColumnsForExcel = widget.columns
+          .where((col) => col.field != '__raw_data__')
+          .map((col) => {
         'field': col.field,
         'title': col.title,
         'type': col.type.runtimeType.toString(),
         'width': col.width,
       }).toList();
-      final List<Map<String, dynamic>> serializableRowsForExcel = widget.plutoRows.map((row) => {
-        'cells': row.cells.map((key, value) => MapEntry(key, value.value)),
-        '__isSubtotal__': row.cells.containsKey('__isSubtotal__') ? row.cells['__isSubtotal__']!.value : false,
+
+      final List<Map<String, dynamic>> serializableRowsForExcel = widget.plutoRows.map((row) {
+        final Map<String, dynamic> cellsMap = {};
+        for (var col in widget.columns) {
+          cellsMap[col.field] = row.cells[col.field]?.value;
+        }
+        if (row.cells.containsKey('__isSubtotal__')) {
+          cellsMap['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
+        }
+        return cellsMap;
       }).toList();
+
+      final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
+          widget.columns, widget.plutoRows, widget.fieldConfigs);
+      print('SendToEmail: Grand Total data for Excel: $grandTotalData');
+
 
       final excelBytes = await compute(_generateExcel, {
         'columns': serializableColumnsForExcel,
@@ -552,18 +642,18 @@ class _ExportWidgetState extends State<ExportWidget> {
         'exportId': _exportId,
         'fieldConfigs': widget.fieldConfigs,
         'reportLabel': widget.reportLabel,
-        'displayParameterValues': widget.displayParameterValues, // Already formatted and filtered
-        'companyNameForHeader': _companyNameForHeader, // Pass the company name
+        'displayParameterValues': widget.displayParameterValues,
+        'companyNameForHeader': _companyNameForHeader,
+        'grandTotalData': grandTotalData,
       });
 
-      // Generate PDF file (now via API)
       print('SendToEmail: Generating PDF file for email attachment via API, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // <<-- CALLS THE API HERE
+      final pdfBytes = await _callPdfGenerationApi();
 
       print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://localhost/sendmail.php'), // <<-- THIS IS YOUR BACKEND EMAIL API. UPDATE IF NEEDED.
+        Uri.parse('http://localhost/sendmail.php'),
       );
 
       request.fields['email'] = emailController.text;
@@ -601,13 +691,11 @@ class _ExportWidgetState extends State<ExportWidget> {
     }, 'Send to Email');
   }
 
-  // --- Static Helper for Number Formatting (Used by Excel only now, but kept for consistency if needed elsewhere) ---
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
     String pattern = '##,##,##0';
     if (decimalPoints > 0) {
       pattern += '.${'0' * decimalPoints}';
     }
-
     final NumberFormat formatter = NumberFormat(
       pattern,
       indianFormat ? 'en_IN' : 'en_US',
@@ -615,7 +703,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     return formatter.format(number);
   }
 
-  // --- _generateExcel function (static for compute) --- (MODIFIED for company name)
+  // --- _generateExcel function (static for compute) ---
   static Uint8List _generateExcel(Map<String, dynamic> params) {
     final exportId = params['exportId'] as String;
     print('GenerateExcel: Starting Excel generation in isolate, exportId=$exportId');
@@ -623,8 +711,9 @@ class _ExportWidgetState extends State<ExportWidget> {
     final rows = params['rows'] as List<Map<String, dynamic>>;
     final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
     final reportLabel = params['reportLabel'] as String;
-    final displayParameterValues = params['displayParameterValues'] as Map<String, String>; // Already filtered
-    final companyNameForHeader = params['companyNameForHeader'] as String?; // NEW
+    final displayParameterValues = params['displayParameterValues'] as Map<String, String>;
+    final companyNameForHeader = params['companyNameForHeader'] as String?;
+    final grandTotalData = params['grandTotalData'] as Map<String, dynamic>?; // NEW: Receive grand total
 
     var excel = Excel.createExcel();
     var sheet = excel['Sheet1'];
@@ -632,31 +721,30 @@ class _ExportWidgetState extends State<ExportWidget> {
     final List<String> fieldNames = [];
     final List<String> headerLabels = [];
     for (var col in columns) {
-      if (col['field'] != '__actions__') {
+      if (col['field'] != '__actions__' && col['field'] != '__raw_data__') {
         fieldNames.add(col['field'].toString());
         headerLabels.add(col['title'].toString());
       }
     }
+    print('GenerateExcel: Excel field names (filtered): $fieldNames');
+
 
     int maxCols = headerLabels.length;
 
-    // NEW: Add Company Name if available
     if (companyNameForHeader != null && companyNameForHeader.isNotEmpty) {
       sheet.appendRow([TextCellValue(companyNameForHeader)]);
-      // Merge cells for the company name header
       sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
           CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
         fontFamily: 'Calibri',
-        fontSize: 14, // Slightly smaller than report label
+        fontSize: 14,
         bold: true,
         horizontalAlign: HorizontalAlign.Center,
         verticalAlign: VerticalAlign.Center,
       );
-      sheet.appendRow([]); // Empty row for spacing
+      sheet.appendRow([]);
     }
 
-    // Add Report Label
     sheet.appendRow([TextCellValue(reportLabel)]);
     sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
         CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
@@ -667,19 +755,17 @@ class _ExportWidgetState extends State<ExportWidget> {
       horizontalAlign: HorizontalAlign.Center,
       verticalAlign: VerticalAlign.Center,
     );
-    sheet.appendRow([]); // Empty row for spacing
+    sheet.appendRow([]);
 
-    // Use the already filtered displayParameterValues (only non-empty, visible params)
     if (displayParameterValues.isNotEmpty) {
       for (var entry in displayParameterValues.entries) {
-        // No additional check for entry.value.isNotEmpty needed here as ReportUI already ensures it
         sheet.appendRow([TextCellValue('${entry.key}: ${entry.value}')]);
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
           fontSize: 10,
         );
       }
-      sheet.appendRow([]); // Empty row for spacing after parameters
+      sheet.appendRow([]);
     }
 
     if (rows.isEmpty) {
@@ -706,32 +792,20 @@ class _ExportWidgetState extends State<ExportWidget> {
       for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
     };
 
-    List<Map<String, dynamic>> dataRowsForGrandTotal = [];
     for (var rowData in rows) {
       final isSubtotalRow = rowData.containsKey('__isSubtotal__') ? rowData['__isSubtotal__'] : false;
 
       final rowValues = fieldNames.map((fieldName) {
-        final rawValue = rowData['cells'][fieldName];
+        final rawValue = rowData[fieldName];
         final config = fieldConfigMap[fieldName];
 
-        final isNumeric = [
-          'VQ_GrandTotal',
-          'Qty',
-          'Rate',
-          'NetRate',
-          'GrandTotal',
-          'Value',
-          'Amount',
-          'Excise',
-          'Cess',
-          'HSCess',
-          'Freight',
-          'TCS',
-          'CGST',
-          'SGST',
-          'IGST'
-        ].contains(fieldName) ||
-            (config?['data_type']?.toString().toLowerCase() == 'number');
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
+            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
+              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
+        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
+          isNumeric = true;
+        }
+
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
 
@@ -743,7 +817,6 @@ class _ExportWidgetState extends State<ExportWidget> {
         } else if (config?['image']?.toString() == '1' &&
             rawValue != null &&
             (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://'))) {
-          // For Excel, just put the URL or a placeholder text
           return TextCellValue('Image Link: ${rawValue.toString()}');
         }
         return TextCellValue(rawValue?.toString() ?? '');
@@ -755,24 +828,13 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-        final isNumeric = [
-          'VQ_GrandTotal',
-          'Qty',
-          'Rate',
-          'NetRate',
-          'GrandTotal',
-          'Value',
-          'Amount',
-          'Excise',
-          'Cess',
-          'HSCess',
-          'Freight',
-          'TCS',
-          'CGST',
-          'SGST',
-          'IGST'
-        ].contains(fieldName) ||
-            (config?['data_type']?.toString().toLowerCase() == 'number');
+
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
+            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
+              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
+        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
+          isNumeric = true;
+        }
 
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: dataRowIndex)).cellStyle = CellStyle(
           horizontalAlign: isNumeric
@@ -782,44 +844,29 @@ class _ExportWidgetState extends State<ExportWidget> {
           fontFamily: 'Calibri',
         );
       }
-
-      if (!isSubtotalRow) {
-        dataRowsForGrandTotal.add(rowData);
-      }
     }
 
-    if (fieldConfigs != null && fieldConfigs.any((config) => config['Total']?.toString() == '1')) {
+    // NEW: Add Grand Total row if grandTotalData is provided
+    if (grandTotalData != null) {
       final totalRowValues = fieldNames.map((fieldName) {
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = [
-          'VQ_GrandTotal',
-          'Qty',
-          'Rate',
-          'NetRate',
-          'GrandTotal',
-          'Value',
-          'Amount',
-          'Excise',
-          'Cess',
-          'HSCess',
-          'Freight',
-          'TCS',
-          'CGST',
-          'SGST',
-          'IGST'
-        ].contains(fieldName) ||
-            (config?['data_type']?.toString().toLowerCase() == 'number');
+
+        // Replicate the isNumeric logic for the grand total row as well
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
+            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
+              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
+        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
+          isNumeric = true;
+        }
+
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
 
-        if (fieldNames.indexOf(fieldName) == 0) {
-          return TextCellValue('Grand Total');
-        } else if (total && isNumeric) {
-          final sum = dataRowsForGrandTotal.fold<double>(0.0, (sum, row) {
-            final value = row['cells'][fieldName];
-            return sum + (double.tryParse(value?.toString() ?? '0') ?? 0.0);
-          });
+        if (fieldName == fieldNames[0]) {
+          return TextCellValue(grandTotalData[fieldName]?.toString() ?? 'Grand Total'); // Get label from grandTotalData
+        } else if (total && isNumeric && grandTotalData.containsKey(fieldName)) {
+          final double sum = grandTotalData[fieldName] as double;
           return TextCellValue(_formatNumber(sum, decimalPoints, indianFormat: indianFormat));
         }
         return TextCellValue('');
@@ -831,25 +878,14 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final total = config?['Total']?.toString() == '1';
-        final isNumeric = [
-          'VQ_GrandTotal',
-          'Qty',
-          'Rate',
-          'NetRate',
-          'GrandTotal',
-          'Value',
-          'Amount',
-          'Excise',
-          'Cess',
-          'HSCess',
-          'Freight',
-          'TCS',
-          'CGST',
-          'SGST',
-          'IGST'
-        ].contains(fieldName) ||
-            (config?['data_type']?.toString().toLowerCase() == 'number');
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
+
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
+            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
+              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
+        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
+          isNumeric = true;
+        }
 
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: totalRowIndex)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
