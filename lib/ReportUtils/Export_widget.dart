@@ -225,7 +225,14 @@ class _ExportWidgetState extends State<ExportWidget> {
     );
   }
 
-  Future<void> _executeExportTask(BuildContext context, Future<void> Function() task, String taskName) async {
+  // MODIFIED: _executeExportTask now accepts showLoaderDialog and initialMessage
+  Future<void> _executeExportTask(
+      BuildContext context,
+      Future<void> Function() task,
+      String taskName, {
+        bool showLoaderDialog = true, // Default to true for blocking dialog
+        String initialMessage = 'Processing...', // Default message for loader
+      }) async {
     print('$taskName: Starting export task, exportId=$_exportId');
     final startTime = DateTime.now();
 
@@ -250,25 +257,77 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
 
     ExportLock.startExport();
-    // Use a post-frame callback to show dialog only if export is still active
-    // This ensures the dialog appears after the current build frame,
-    // avoiding issues if another dialog is already open (like the email input dialog).
+
+    ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? snackBarController;
     bool dialogShown = false;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (context.mounted && ExportLock.isExporting) {
-        print('$taskName: Showing loader dialog, exportId=$_exportId');
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
+
+    if (context.mounted) {
+      // Show initial feedback (SnackBar for background, Dialog for blocking)
+      if (!showLoaderDialog) {
+        // Non-blocking SnackBar for background tasks (like PDF download)
+        snackBarController = ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const CircularProgressIndicator(color: Colors.white),
+                const SizedBox(width: 16),
+                Text(initialMessage, style: const TextStyle(color: Colors.white)),
+              ],
+            ),
+            duration: const Duration(minutes: 5), // Long duration if not dismissed manually
+            behavior: SnackBarBehavior.floating,
+            action: SnackBarAction( // ADDED: "Hide" action
+              label: 'Hide',
+              textColor: Colors.white,
+              onPressed: () {
+                // Manually dismiss the snackbar
+                snackBarController?.close();
+                print('$taskName: User manually hid the progress snackbar, exportId=$_exportId');
+                // The background task will continue running.
+              },
+            ),
+          ),
         );
-        dialogShown = true;
+        print('$taskName: Showing non-blocking SnackBar: "$initialMessage", exportId=$_exportId');
+      } else {
+        // Existing blocking Dialog for other tasks
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (context.mounted && ExportLock.isExporting) {
+            print('$taskName: Showing loader dialog, exportId=$_exportId');
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(initialMessage, style: GoogleFonts.poppins(color: Colors.white)), // Now dialog also shows message
+                  ],
+                ),
+              ),
+            );
+            dialogShown = true;
+          }
+        });
       }
-    });
+    }
 
 
     try {
-      await task();
+      await task(); // Execute the actual export task
+
+      // After task completes successfully, if snackbar was shown, dismiss it and show success.
+      if (context.mounted) {
+        if (!showLoaderDialog && snackBarController != null) {
+          snackBarController.close(); // Explicitly close the initial progress snackbar
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('$taskName successful!')), // Show success message
+          );
+          print('$taskName: Successfully completed, showed success snackbar, exportId=$_exportId');
+        }
+      }
     } catch (e) {
       // Only show error message if the error is not a user cancellation
       if (!e.toString().contains('Email sending cancelled by user.')) { // Check for cancellation message
@@ -285,19 +344,25 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
 
         if (context.mounted) {
+          if (!showLoaderDialog && snackBarController != null) {
+            snackBarController.close(); // Explicitly close the initial progress snackbar on error
+          }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(errorMessage)),
           );
         }
       }
     } finally {
+      // Always dismiss blocking dialog if it was shown
       if (dialogShown && context.mounted && Navigator.of(context).canPop()) {
         print('$taskName: Dismissing loader dialog, exportId=$_exportId');
         Navigator.of(context).pop();
       }
-      ExportLock.endExport();
+      // If we used a non-blocking snackbar, it's handled by `snackBarController.close()` above.
+
+      ExportLock.endExport(); // Release global lock
       if (context.mounted) {
-        setState(() {});
+        setState(() {}); // Re-enable buttons, trigger rebuild if needed
       }
       print('$taskName: Resetting state and releasing global lock, exportId=$_exportId');
     }
@@ -517,12 +582,8 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('ExportToExcel: File saved with result: $result, fileName: $fileName, exportId=$_exportId');
       DownloadTracker.trackDownload(fileName, 'file_saver', _exportId);
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Exported to Excel successfully!')),
-        );
-      }
-    }, 'Export to Excel');
+      // SnackBar is handled by _executeExportTask for success
+    }, 'Export to Excel', initialMessage: 'Generating Excel...'); // Provide initial message
   }
 
   // --- Export to PDF (Download) ---
@@ -541,12 +602,8 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('ExportToPDF: File saved with result: $result, fileName: $fileName, exportId=$_exportId');
       DownloadTracker.trackDownload(fileName, 'file_saver', _exportId);
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Exported to PDF successfully!')),
-        );
-      }
-    }, 'Export to PDF');
+      // SnackBar is handled by _executeExportTask for success
+    }, 'Export to PDF', showLoaderDialog: false, initialMessage: 'Downloading PDF...'); // MODIFIED for background download feedback
   }
 
   // --- Print Document ---
@@ -561,6 +618,7 @@ class _ExportWidgetState extends State<ExportWidget> {
           onLayout: (PdfPageFormat format) async => pdfBytes,
           name: '${widget.fileName}_Print.pdf',
         );
+        // SnackBar for web print is specific and handled here, not by general success
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Browser print dialog opened.')),
@@ -569,13 +627,14 @@ class _ExportWidgetState extends State<ExportWidget> {
       } else {
         print('PrintDocument: Platform is not web. Using Printing.sharePdf to trigger system print/share dialog, exportId=$_exportId');
         await Printing.sharePdf(bytes: pdfBytes, filename: '${widget.fileName}_Print.pdf');
+        // SnackBar for non-web print is specific and handled here, not by general success
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('PDF prepared. Select a printer from the system dialog.')),
           );
         }
       }
-    }, 'Print Document');
+    }, 'Print Document', initialMessage: 'Preparing document for print...'); // Provide initial message
   }
 
   // --- Send to Email ---
@@ -715,11 +774,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         // Changed condition: Rely on 200 status code for success
         if (response.statusCode == 200) {
           print('SendToEmail: Files sent to email successfully (server returned 200 OK), exportId=$_exportId');
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Files sent to email successfully!')),
-            );
-          }
+          // SnackBar is handled by _executeExportTask for success
         } else {
           print('SendToEmail: Failed to send email. Status: ${response.statusCode}, Response: "$responseString", exportId=$_exportId');
           // Provide a more descriptive error message to the user
@@ -730,7 +785,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         print('SendToEmail: Exception during HTTP request: $e, exportId=$_exportId');
         rethrow; // Rethrow to be caught by _executeExportTask
       }
-    }, 'Send to Email Processing'); // New task name for the processing part
+    }, 'Send to Email Processing', initialMessage: 'Preparing email and attachments...'); // New task name for the processing part
   }
 
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
