@@ -98,7 +98,7 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'https://pdf-node-ndtac42i0-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
+  static const String _pdfApiBaseUrl = 'https://pdf-node-abpshxrkh-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
 
   @override
   void initState() {
