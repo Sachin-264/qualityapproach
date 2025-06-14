@@ -1,4 +1,4 @@
-// lib/ReportDynamic/exportpdf.dart
+// lib/ReportUtils/Export_widget.dart
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
@@ -14,6 +14,7 @@ import 'package:http_parser/http_parser.dart' show MediaType;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
 import 'package:pluto_grid/pluto_grid.dart';
+import 'package:collection/collection.dart'; // Import for firstWhereOrNull
 
 // Global export lock to prevent multiple exports
 class ExportLock {
@@ -69,6 +70,7 @@ class ExportWidget extends StatefulWidget {
   final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
   final Map<String, List<Map<String, String>>>? pickerOptions;
   final String companyName;
+  final bool includePdfFooterDateTime; // NEW: Added includePdfFooterDateTime
 
   const ExportWidget({
     required this.columns,
@@ -81,6 +83,7 @@ class ExportWidget extends StatefulWidget {
     this.apiParameters,
     this.pickerOptions,
     required this.companyName,
+    this.includePdfFooterDateTime=false , // NEW: Make required
     super.key,
   });
 
@@ -95,7 +98,7 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'http://localhost:3000';
+  static const String _pdfApiBaseUrl = 'https://pdf-node-ndtac42i0-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
 
   @override
   void initState() {
@@ -135,6 +138,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
     print('ExportWidget: Building with exportId=$_exportId, dataLength=${widget.plutoRows.length}, ExportLock.isExporting=${ExportLock.isExporting}');
     print('ExportWidget: Derived company name for header: ${_companyNameForHeader ?? 'N/A'}');
+    print('ExportWidget: includePdfFooterDateTime for PDF exports: ${widget.includePdfFooterDateTime}'); // NEW: Log for ExportWidget
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -202,7 +206,9 @@ class _ExportWidgetState extends State<ExportWidget> {
             onPressed: canExport
                 ? () async {
               print('ExportWidget: Print button clicked, exportId=$_exportId');
-              await _printDocument(context);
+              await _printDebouncer.debounce(() async { // Using debouncer for print too
+                await _printDocument(context);
+              });
             }
                 : null,
             style: ElevatedButton.styleFrom(
@@ -244,42 +250,45 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
 
     ExportLock.startExport();
-    if (context.mounted) {
-      setState(() {});
-    }
-
+    // Use a post-frame callback to show dialog only if export is still active
+    // This ensures the dialog appears after the current build frame,
+    // avoiding issues if another dialog is already open (like the email input dialog).
     bool dialogShown = false;
-    if (context.mounted) {
-      Future.delayed(Duration.zero, () {
-        if (context.mounted && ExportLock.isExporting) {
-          print('$taskName: Showing loader dialog, exportId=$_exportId');
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const Center(child: CircularProgressIndicator()),
-          );
-          dialogShown = true;
-        }
-      });
-    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (context.mounted && ExportLock.isExporting) {
+        print('$taskName: Showing loader dialog, exportId=$_exportId');
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const Center(child: CircularProgressIndicator()),
+        );
+        dialogShown = true;
+      }
+    });
+
 
     try {
       await task();
     } catch (e) {
-      print('$taskName: Exception caught: $e, exportId=$_exportId');
-      String errorMessage = 'Failed to $taskName. Please try again.';
-      if (e.toString().contains('Failed to generate PDF on server')) {
-        errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
-      } else if (e.toString().contains('Connection refused')) {
-        errorMessage = 'Could not connect to PDF server. Is it running?';
-      } else {
-        errorMessage = 'Failed to $taskName: $e';
-      }
+      // Only show error message if the error is not a user cancellation
+      if (!e.toString().contains('Email sending cancelled by user.')) { // Check for cancellation message
+        print('$taskName: Exception caught: $e, exportId=$_exportId');
+        String errorMessage = 'Failed to $taskName. Please try again.';
+        if (e.toString().contains('Failed to generate PDF on server')) {
+          errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
+        } else if (e.toString().contains('Connection refused')) {
+          errorMessage = 'Could not connect to PDF server. Is it running?';
+        } else if (e.toString().contains('Server failed to send email')) {
+          errorMessage = 'Email sending failed. ${e.toString().split("Details:").last.trim()}';
+        } else {
+          errorMessage = 'Failed to $taskName: $e';
+        }
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(errorMessage)),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(errorMessage)),
+          );
+        }
       }
     } finally {
       if (dialogShown && context.mounted && Navigator.of(context).canPop()) {
@@ -373,6 +382,17 @@ class _ExportWidgetState extends State<ExportWidget> {
       'title': col.title,
       'type': col.type.runtimeType.toString(),
       'width': col.width,
+      // Add other relevant column properties from fieldConfigs if needed by Node.js
+      // e.g., 'decimal_points', 'indian_format', 'num_alignment'
+      'decimal_points': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['decimal_points'],
+      'indian_format': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['indian_format'],
+      'num_alignment': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['num_alignment'],
+      'Total': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['Total'],
+      'SubTotal': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['SubTotal'],
+      'Breakpoint': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['Breakpoint'],
+      'data_type': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['data_type'],
+      'image': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['image'],
+      'time': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['time'],
     }).toList();
     print('ExportWidget: PDF Export Columns (filtered): ${serializableColumns.map((c) => c['field']).toList()}');
 
@@ -415,19 +435,20 @@ class _ExportWidgetState extends State<ExportWidget> {
       'rows': serializableRows,
       'fileName': widget.fileName,
       'exportId': _exportId,
-      'fieldConfigs': widget.fieldConfigs,
+      'fieldConfigs': widget.fieldConfigs, // Also send full fieldConfigs for more granular control on Node.js side
       'reportLabel': widget.reportLabel,
       'visibleAndFormattedParameters': visibleAndFormattedParameters,
       'companyNameForHeader': _companyNameForHeader,
       'totalPlutoConfiguredWidth': totalPdfConfiguredWidth,
       'grandTotalData': grandTotalData, // NEW: Send grand total separately
+      'includePdfFooterDateTime': widget.includePdfFooterDateTime, // NEW: Pass the footer flag to Node.js
     };
     print('ExportWidget: Request body size for PDF: ${jsonEncode(requestBody).length} bytes');
 
 
     try {
       final response = await http.post(
-        Uri.parse('$_pdfApiBaseUrl/generate-pdf'),
+        Uri.parse('$_pdfApiBaseUrl'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(requestBody),
       );
@@ -559,57 +580,60 @@ class _ExportWidgetState extends State<ExportWidget> {
 
   // --- Send to Email ---
   Future<void> _sendToEmail(BuildContext context) async {
-    await _executeExportTask(context, () async {
-      print('SendToEmail: Showing email input dialog, exportId=$_exportId');
-      final emailController = TextEditingController();
-      final shouldSend = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Send to Email'),
-          content: TextField(
-            controller: emailController,
-            decoration: const InputDecoration(
-              labelText: 'Recipient Email',
-              hintText: 'Enter email address',
-            ),
-            keyboardType: TextInputType.emailAddress,
+    print('SendToEmail: Showing email input dialog, exportId=$_exportId');
+    final emailController = TextEditingController();
+    final shouldSend = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false, // Ensure user must make a choice
+      builder: (context) => AlertDialog(
+        title: const Text('Send to Email'),
+        content: TextField(
+          controller: emailController,
+          decoration: const InputDecoration(
+            labelText: 'Recipient Email',
+            hintText: 'Enter email address',
           ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                print('SendToEmail: User pressed Cancel in email dialog, exportId=$_exportId');
-                Navigator.of(context).pop(false);
-              },
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () {
-                print('SendToEmail: User pressed Send with email: ${emailController.text}, exportId=$_exportId');
-                if (emailController.text.isNotEmpty &&
-                    RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
-                  print('SendToEmail: Email is valid, proceeding, exportId=$_exportId');
-                  Navigator.of(context).pop(true);
-                } else {
-                  print('SendToEmail: Invalid email address entered, exportId=$_exportId');
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please enter a valid email address!')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Send'),
-            ),
-          ],
+          keyboardType: TextInputType.emailAddress,
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () {
+              print('SendToEmail: User pressed Cancel in email dialog, exportId=$_exportId');
+              Navigator.of(context).pop(false);
+            },
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              print('SendToEmail: User pressed Send with email: ${emailController.text}, exportId=$_exportId');
+              if (emailController.text.isNotEmpty &&
+                  RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
+                print('SendToEmail: Email is valid, proceeding, exportId=$_exportId');
+                Navigator.of(context).pop(true);
+              } else {
+                print('SendToEmail: Invalid email address entered, exportId=$_exportId');
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a valid email address!')),
+                  );
+                }
+              }
+            },
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
 
-      print('SendToEmail: Dialog result: shouldSend=$shouldSend, exportId=$_exportId');
-      if (shouldSend != true) {
-        print('SendToEmail: Email sending cancelled by user, exportId=$_exportId');
-        throw Exception('Email sending cancelled by user.');
-      }
+    print('SendToEmail: Dialog result: shouldSend=$shouldSend, exportId=$_exportId');
+    if (shouldSend != true) {
+      print('SendToEmail: Email sending cancelled by user, exportId=$_exportId');
+      // If the user cancels, gracefully exit the task. No loader needed.
+      return;
+    }
 
+    // --- User confirmed email, now start the actual processing with the loader ---
+    await _executeExportTask(context, () async {
       print('SendToEmail: Generating Excel file for email attachment, exportId=$_exportId');
       final List<Map<String, dynamic>> serializableColumnsForExcel = widget.columns
           .where((col) => col.field != '__raw_data__')
@@ -646,9 +670,13 @@ class _ExportWidgetState extends State<ExportWidget> {
         'companyNameForHeader': _companyNameForHeader,
         'grandTotalData': grandTotalData,
       });
+      print('SendToEmail: Excel file generated. Size: ${excelBytes.length} bytes, exportId=$_exportId');
+
 
       print('SendToEmail: Generating PDF file for email attachment via API, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi();
+      final pdfBytes = await _callPdfGenerationApi(); // This method already uses widget.includePdfFooterDateTime
+      print('SendToEmail: PDF file generated. Size: ${pdfBytes.length} bytes, exportId=$_exportId');
+
 
       print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
       final request = http.MultipartRequest(
@@ -657,6 +685,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       );
 
       request.fields['email'] = emailController.text;
+      print('SendToEmail: Adding email field: ${emailController.text}, exportId=$_exportId');
 
       request.files.add(http.MultipartFile.fromBytes(
         'excel',
@@ -664,6 +693,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         filename: '${widget.fileName}.xlsx',
         contentType: MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
       ));
+      print('SendToEmail: Added Excel attachment: ${widget.fileName}.xlsx, size: ${excelBytes.length} bytes, exportId=$_exportId');
+
 
       request.files.add(http.MultipartFile.fromBytes(
         'pdf',
@@ -671,24 +702,35 @@ class _ExportWidgetState extends State<ExportWidget> {
         filename: '${widget.fileName}.pdf',
         contentType: MediaType('application', 'pdf'),
       ));
+      print('SendToEmail: Added PDF attachment: ${widget.fileName}.pdf, size: ${pdfBytes.length} bytes, exportId=$_exportId');
+
 
       print('SendToEmail: Sending HTTP request to backend, exportId=$_exportId');
-      final response = await request.send();
-      final responseString = await response.stream.bytesToString();
-      print('SendToEmail: HTTP response status code: ${response.statusCode}, Response: $responseString, exportId=$_exportId');
+      try {
+        final streamedResponse = await request.send();
+        final response = await http.Response.fromStream(streamedResponse);
+        final responseString = response.body;
+        print('SendToEmail: HTTP response status code: ${response.statusCode}, Response: "$responseString", exportId=$_exportId');
 
-      if (response.statusCode == 200 && responseString.contains('Success')) {
-        print('SendToEmail: Files sent to email successfully, exportId=$_exportId');
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Files sent to email successfully!')),
-          );
+        // Changed condition: Rely on 200 status code for success
+        if (response.statusCode == 200) {
+          print('SendToEmail: Files sent to email successfully (server returned 200 OK), exportId=$_exportId');
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Files sent to email successfully!')),
+            );
+          }
+        } else {
+          print('SendToEmail: Failed to send email. Status: ${response.statusCode}, Response: "$responseString", exportId=$_exportId');
+          // Provide a more descriptive error message to the user
+          String errorDetail = responseString.isNotEmpty ? responseString : 'No response body from server.';
+          throw Exception('Server failed to send email. Status Code: ${response.statusCode}. Details: $errorDetail');
         }
-      } else {
-        print('SendToEmail: Failed to send email. Status: ${response.statusCode}, Response: $responseString, exportId=$_exportId');
-        throw Exception('Server failed to send email: ${responseString.isNotEmpty ? responseString : 'Unknown error'}');
+      } catch (e) {
+        print('SendToEmail: Exception during HTTP request: $e, exportId=$_exportId');
+        rethrow; // Rethrow to be caught by _executeExportTask
       }
-    }, 'Send to Email');
+    }, 'Send to Email Processing'); // New task name for the processing part
   }
 
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {

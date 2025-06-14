@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart'; // For PdfColor constants
 
 import '../../../ReportUtils/Appbar.dart';
 import '../../../ReportUtils/CustomPlutogrid.dart';
@@ -16,12 +17,13 @@ import '../PrintTemp/printpreview.dart'; // Add this if print is needed
 import '../PrintTemp/print_template_selection.dart'; // Add this if print is needed
 
 
+
 class TableMainUI extends StatelessWidget {
   final String recNo;
   final String apiName;
   final String reportLabel;
   final Map<String, String> userParameterValues;
-  final List<Map<String, dynamic>> actionsConfig;
+  final List<Map<String, dynamic>> actionsConfig; // Actions passed from parent, possibly empty
   final Map<String, String> displayParameterValues;
   final String companyName;
 
@@ -31,9 +33,10 @@ class TableMainUI extends StatelessWidget {
     required this.apiName,
     required this.reportLabel,
     required this.userParameterValues,
-    this.actionsConfig = const [],
+    this.actionsConfig = const [], // Can be empty if nested, BLoC will fetch its own
     required this.displayParameterValues,
     required this.companyName,
+    // Removed: includePdfFooterDateTime from constructor, will get from Bloc state
   });
 
   static String formatIndianNumber(double number, int decimalPoints) {
@@ -118,8 +121,8 @@ class TableMainUI extends StatelessWidget {
             print('TableMainUI BlocBuilder rebuild for "$reportLabel": isLoading=${state.isLoading}, '
                 'fieldConfigs.length=${state.fieldConfigs.length}, '
                 'reportData.length=${state.reportData.length}, '
-                'state.actionsConfig.length=${state.actionsConfig.length}');
-            print('TableMainUI BlocBuilder: Actions in BLoC state for "$reportLabel": ${state.actionsConfig.length} items.');
+                'state.actionsConfig.length=${state.actionsConfig.length}, '
+                'state.includePdfFooterDateTime=${state.includePdfFooterDateTime}'); // NEW: Log footer flag from state
 
             if (state.isLoading) {
               print('TableMainUI: Showing loader for "$reportLabel"');
@@ -424,10 +427,7 @@ class TableMainUI extends StatelessWidget {
                   enableContextMenu: false,
                   renderer: (rendererContext) {
                     final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
-                    // No need to check for __isGrandTotal__ flag here
-                    // final isGrandTotalRow = rendererContext.row.cells.containsKey('__isGrandTotal__') && rendererContext.row.cells['__isGrandTotal__']!.value == true;
-
-                    if (isSubtotalRow /* || isGrandTotalRow */) { // Removed isGrandTotalRow
+                    if (isSubtotalRow) {
                       return const SizedBox.shrink();
                     }
 
@@ -545,9 +545,12 @@ class TableMainUI extends StatelessWidget {
                                     ),
                                   );
                                 } else if (actionType == 'print') {
+                                  // For print action, still let the user select template/color
+                                  // (This flow is typically for actions, not the main report export)
                                   final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(
                                     context: context,
                                     builder: (BuildContext dialogContext) {
+                                      // Using the ReportTemplateSelectionDialog from the ReportGenerator subfolder
                                       return const ReportTemplateSelectionDialog();
                                     },
                                   );
@@ -604,9 +607,6 @@ class TableMainUI extends StatelessWidget {
 
             final List<PlutoRow> finalRows = [];
             List<Map<String, dynamic>> processedReportData = List.from(state.reportData);
-
-            // Revert: No longer adding a Grand Total row to `finalRows` here.
-            // _createGrandTotalRow and its call have been removed.
 
             if (breakpointColumnName != null) {
               processedReportData.sort((a, b) {
@@ -730,6 +730,7 @@ class TableMainUI extends StatelessWidget {
                     apiParameters: state.selectedApiParameters,
                     pickerOptions: state.pickerOptions,
                     companyName: companyName,
+                    includePdfFooterDateTime: state.includePdfFooterDateTime, // NEW: Pass the footer flag from Bloc state
                   ),
                   const SizedBox(height: 16),
                   Expanded(

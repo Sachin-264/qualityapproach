@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart'; // Import for debugPrint
 
 class ReportAPIService {
-  final String _baseUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DemoTables.php';
+  final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
   final String _databaseFetchUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseFetch.php';
   final String _databaseFieldUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseField.php';
   late final Map<String, String> _postEndpoints;

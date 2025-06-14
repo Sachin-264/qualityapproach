@@ -99,6 +99,7 @@ class ReportState {
   final String? databaseName;
   final List<Map<String, dynamic>> actionsConfig; // This will hold the actions from the *current* report's API details.
   final String? error;
+  final bool includePdfFooterDateTime; // NEW: Add includePdfFooterDateTime to state
 
   ReportState({
     this.isLoading = false,
@@ -119,6 +120,7 @@ class ReportState {
     this.databaseName,
     this.actionsConfig = const [], // Default to empty list
     this.error,
+    this.includePdfFooterDateTime = false, // NEW: Initialize to false
   });
 
   ReportState copyWith({
@@ -140,6 +142,7 @@ class ReportState {
     String? databaseName,
     List<Map<String, dynamic>>? actionsConfig, // Allow actionsConfig to be copied
     String? error,
+    bool? includePdfFooterDateTime, // NEW: Allow copying this field
   }) {
     return ReportState(
       isLoading: isLoading ?? this.isLoading,
@@ -160,6 +163,7 @@ class ReportState {
       databaseName: databaseName ?? this.databaseName,
       actionsConfig: actionsConfig ?? this.actionsConfig, // Preserve if not provided
       error: error,
+      includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime, // NEW: Assign copied value
     );
   }
 }
@@ -208,6 +212,7 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       // Do NOT clear reportData and fieldConfigs here, as they are fetched by FetchFieldConfigs
       // actionsConfig is cleared, then set by this event's success.
       actionsConfig: [], // Clear actions here to ensure a fresh fetch
+      includePdfFooterDateTime: false, // NEW: Reset to false initially
     ));
     try {
       final apiDetails = await apiService.getApiDetails(event.apiName); // This call now waits internally
@@ -225,6 +230,9 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       // **IMPORTANT CHANGE HERE:** Directly use actions from the API response
       List<Map<String, dynamic>> fetchedActions = List<Map<String, dynamic>>.from(apiDetails['actions_config'] ?? []); // Ensure 'actions_config' matches backend
       debugPrint('TableBloc: API "${event.apiName}" returned ${fetchedActions.length} actions.');
+
+      // NEW: Get includePdfFooterDateTime from API response
+      final bool fetchedIncludePdfFooterDateTime = apiDetails['includePdfFooterDateTime'] ?? false;
 
 
       for (var param in fetchedParameters) {
@@ -255,9 +263,10 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
         password: password,
         databaseName: databaseName,
         actionsConfig: fetchedActions, // Set the actionsConfig in BLoC state based on THIS API's details
+        includePdfFooterDateTime: fetchedIncludePdfFooterDateTime, // NEW: Set in state
         error: null,
       ));
-      debugPrint('TableBloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${fetchedActions.length} items.');
+      debugPrint('TableBloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${fetchedActions.length} items. Include PDF Footer Date/Time: $fetchedIncludePdfFooterDateTime');
     } catch (e) {
       // **Key change:** Instead of immediately emitting an error that causes UI flicker,
       // we can try to proceed if possible or at least set a specific error message.
@@ -458,6 +467,7 @@ class TableBlocGenerate extends Bloc<ReportEvent, ReportState> { // Renamed from
       password: null,
       databaseName: null,
       actionsConfig: [], // Clear actions config on a full reset
+      includePdfFooterDateTime: false, // NEW: Reset this flag too
       error: null,
     ));
     debugPrint('TableBloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');

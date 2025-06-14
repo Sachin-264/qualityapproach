@@ -1,3 +1,4 @@
+// lib/ReportDynamic/Reportbloc.dart
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
@@ -12,8 +13,9 @@ class LoadReports extends ReportEvent {}
 class FetchApiDetails extends ReportEvent {
   final String apiName;
   final List<Map<String, dynamic>> actionsConfig; // Kept as requested
+  final bool includePdfFooterDateTimeFromReportMetadata; // NEW: Flag from demo_table
 
-  FetchApiDetails(this.apiName, this.actionsConfig);
+  FetchApiDetails(this.apiName, this.actionsConfig, {this.includePdfFooterDateTimeFromReportMetadata = false});
 }
 
 class UpdateParameter extends ReportEvent {
@@ -109,6 +111,7 @@ class ReportState {
   final List<Map<String, dynamic>> actionsConfig;
   final String? error;
   final String? successMessage; // New field for success messages
+  final bool includePdfFooterDateTime; // NEW: Add includePdfFooterDateTime to state
 
   ReportState({
     this.isLoading = false,
@@ -130,6 +133,7 @@ class ReportState {
     this.actionsConfig = const [],
     this.error,
     this.successMessage, // Initialize success message
+    this.includePdfFooterDateTime = false, // NEW: Initialize to false
   });
 
   ReportState copyWith({
@@ -152,6 +156,7 @@ class ReportState {
     List<Map<String, dynamic>>? actionsConfig,
     String? error,
     String? successMessage, // Allow copying success message
+    bool? includePdfFooterDateTime, // NEW: Allow copying this field
   }) {
     return ReportState(
       isLoading: isLoading ?? this.isLoading,
@@ -173,6 +178,7 @@ class ReportState {
       actionsConfig: actionsConfig ?? this.actionsConfig,
       error: error,
       successMessage: successMessage, // Copy success message
+      includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime, // NEW: Assign copied value
     );
   }
 }
@@ -206,8 +212,8 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
   // FetchApiDetails is primarily for the *current* report's parameter inputs AND its own actions config
   Future<void> _onFetchApiDetails(FetchApiDetails event, Emitter<ReportState> emit) async {
-    // Clear relevant state properties for a new report's details, but do NOT clear fieldConfigs here
-    // as fieldConfigs is handled by FetchFieldConfigs.
+    // IMPORTANT: Set includePdfFooterDateTime from the event's data immediately.
+    // This value originates from the demo_table metadata when the report is selected in ReportUI.
     emit(state.copyWith(
       isLoading: true,
       error: null,
@@ -223,8 +229,11 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       // fieldConfigs is intentionally NOT cleared here; it's managed by FetchFieldConfigs
       documentData: null,
       reportData: [], // Clear report data as new API details mean new data
+      includePdfFooterDateTime: event.includePdfFooterDateTimeFromReportMetadata, // Set it here!
     ));
     try {
+      // This call still fetches API URL, DB credentials, and default API parameters
+      // from DatabaseServerMaster, which are separate from pdf_footer_datetime.
       final apiDetails = await apiService.getApiDetails(event.apiName);
 
       List<Map<String, dynamic>> fetchedParameters = List<Map<String, dynamic>>.from(apiDetails['parameters'] ?? []);
@@ -246,7 +255,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       if (finalActionsConfig.isEmpty && event.actionsConfig.isNotEmpty) {
         finalActionsConfig = event.actionsConfig;
       }
-
 
       for (var param in fetchedParameters) {
         if (param['name'] != null) {
@@ -276,9 +284,11 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         password: password,
         databaseName: databaseName,
         actionsConfig: finalActionsConfig, // Set the actionsConfig in BLoC state
+        // includePdfFooterDateTime is already correctly set from the event in the initial emit.
+        // No need to set it again here, as it's sourced from demo_table and explicitly passed.
         error: null,
       ));
-      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${finalActionsConfig.isNotEmpty ? finalActionsConfig.length : 'empty'} items.');
+      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${finalActionsConfig.isNotEmpty ? finalActionsConfig.length : 'empty'} items. Include PDF Footer Date/Time (from event): ${event.includePdfFooterDateTimeFromReportMetadata}');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to fetch API details: $e'));
       debugPrint('Bloc: FetchApiDetails error: $e');
@@ -469,6 +479,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       password: null,
       databaseName: null,
       actionsConfig: [], // Clear actions config
+      includePdfFooterDateTime: false, // NEW: Reset this flag too
     ));
     debugPrint('Bloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');
   }

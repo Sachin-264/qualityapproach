@@ -7,7 +7,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart'; // Contains PdfPreview widget and PdfGoogleFonts
 import 'package:http/http.dart' as http;
 import 'package:qualityapproach/ReportDynamic/ReportGenerator/PrintTemp/pdf_color_extension.dart'; // Import the http package
-
+import 'package:flutter/foundation.dart'; // For debugPrint
 
 // Enum for template selection
 enum PrintTemplate {
@@ -44,7 +44,7 @@ class PrintService {
     } else if (number is String) {
       numValue = double.tryParse(number) ?? 0.0;
     } else {
-      return number.toString(); // Fallback for unsupported types
+      return ''; // Fallback for unsupported types, return empty string
     }
 
     bool isNegative = numValue < 0;
@@ -85,21 +85,30 @@ class PrintService {
     return isNegative ? '-₹$result' : '₹$result';
   }
 
-  static String formatPrintDate(String? dateString) {
-    if (dateString == null || dateString.isEmpty) return 'N/A';
+  static String formatPrintDate(dynamic dateValue) {
+    if (dateValue == null) return ''; // Return empty string instead of 'N/A'
+    String dateString = dateValue.toString();
+    if (dateString.isEmpty) return ''; // Return empty string instead of 'N/A'
     try {
       final DateTime date;
-      if (dateString.contains('-') && dateString.split('-')[1].length == 3) {
+      // Handle 'yyyy-MM-dd HH:mm:ss' format from SQL directly
+      if (dateString.contains(' ') && dateString.contains('-') && dateString.length > 10) {
+        date = DateTime.parse(dateString);
+      } else if (dateString.contains('-') && dateString.split('-')[1].length == 3) {
+        // e.g., 01-May-2025
         date = DateFormat('dd-MMM-yyyy').parseStrict(dateString);
       } else if (dateString.contains('/')) {
+        // e.g., 01/05/2025
         date = DateFormat('dd/MM/yyyy').parseStrict(dateString);
       } else if (dateString.contains('-') && dateString.split('-')[0].length == 4) {
+        // e.g., 2025-05-01
         date = DateFormat('yyyy-MM-dd').parseStrict(dateString);
       } else {
-        date = DateTime.parse(dateString);
+        date = DateTime.parse(dateString); // Try ISO 8601
       }
       return DateFormat('dd-MMM-yyyy').format(date);
     } catch (e) {
+      // Fallback for any parsing error
       return dateString;
     }
   }
@@ -112,9 +121,27 @@ class PrintService {
       'requiredDate': '',
       'pds1Date': '',
     };
-    final List<String> lines = fullDescription.split('\n');
+
+    // --- CRITICAL FIX: Replace escaped newlines if they are present in the raw data ---
+    // This is the most likely cause if split('\n') is not working.
+    String processedDescription = fullDescription.replaceAll('\\n', '\n');
+
+    // --- DEBUG LOG FOR ITEM DESCRIPTION ---
+    debugPrint('--- parseItemDescription Debug ---');
+    debugPrint('Original fullDescription: "$fullDescription"');
+    debugPrint('Processed description (after replacing \\n): "$processedDescription"');
+    debugPrint('Contains literal \\n: ${fullDescription.contains('\\n')}');
+    debugPrint('Contains actual \\n: ${fullDescription.contains('\n')}');
+    // --- END DEBUG LOG ---
+
+    final List<String> lines = processedDescription.split('\n');
+    debugPrint('Split lines: $lines (length: ${lines.length})');
+
+
     if (lines.isEmpty) return parsed;
+
     parsed['name'] = lines[0].trim();
+
     for (int i = 1; i < lines.length; i++) {
       final String line = lines[i].trim();
       if (line.startsWith('Item Code :')) {
@@ -127,6 +154,8 @@ class PrintService {
         parsed['pds1Date'] = formatPrintDate(line.substring('PDS1 Date :'.length).trim());
       }
     }
+    debugPrint('Parsed Item (final): $parsed');
+    debugPrint('----------------------------------');
     return parsed;
   }
 
@@ -145,7 +174,7 @@ class PrintService {
             child: pw.Align(
               alignment: valueTextAlign == pw.TextAlign.right ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
               child: pw.Text(
-                value?.toString() ?? 'N/A',
+                value?.toString() ?? '', // Changed from 'N/A' to ''
                 style: valueStyle ?? const pw.TextStyle(fontSize: 9),
               ),
             ),
@@ -164,11 +193,9 @@ class PrintService {
           final response = await http.get(Uri.parse(imageUrl));
           if (response.statusCode == 200) {
             imageCache[imageUrl] = pw.MemoryImage(response.bodyBytes);
-          } else {
-            print('Failed to load image: $imageUrl, Status: ${response.statusCode}');
           }
         } catch (e) {
-          print('Error loading image for PDF: $imageUrl, Error: $e');
+          // No print for errors during image loading, as requested.
         }
       }
     }
@@ -183,24 +210,24 @@ class PrintService {
         pw.Text('$label:', style: labelStyle ?? pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10)),
         pw.Align(
           alignment: valueTextAlign == pw.TextAlign.right ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
-          child: pw.Text(value?.toString() ?? 'N/A', style: valueStyle ?? const pw.TextStyle(fontSize: 10)),
+          child: pw.Text(value?.toString() ?? '', style: valueStyle ?? const pw.TextStyle(fontSize: 10)), // Changed from 'N/A' to ''
         ),
       ],
     );
   }
 
-  // Specific helper for Premium template's pw.Table cells (due to its distinct column structure)
-  static pw.Widget _buildPremiumTableCell(String text, {bool isHeader = false, pw.TextAlign textAlign = pw.TextAlign.center, required pw.Font font, PdfColor? textColor}) {
+  // Refactored helper for all pw.Table text cells
+  static pw.Widget _buildTableCell(String text, {bool isHeader = false, pw.TextAlign textAlign = pw.TextAlign.center, required pw.Font font, PdfColor? textColor, pw.Font? boldFont}) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.all(4), // Increased padding for better look
+      padding: const pw.EdgeInsets.all(4),
       child: pw.Text(
         text,
         textAlign: textAlign,
         style: pw.TextStyle(
-          fontSize: isHeader ? 8.5 : 8, // Slightly larger header font
+          fontSize: isHeader ? 8.5 : 8,
           fontWeight: isHeader ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: textColor ?? (isHeader ? PdfColors.white : PdfColors.black), // Customizable text color
-          font: font,
+          color: textColor ?? (isHeader ? PdfColors.white : PdfColors.black),
+          font: isHeader ? (boldFont ?? font) : font, // Use boldFont for headers if provided
         ),
       ),
     );
@@ -214,7 +241,7 @@ class PrintService {
       );
     } else {
       return pw.Center(
-        child: pw.Text('No Image', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)),
+        child: pw.Text('', style: const pw.TextStyle(fontSize: 7, color: PdfColors.grey600)), // Changed from 'No Image' to ''
       );
     }
   }
@@ -236,11 +263,25 @@ class PrintService {
 
     final Map<String, pw.MemoryImage> imageCache = await _preloadImages(items);
 
+    // Consolidated calculations for consistency
+    double totalCGST = items.fold<double>(0.0, (sum, item) => sum + (item['CGSTVAL'] as num? ?? 0.0).toDouble());
+    double totalSGST = items.fold<double>(0.0, (sum, item) => sum + (item['SGSTVAL'] as num? ?? 0.0).toDouble());
     double totalIGST = items.fold<double>(0.0, (sum, item) => sum + (item['IGSTVAL'] as num? ?? 0.0).toDouble());
+    double totalGST = (totalCGST + totalSGST + totalIGST).toDouble(); // Sum of all GSTs
     double subTotal = (document['SubTotal'] as num? ?? 0.0).toDouble();
     double freightAmt = (document['FreightAmt'] as num? ?? 0.0).toDouble();
     double packageAmt = (document['Packingcharges'] as num? ?? 0.0).toDouble();
     double grandTotal = (document['GrandTotal'] as num? ?? 0.0).toDouble();
+
+    // Prepare Total Amount In Words string
+    String totalAmtInWordsString = document['TotalAmtInWords']?.toString().trim() ?? '';
+    // Remove "Rupees " prefix if present (case-insensitive)
+    if (totalAmtInWordsString.toLowerCase().startsWith('rupees ')) {
+      totalAmtInWordsString = totalAmtInWordsString.substring('Rupees '.length).trim();
+    }
+    // Replace " And " with " Rupees " to match requested format "X Rupees Y Paise"
+    totalAmtInWordsString = totalAmtInWordsString.replaceAll(' And ', ' Rupees ').replaceAll(' and ', ' Rupees ');
+
 
     pdf.addPage(
       pw.MultiPage(
@@ -259,12 +300,12 @@ class PrintService {
               crossAxisAlignment: pw.CrossAxisAlignment.center,
               children: [
                 pw.Text(
-                  document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd',
+                  document['Branch_FullName']?.toString() ?? '',
                   style: pw.TextStyle(fontSize: 26, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor),
                   textAlign: pw.TextAlign.center,
                 ),
                 pw.Text(
-                  document['Branch']?.toString() ?? 'B-12, SECTOR 80, NOIDA',
+                  document['Branch']?.toString() ?? '',
                   style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700, font: font),
                   textAlign: pw.TextAlign.center,
                 ),
@@ -304,9 +345,9 @@ class PrintService {
                       pw.Text('BILL TO:', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3))),
                       pw.SizedBox(height: 5),
                       _buildPdfKeyValuePair('Name', document['AccountName'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
-                      _buildPdfKeyValuePair('Address', document['Address'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
-                      _buildPdfKeyValuePair('StateName/ Code', document['State'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
-                      _buildPdfKeyValuePair('GSTIN', document['GSTNo'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                      _buildPdfKeyValuePair('Address', document['BillToAddress']?.toString() ?? '', labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                      _buildPdfKeyValuePair('StateName/ Code', document['BillToState'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                      _buildPdfKeyValuePair('GSTIN', document['BillToGSTNo'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                     ],
                   ),
                 ),
@@ -318,14 +359,14 @@ class PrintService {
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Text(
-                        'CUSTOMER -> ${document['GroupName'] ?? 'PROJECT'}',
+                        'CUSTOMER -> ${document['GroupName'] ?? ''}', // Consistent GroupName usage
                         style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2)),
                       ),
                       pw.SizedBox(height: 10),
                       _buildPdfKeyValuePair('Order', document['SaleOrderNo'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                       _buildPdfKeyValuePair('Date', formatPrintDate(document['PostingDate']), labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                       _buildPdfKeyValuePair('Delivery Date', formatPrintDate(document['DeliveryDate']), labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
-                      _buildPdfKeyValuePair('Customer PO', document['CustomerPONo'] ?? 'N/A', labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                      _buildPdfKeyValuePair('Customer PO', document['CustomerPONo'] ?? '', labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                       _buildPdfKeyValuePair('Customer PO Date', formatPrintDate(document['CustomerPODate']), labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                     ],
                   ),
@@ -339,30 +380,30 @@ class PrintService {
               pw.Table(
                 border: pw.TableBorder.all(color: accentColor.lighten(0.3), width: 0.5),
                 columnWidths: {
-                  0: const pw.FixedColumnWidth(40), // SNo - Increased width
-                  1: const pw.FixedColumnWidth(60), // Image
+                  0: const pw.FixedColumnWidth(30), // SNo
+                  1: const pw.FixedColumnWidth(50), // Image
                   2: const pw.FlexColumnWidth(3.0), // Item Description
                   3: const pw.FixedColumnWidth(40), // Batch
                   4: const pw.FixedColumnWidth(30), // Qty
-                  5: const pw.FixedColumnWidth(60), // Rate
+                  5: const pw.FixedColumnWidth(55), // Rate
                   6: const pw.FixedColumnWidth(45), // Dis %
-                  7: const pw.FixedColumnWidth(60), // Net Rate
-                  8: const pw.FixedColumnWidth(70), // Amount
+                  7: const pw.FixedColumnWidth(55), // Net Rate
+                  8: const pw.FixedColumnWidth(65), // Amount
                 },
                 children: [
                   // Table Header
                   pw.TableRow(
                     decoration: pw.BoxDecoration(color: accentColor),
                     children: [
-                      _buildPremiumTableCell('S.No', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Image', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Item Description', isHeader: true, textAlign: pw.TextAlign.left, font: boldFont),
-                      _buildPremiumTableCell('Batch', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Qty', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Rate', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Dis %', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Net Rate', isHeader: true, font: boldFont),
-                      _buildPremiumTableCell('Amount', isHeader: true, font: boldFont),
+                      _buildTableCell('S.No', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Image', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Item Description', isHeader: true, textAlign: pw.TextAlign.left, font: font, boldFont: boldFont),
+                      _buildTableCell('Batch', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Qty', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Rate', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Dis %', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Net Rate', isHeader: true, font: font, boldFont: boldFont),
+                      _buildTableCell('Amount', isHeader: true, font: font, boldFont: boldFont),
                     ],
                   ),
                   // Table Rows
@@ -374,27 +415,33 @@ class PrintService {
                     return pw.TableRow(
                       decoration: pw.BoxDecoration(color: index % 2 == 0 ? PdfColors.white : accentColor.lighten(0.9)),
                       children: [
-                        _buildPremiumTableCell(item['SNo']?.toString() ?? '', font: font),
-                        _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache),
+                        _buildTableCell(item['SNo']?.toString() ?? '', font: font),
+                        _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache, height: 30, width: 30),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(3),
                           child: pw.Column(
                             crossAxisAlignment: pw.CrossAxisAlignment.start,
                             children: [
                               pw.Text(parsedItem['name'] ?? '', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                              if (parsedItem['itemCode']!.isNotEmpty || parsedItem['itemGroup']!.isNotEmpty || parsedItem['requiredDate']!.isNotEmpty || parsedItem['pds1Date']!.isNotEmpty)
+                                pw.SizedBox(height: 1), // Small spacing between main name and details
                               if (parsedItem['itemCode']!.isNotEmpty)
                                 pw.Text('Item Code : ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
                               if (parsedItem['itemGroup']!.isNotEmpty)
                                 pw.Text('Item Group : ${parsedItem['itemGroup']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['requiredDate']!.isNotEmpty)
+                                pw.Text('Required Desired Date : ${parsedItem['requiredDate']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['pds1Date']!.isNotEmpty)
+                                pw.Text('PDS1 Date : ${parsedItem['pds1Date']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
                             ],
                           ),
                         ),
-                        _buildPremiumTableCell(item['BatchNo']?.toString() ?? '', font: font),
-                        _buildPremiumTableCell(item['Qty']?.toString() ?? '', textAlign: pw.TextAlign.center, font: font),
-                        _buildPremiumTableCell(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
-                        _buildPremiumTableCell('${(item['DisPer'] as num? ?? 0.0).toStringAsFixed(2)} %', textAlign: pw.TextAlign.right, font: font),
-                        _buildPremiumTableCell(formatIndianNumber(item['NetRate'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
-                        _buildPremiumTableCell(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(item['BatchNo']?.toString() ?? '', font: font),
+                        _buildTableCell(item['Qty']?.toString() ?? '', textAlign: pw.TextAlign.center, font: font),
+                        _buildTableCell(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell('${(item['DisPer'] as num? ?? 0.0).toStringAsFixed(2)} %', textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['NetRate'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
                       ],
                     );
                   }).toList(),
@@ -417,10 +464,10 @@ class PrintService {
                     pw.SizedBox(height: 5),
                     pw.SizedBox(width: double.infinity, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
                     pw.SizedBox(height: 5),
-                    _buildPdfKeyValue('CGST', formatIndianNumber(document['CGSTVAL'] as num? ?? 0.0, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
-                    _buildPdfKeyValue('SGST', formatIndianNumber(document['SGSTVAL'] as num? ?? 0.0, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                    _buildPdfKeyValue('CGST', formatIndianNumber(totalCGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                    _buildPdfKeyValue('SGST', formatIndianNumber(totalSGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                     _buildPdfKeyValue('IGST', formatIndianNumber(totalIGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
-                    pw.SizedBox(height: 5),
+                    _buildPdfKeyValue('Total GST', formatIndianNumber(totalGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                     pw.SizedBox(width: double.infinity, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
                     pw.SizedBox(height: 5),
                     pw.Container(
@@ -452,13 +499,29 @@ class PrintService {
                     style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3)),
                   ),
                   pw.SizedBox(height: 5),
-                  pw.Text(
-                    'Total Amount In Words : ${document['TotalAmtInWords']?.toString() ?? 'N/A'}',
-                    style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, font: font, color: PdfColors.grey700),
+                  pw.RichText(
+                    text: pw.TextSpan(
+                      children: [
+                        pw.TextSpan(
+                          text: 'Total Amount In Words : ',
+                          style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, font: font, color: PdfColors.grey700),
+                        ),
+                        if (totalAmtInWordsString.isNotEmpty) ...[
+                          pw.TextSpan(
+                            text: '₹ ',
+                            style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3)),
+                          ),
+                          pw.TextSpan(
+                            text: totalAmtInWordsString,
+                            style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, font: font, color: PdfColors.grey700),
+                          ),
+                        ]
+                      ],
+                    ),
                   ),
                   pw.SizedBox(height: 5),
                   pw.Text(
-                    'Transporter Name : ${document['TransporterName'] ?? 'N/A'}',
+                    'Transporter Name : ${document['TransporterName'] ?? ''}',
                     style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: font, color: accentColor.darken(0.3)),
                   ),
                 ],
@@ -478,13 +541,13 @@ class PrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
+                      pw.Text(document['Branch_FullName']?.toString() ?? '', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
                       pw.SizedBox(height: 50),
                       pw.Text('_________________________', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
                       pw.SizedBox(height: 5),
                       pw.Text('Authorised Signatory', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
                       pw.SizedBox(height: 5),
-                      pw.Text('Prepared By: ${document['SalesManName'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
+                      pw.Text('Prepared By: ${document['SalesManName'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
                     ],
                   ),
                 ),
@@ -502,12 +565,6 @@ class PrintService {
               ],
             ),
           ];
-        },
-        footer: (pw.Context context) {
-          return pw.Align(
-            alignment: pw.Alignment.bottomRight,
-            child: pw.Text('Page ${context.pageNumber}/${context.pagesCount}', style: pw.TextStyle(fontSize: 9, color: PdfColors.grey, font: font)),
-          );
         },
       ),
     );
@@ -527,6 +584,7 @@ class PrintService {
 
     final Map<String, pw.MemoryImage> imageCache = await _preloadImages(items);
 
+    // Consolidated calculations for consistency
     double totalCGST = items.fold<double>(0.0, (sum, item) => sum + (item['CGSTVAL'] as num? ?? 0.0).toDouble());
     double totalSGST = items.fold<double>(0.0, (sum, item) => sum + (item['SGSTVAL'] as num? ?? 0.0).toDouble());
     double totalIGST = items.fold<double>(0.0, (sum, item) => sum + (item['IGSTVAL'] as num? ?? 0.0).toDouble());
@@ -535,6 +593,13 @@ class PrintService {
     double freightAmt = (document['FreightAmt'] as num? ?? 0.0).toDouble();
     double packageAmt = (document['Packingcharges'] as num? ?? 0.0).toDouble();
     double grandTotal = (document['GrandTotal'] as num? ?? 0.0).toDouble();
+
+    // Prepare Total Amount In Words string
+    String totalAmtInWordsString = document['TotalAmtInWords']?.toString().trim() ?? '';
+    if (totalAmtInWordsString.toLowerCase().startsWith('rupees ')) {
+      totalAmtInWordsString = totalAmtInWordsString.substring('Rupees '.length).trim();
+    }
+    totalAmtInWordsString = totalAmtInWordsString.replaceAll(' And ', ' Rupees ').replaceAll(' and ', ' Rupees ');
 
 
     pdf.addPage(
@@ -555,11 +620,11 @@ class PrintService {
                 crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
                   pw.Text(
-                    document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd',
+                    document['Branch_FullName']?.toString() ?? '',
                     style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: accentColor.darken(0.1), font: boldFont), // Smaller title
                   ),
                   pw.Text(
-                    document['Branch']?.toString() ?? 'B-12, SECTOR 80, NOIDA',
+                    document['Branch']?.toString() ?? '',
                     style: pw.TextStyle(fontSize: 9, color: PdfColors.grey600, font: font),
                   ),
                   if (document['BranchGSTNo']?.toString().isNotEmpty == true)
@@ -591,11 +656,10 @@ class PrintService {
                     children: [
                       pw.Text('BILL TO:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
                       pw.SizedBox(height: 5),
-                      pw.Text(document['AccountName']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                      pw.Text(document['BillToAddress']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 9, font: font)),
-                      pw.Text('${document['BillToCity'] ?? 'N/A'}, ${document['BillToState'] ?? 'N/A'} ${document['BillToPinCode'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
-                      if (document['BillToGSTNo']?.toString().isNotEmpty == true)
-                        pw.Text('GSTIN: ${document['BillToGSTNo']}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text(document['AccountName']?.toString() ?? '', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                      pw.Text(document['BillToAddress']?.toString() ?? '', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('StateName/ Code: ${document['BillToState'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('GSTIN: ${document['BillToGSTNo'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
                     ],
                   ),
                 ),
@@ -605,10 +669,11 @@ class PrintService {
                     children: [
                       pw.Text('ORDER DETAILS:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
                       pw.SizedBox(height: 5),
-                      pw.Text('Order No: ${document['SaleOrderNo'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 9, font: font)), // Simple text lines
+                      pw.Text('Order No: ${document['SaleOrderNo'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)), // Simple text lines
                       pw.Text('Date: ${formatPrintDate(document['PostingDate'])}', style: pw.TextStyle(fontSize: 9, font: font)),
                       pw.Text('Delivery Date: ${formatPrintDate(document['DeliveryDate'])}', style: pw.TextStyle(fontSize: 9, font: font)),
-                      pw.Text('PO No: ${document['CustomerPONo'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('Customer PO: ${document['CustomerPONo'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('Customer PO Date: ${formatPrintDate(document['CustomerPODate'])}', style: pw.TextStyle(fontSize: 9, font: font)),
                     ],
                   ),
                 ),
@@ -618,45 +683,80 @@ class PrintService {
 
             // --- Item Details Table (No vertical borders, only horizontal, subtle header) ---
             if (items.isNotEmpty) ...[
-              pw.Table.fromTextArray(
-                cellAlignment: pw.Alignment.centerLeft,
-                headerAlignment: pw.Alignment.centerLeft,
+              pw.Table(
                 columnWidths: {
-                  0: const pw.FixedColumnWidth(40), // S.No - Increased width
-                  1: const pw.FixedColumnWidth(60), // Image
+                  0: const pw.FixedColumnWidth(30), // SNo
+                  1: const pw.FixedColumnWidth(50), // Image
                   2: const pw.FlexColumnWidth(3.0), // Item Description
-                  3: const pw.FixedColumnWidth(40), // Qty
-                  4: const pw.FixedColumnWidth(70), // Rate
-                  5: const pw.FixedColumnWidth(80), // Amount
+                  3: const pw.FixedColumnWidth(40), // Batch
+                  4: const pw.FixedColumnWidth(30), // Qty
+                  5: const pw.FixedColumnWidth(55), // Rate
+                  6: const pw.FixedColumnWidth(45), // Dis %
+                  7: const pw.FixedColumnWidth(55), // Net Rate
+                  8: const pw.FixedColumnWidth(65), // Amount
                 },
                 border: null, // No outer table border
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5, color: accentColor.darken(0.3), font: boldFont),
-                headerDecoration: const pw.BoxDecoration( // No background, just a light bottom border
-                    border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey200, width: 1.5))),
-                cellStyle: pw.TextStyle(fontSize: 8.5, font: font),
-                rowDecoration: const pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey100, width: 0.5))),
-                headers: ['S.No', 'Image', 'Item Description', 'Qty', 'Rate', 'Amount'],
-                data: items.map((item) {
-                  final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
-                  return [
-                    item['SNo']?.toString() ?? '',
-                    _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache, height: 30, width: 30), // Smaller image
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Table Header
+                  pw.TableRow(
+                    decoration: const pw.BoxDecoration( // No background, just a light bottom border
+                        border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey200, width: 1.5))),
+                    children: [
+                      _buildTableCell('S.No', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Image', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Item Description', isHeader: true, textAlign: pw.TextAlign.left, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Batch', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Qty', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Rate', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Dis %', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Net Rate', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                      _buildTableCell('Amount', isHeader: true, font: font, boldFont: boldFont, textColor: accentColor.darken(0.3)),
+                    ],
+                  ),
+                  // Table Rows
+                  ...items.asMap().entries.map((entry) {
+                    final int index = entry.key;
+                    final Map<String, dynamic> item = entry.value;
+                    final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
+
+                    return pw.TableRow(
+                      decoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey100, width: 0.5))),
                       children: [
-                        pw.Text(parsedItem['name']!, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                        if (parsedItem['itemCode']!.isNotEmpty)
-                          pw.Text('Code: ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700, font: font)),
+                        _buildTableCell(item['SNo']?.toString() ?? '', font: font),
+                        _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache, height: 30, width: 30),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(3),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text(parsedItem['name'] ?? '', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                              if (parsedItem['itemCode']!.isNotEmpty || parsedItem['itemGroup']!.isNotEmpty || parsedItem['requiredDate']!.isNotEmpty || parsedItem['pds1Date']!.isNotEmpty)
+                                pw.SizedBox(height: 1), // Small spacing between main name and details
+                              if (parsedItem['itemCode']!.isNotEmpty)
+                                pw.Text('Item Code : ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['itemGroup']!.isNotEmpty)
+                                pw.Text('Item Group : ${parsedItem['itemGroup']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['requiredDate']!.isNotEmpty)
+                                pw.Text('Required Desired Date : ${parsedItem['requiredDate']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['pds1Date']!.isNotEmpty)
+                                pw.Text('PDS1 Date : ${parsedItem['pds1Date']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                            ],
+                          ),
+                        ),
+                        _buildTableCell(item['BatchNo']?.toString() ?? '', font: font),
+                        _buildTableCell(item['Qty']?.toString() ?? '', textAlign: pw.TextAlign.center, font: font),
+                        _buildTableCell(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell('${(item['DisPer'] as num? ?? 0.0).toStringAsFixed(2)} %', textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['NetRate'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
                       ],
-                    ),
-                    item['Qty']?.toString() ?? '',
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2))),
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2))),
-                  ];
-                }).toList(),
+                    );
+                  }).toList(),
+                ],
               ),
               pw.SizedBox(height: 20),
             ],
+
 
             // --- Totals (Right aligned, subtle) ---
             pw.Align(
@@ -669,7 +769,11 @@ class PrintService {
                   if (packageAmt > 0)
                     _buildPdfKeyValue('Packing', formatIndianNumber(packageAmt, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   pw.SizedBox(width: 150, child: pw.Divider(thickness: 0.8, color: PdfColors.grey300)), // Lighter divider
+                  _buildPdfKeyValue('CGST', formatIndianNumber(totalCGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('SGST', formatIndianNumber(totalSGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('IGST', formatIndianNumber(totalIGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   _buildPdfKeyValue('Total GST', formatIndianNumber(totalGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  pw.SizedBox(width: 150, child: pw.Divider(thickness: 0.8, color: PdfColors.grey300)),
                   pw.SizedBox(height: 10),
                   pw.Container(
                     width: 200,
@@ -685,9 +789,24 @@ class PrintService {
                         valueTextAlign: pw.TextAlign.right),
                   ),
                   pw.SizedBox(height: 5),
+                  pw.RichText(
+                    text: pw.TextSpan(
+                      children: [
+                        pw.TextSpan(
+                          text: '₹ ',
+                          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3)),
+                        ),
+                        pw.TextSpan(
+                          text: totalAmtInWordsString,
+                          style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 5),
                   pw.Text(
-                    document['TotalAmtInWords']?.toString() ?? 'N/A',
-                    style: pw.TextStyle(fontSize: 9, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                    'Transporter Name : ${document['TransporterName'] ?? ''}',
+                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: font, color: accentColor.darken(0.3)),
                   ),
                 ],
               ),
@@ -708,9 +827,11 @@ class PrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text('Authorised Signatory', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
+                      pw.Text(document['Branch_FullName']?.toString() ?? '', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
                       pw.SizedBox(height: 30), // Less space
-                      pw.Text('Prepared By: ${document['SalesManName'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
+                      pw.Text('_________________________', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
+                      pw.Text('Authorised Signatory', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
+                      pw.Text('Prepared By: ${document['SalesManName'] ?? ''}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
                     ],
                   ),
                 ),
@@ -718,20 +839,15 @@ class PrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.end,
                     children: [
-                      pw.Text('Customer Signature', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
                       pw.SizedBox(height: 30),
+                      pw.Text('_________________________', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
+                      pw.Text('Customer Signature', style: pw.TextStyle(fontSize: 9, font: font, color: PdfColors.grey700)),
                     ],
                   ),
                 ),
               ],
             ),
           ];
-        },
-        footer: (pw.Context context) {
-          return pw.Align(
-            alignment: pw.Alignment.bottomRight,
-            child: pw.Text('Page ${context.pageNumber}/${context.pagesCount}', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
-          );
         },
       ),
     );
@@ -744,6 +860,7 @@ class PrintService {
       List<Map<String, dynamic>> items,
       String reportLabel,
       PdfColor accentColor,
+
       ) async {
     final pdf = pw.Document();
     final font = await PdfGoogleFonts.robotoRegular();
@@ -751,6 +868,7 @@ class PrintService {
 
     final Map<String, pw.MemoryImage> imageCache = await _preloadImages(items);
 
+    // Consolidated calculations for consistency
     double totalCGST = items.fold<double>(0.0, (sum, item) => sum + (item['CGSTVAL'] as num? ?? 0.0).toDouble());
     double totalSGST = items.fold<double>(0.0, (sum, item) => sum + (item['SGSTVAL'] as num? ?? 0.0).toDouble());
     double totalIGST = items.fold<double>(0.0, (sum, item) => sum + (item['IGSTVAL'] as num? ?? 0.0).toDouble());
@@ -759,6 +877,13 @@ class PrintService {
     double freightAmt = (document['FreightAmt'] as num? ?? 0.0).toDouble();
     double packageAmt = (document['Packingcharges'] as num? ?? 0.0).toDouble();
     double grandTotal = (document['GrandTotal'] as num? ?? 0.0).toDouble();
+
+    // Prepare Total Amount In Words string
+    String totalAmtInWordsString = document['TotalAmtInWords']?.toString().trim() ?? '';
+    if (totalAmtInWordsString.toLowerCase().startsWith('rupees ')) {
+      totalAmtInWordsString = totalAmtInWordsString.substring('Rupees '.length).trim();
+    }
+    totalAmtInWordsString = totalAmtInWordsString.replaceAll(' And ', ' Rupees ').replaceAll(' and ', ' Rupees ');
 
 
     pdf.addPage(
@@ -784,11 +909,11 @@ class PrintService {
                 crossAxisAlignment: pw.CrossAxisAlignment.start,
                 children: [
                   pw.Text(
-                    document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd',
+                    document['Branch_FullName']?.toString() ?? '',
                     style: pw.TextStyle(fontSize: 26, fontWeight: pw.FontWeight.bold, color: accentColor.darken(0.1), font: boldFont),
                   ),
                   pw.Text(
-                    document['Branch']?.toString() ?? 'B-12, SECTOR 80, NOIDA',
+                    document['Branch']?.toString() ?? '',
                     style: pw.TextStyle(fontSize: 11, color: PdfColors.grey700, font: font),
                   ),
                   if (document['BranchGSTNo']?.toString().isNotEmpty == true)
@@ -827,11 +952,10 @@ class PrintService {
                       children: [
                         pw.Text('BILL TO:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
                         pw.SizedBox(height: 5),
-                        pw.Text(document['AccountName']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                        pw.Text(document['BillToAddress']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 9, font: font)),
-                        pw.Text('${document['BillToCity'] ?? 'N/A'}, ${document['BillToState'] ?? 'N/A'} ${document['BillToPinCode'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
-                        if (document['BillToGSTNo']?.toString().isNotEmpty == true)
-                          pw.Text('GSTIN: ${document['BillToGSTNo']}', style: pw.TextStyle(fontSize: 9, font: font)),
+                        _buildPdfKeyValuePair('Name', document['AccountName'], labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font)),
+                        _buildPdfKeyValuePair('Address', document['BillToAddress']?.toString() ?? '', labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                        _buildPdfKeyValuePair('StateName/ Code', document['BillToState'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                        _buildPdfKeyValuePair('GSTIN', document['BillToGSTNo'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                       ],
                     ),
                   ),
@@ -853,7 +977,8 @@ class PrintService {
                         _buildPdfKeyValue('Order No', document['SaleOrderNo'], labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                         _buildPdfKeyValue('Date', formatPrintDate(document['PostingDate']), labelStyle:  pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                         _buildPdfKeyValue('Delivery Date', formatPrintDate(document['DeliveryDate']), labelStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
-                        _buildPdfKeyValue('PO No', document['CustomerPONo'] ?? 'N/A', labelStyle:  pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                        _buildPdfKeyValue('Customer PO', document['CustomerPONo'] ?? '', labelStyle:  pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
+                        _buildPdfKeyValue('Customer PO Date', formatPrintDate(document['CustomerPODate']), labelStyle:  pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 9, font: font)),
                       ],
                     ),
                   ),
@@ -866,41 +991,75 @@ class PrintService {
             if (items.isNotEmpty) ...[
               pw.Text('ITEM DETAILS:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
               pw.SizedBox(height: 10),
-              pw.Table.fromTextArray(
-                cellAlignment: pw.Alignment.centerLeft,
-                headerAlignment: pw.Alignment.centerLeft,
+              pw.Table(
                 columnWidths: {
-                  0: const pw.FixedColumnWidth(40), // S.No - Increased width
-                  1: const pw.FixedColumnWidth(60), // Image
+                  0: const pw.FixedColumnWidth(30), // SNo
+                  1: const pw.FixedColumnWidth(50), // Image
                   2: const pw.FlexColumnWidth(3.0), // Item Description
-                  3: const pw.FixedColumnWidth(40), // Qty
-                  4: const pw.FixedColumnWidth(70), // Rate
-                  5: const pw.FixedColumnWidth(80), // Amount
+                  3: const pw.FixedColumnWidth(40), // Batch
+                  4: const pw.FixedColumnWidth(30), // Qty
+                  5: const pw.FixedColumnWidth(55), // Rate
+                  6: const pw.FixedColumnWidth(45), // Dis %
+                  7: const pw.FixedColumnWidth(55), // Net Rate
+                  8: const pw.FixedColumnWidth(65), // Amount
                 },
                 border: pw.TableBorder.all(color: accentColor.darken(0.1), width: 1.0), // Thicker, darker borders
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5, color: PdfColors.white, font: boldFont),
-                headerDecoration: pw.BoxDecoration(color: accentColor.darken(0.1)), // Solid darker header background
-                cellStyle: pw.TextStyle(fontSize: 8.5, font: font),
-                rowDecoration: pw.BoxDecoration(color: accentColor.lighten(0.95)), // Alternating light rows
-                headers: ['S.No', 'Image', 'Item Description', 'Qty', 'Rate', 'Amount'],
-                data: items.map((item) {
-                  final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
-                  return [
-                    item['SNo']?.toString() ?? '',
-                    _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache),
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Table Header
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: accentColor.darken(0.1)), // Solid darker header background
+                    children: [
+                      _buildTableCell('S.No', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Image', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Item Description', isHeader: true, textAlign: pw.TextAlign.left, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Batch', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Qty', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Rate', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Dis %', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Net Rate', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Amount', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                    ],
+                  ),
+                  // Table Rows
+                  ...items.asMap().entries.map((entry) {
+                    final int index = entry.key;
+                    final Map<String, dynamic> item = entry.value;
+                    final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
+
+                    return pw.TableRow(
+                      decoration: pw.BoxDecoration(color: index % 2 == 0 ? PdfColors.white : accentColor.lighten(0.95)), // Alternating light rows
                       children: [
-                        pw.Text(parsedItem['name']!, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                        if (parsedItem['itemCode']!.isNotEmpty)
-                          pw.Text('Code: ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700, font: font)),
+                        _buildTableCell(item['SNo']?.toString() ?? '', font: font),
+                        _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(3),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text(parsedItem['name'] ?? '', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                              if (parsedItem['itemCode']!.isNotEmpty || parsedItem['itemGroup']!.isNotEmpty || parsedItem['requiredDate']!.isNotEmpty || parsedItem['pds1Date']!.isNotEmpty)
+                                pw.SizedBox(height: 1), // Small spacing between main name and details
+                              if (parsedItem['itemCode']!.isNotEmpty)
+                                pw.Text('Item Code : ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['itemGroup']!.isNotEmpty)
+                                pw.Text('Item Group : ${parsedItem['itemGroup']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['requiredDate']!.isNotEmpty)
+                                pw.Text('Required Desired Date : ${parsedItem['requiredDate']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['pds1Date']!.isNotEmpty)
+                                pw.Text('PDS1 Date : ${parsedItem['pds1Date']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                            ],
+                          ),
+                        ),
+                        _buildTableCell(item['BatchNo']?.toString() ?? '', font: font),
+                        _buildTableCell(item['Qty']?.toString() ?? '', textAlign: pw.TextAlign.center, font: font),
+                        _buildTableCell(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell('${(item['DisPer'] as num? ?? 0.0).toStringAsFixed(2)} %', textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['NetRate'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
                       ],
-                    ),
-                    item['Qty']?.toString() ?? '',
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2))),
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2))),
-                  ];
-                }).toList(),
+                    );
+                  }).toList(),
+                ],
               ),
               pw.SizedBox(height: 25),
             ],
@@ -916,7 +1075,11 @@ class PrintService {
                   if (packageAmt > 0)
                     _buildPdfKeyValue('Packing', formatIndianNumber(packageAmt, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   pw.SizedBox(width: 180, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
+                  _buildPdfKeyValue('CGST', formatIndianNumber(totalCGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('SGST', formatIndianNumber(totalSGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('IGST', formatIndianNumber(totalIGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   _buildPdfKeyValue('Total GST', formatIndianNumber(totalGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  pw.SizedBox(width: 180, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
                   pw.SizedBox(height: 10),
                   pw.Container(
                     width: 250,
@@ -932,9 +1095,24 @@ class PrintService {
                         valueTextAlign: pw.TextAlign.right),
                   ),
                   pw.SizedBox(height: 5),
+                  pw.RichText(
+                    text: pw.TextSpan(
+                      children: [
+                        pw.TextSpan(
+                          text: '₹ ',
+                          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3)),
+                        ),
+                        pw.TextSpan(
+                          text: totalAmtInWordsString,
+                          style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 5),
                   pw.Text(
-                    document['TotalAmtInWords']?.toString() ?? 'N/A',
-                    style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                    'Transporter Name : ${document['TransporterName'] ?? ''}',
+                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: font, color: accentColor.darken(0.3)),
                   ),
                 ],
               ),
@@ -955,11 +1133,11 @@ class PrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
+                      pw.Text(document['Branch_FullName']?.toString() ?? '', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
                       pw.SizedBox(height: 50),
                       pw.Text('_________________________', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
                       pw.Text('Authorised Signatory', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
-                      pw.Text('Prepared By: ${document['SalesManName'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
+                      pw.Text('Prepared By: ${document['SalesManName'] ?? ''}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
                     ],
                   ),
                 ),
@@ -976,12 +1154,6 @@ class PrintService {
               ],
             ),
           ];
-        },
-        footer: (pw.Context context) {
-          return pw.Align(
-            alignment: pw.Alignment.bottomRight,
-            child: pw.Text('Page ${context.pageNumber}/${context.pagesCount}', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
-          );
         },
       ),
     );
@@ -1001,6 +1173,7 @@ class PrintService {
 
     final Map<String, pw.MemoryImage> imageCache = await _preloadImages(items);
 
+    // Consolidated calculations for consistency
     double totalCGST = items.fold<double>(0.0, (sum, item) => sum + (item['CGSTVAL'] as num? ?? 0.0).toDouble());
     double totalSGST = items.fold<double>(0.0, (sum, item) => sum + (item['SGSTVAL'] as num? ?? 0.0).toDouble());
     double totalIGST = items.fold<double>(0.0, (sum, item) => sum + (item['IGSTVAL'] as num? ?? 0.0).toDouble());
@@ -1009,6 +1182,13 @@ class PrintService {
     double freightAmt = (document['FreightAmt'] as num? ?? 0.0).toDouble();
     double packageAmt = (document['Packingcharges'] as num? ?? 0.0).toDouble();
     double grandTotal = (document['GrandTotal'] as num? ?? 0.0).toDouble();
+
+    // Prepare Total Amount In Words string
+    String totalAmtInWordsString = document['TotalAmtInWords']?.toString().trim() ?? '';
+    if (totalAmtInWordsString.toLowerCase().startsWith('rupees ')) {
+      totalAmtInWordsString = totalAmtInWordsString.substring('Rupees '.length).trim();
+    }
+    totalAmtInWordsString = totalAmtInWordsString.replaceAll(' And ', ' Rupees ').replaceAll(' and ', ' Rupees ');
 
     pdf.addPage(
       pw.MultiPage(
@@ -1030,12 +1210,12 @@ class PrintService {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: [
                     pw.Text(
-                      document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd',
+                      document['Branch_FullName']?.toString() ?? '',
                       style: pw.TextStyle(fontSize: 28, fontWeight: pw.FontWeight.bold, color: accentColor.darken(0.1), font: boldFont),
                     ),
                     pw.SizedBox(height: 5),
                     pw.Text(
-                      document['Branch']?.toString() ?? 'B-12, SECTOR 80, NOIDA',
+                      document['Branch']?.toString() ?? '',
                       style: pw.TextStyle(fontSize: 10, color: PdfColors.grey700, font: font),
                     ),
                     if (document['BranchGSTNo']?.toString().isNotEmpty == true)
@@ -1072,11 +1252,10 @@ class PrintService {
                     children: [
                       pw.Text('BILL TO:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
                       pw.SizedBox(height: 5),
-                      pw.Text(document['AccountName']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                      pw.Text(document['BillToAddress']?.toString() ?? 'N/A', style: pw.TextStyle(fontSize: 9, font: font)),
-                      pw.Text('${document['BillToCity'] ?? 'N/A'}, ${document['BillToState'] ?? 'N/A'} ${document['BillToPinCode'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
-                      if (document['BillToGSTNo']?.toString().isNotEmpty == true)
-                        pw.Text('GSTIN: ${document['BillToGSTNo']}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text(document['AccountName']?.toString() ?? '', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                      pw.Text(document['BillToAddress']?.toString() ?? '', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('StateName/ Code: ${document['BillToState'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
+                      pw.Text('GSTIN: ${document['BillToGSTNo'] ?? ''}', style: pw.TextStyle(fontSize: 9, font: font)),
                     ],
                   ),
                 ),
@@ -1087,7 +1266,8 @@ class PrintService {
                       _buildPdfKeyValue('Order No', document['SaleOrderNo'], labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
                       _buildPdfKeyValue('Date', formatPrintDate(document['PostingDate']), labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
                       _buildPdfKeyValue('Delivery Date', formatPrintDate(document['DeliveryDate']), labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
-                      _buildPdfKeyValue('Customer PO', document['CustomerPONo'] ?? 'N/A', labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
+                      _buildPdfKeyValue('Customer PO', document['CustomerPONo'] ?? '', labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
+                      _buildPdfKeyValue('Customer PO Date', formatPrintDate(document['CustomerPODate']), labelStyle: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont), valueStyle: pw.TextStyle(fontSize: 10, font: font), valueTextAlign: pw.TextAlign.right),
                     ],
                   ),
                 ),
@@ -1099,41 +1279,75 @@ class PrintService {
             if (items.isNotEmpty) ...[
               pw.Text('ITEM DETAILS:', style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11, color: accentColor.darken(0.3), font: boldFont)),
               pw.SizedBox(height: 10),
-              pw.Table.fromTextArray(
-                cellAlignment: pw.Alignment.centerLeft,
-                headerAlignment: pw.Alignment.centerLeft,
+              pw.Table(
                 columnWidths: {
-                  0: const pw.FixedColumnWidth(40), // S.No - Increased width
-                  1: const pw.FixedColumnWidth(60), // Image
+                  0: const pw.FixedColumnWidth(30), // SNo
+                  1: const pw.FixedColumnWidth(50), // Image
                   2: const pw.FlexColumnWidth(3.0), // Item Description
-                  3: const pw.FixedColumnWidth(40), // Qty
-                  4: const pw.FixedColumnWidth(70), // Rate
-                  5: const pw.FixedColumnWidth(80), // Amount
+                  3: const pw.FixedColumnWidth(40), // Batch
+                  4: const pw.FixedColumnWidth(30), // Qty
+                  5: const pw.FixedColumnWidth(55), // Rate
+                  6: const pw.FixedColumnWidth(45), // Dis %
+                  7: const pw.FixedColumnWidth(55), // Net Rate
+                  8: const pw.FixedColumnWidth(65), // Amount
                 },
                 border: pw.TableBorder.all(color: accentColor.lighten(0.5), width: 0.5), // Subtle borders
-                headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9.5, color: PdfColors.white, font: boldFont),
-                headerDecoration: pw.BoxDecoration(color: accentColor.darken(0.1)), // Solid header background
-                cellStyle: pw.TextStyle(fontSize: 8.5, font: font),
-                rowDecoration: const pw.BoxDecoration(color: PdfColors.white),
-                headers: ['S.No', 'Image', 'Item Description', 'Qty', 'Rate', 'Amount'],
-                data: items.map((item) {
-                  final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
-                  return [
-                    item['SNo']?.toString() ?? '',
-                    _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache),
-                    pw.Column(
-                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  // Table Header
+                  pw.TableRow(
+                    decoration: pw.BoxDecoration(color: accentColor.darken(0.1)), // Solid header background
+                    children: [
+                      _buildTableCell('S.No', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Image', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Item Description', isHeader: true, textAlign: pw.TextAlign.left, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Batch', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Qty', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Rate', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Dis %', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Net Rate', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                      _buildTableCell('Amount', isHeader: true, font: font, boldFont: boldFont, textColor: PdfColors.white),
+                    ],
+                  ),
+                  // Table Rows
+                  ...items.asMap().entries.map((entry) {
+                    final int index = entry.key;
+                    final Map<String, dynamic> item = entry.value;
+                    final parsedItem = parseItemDescription(item['ItemName']?.toString() ?? '');
+
+                    return pw.TableRow(
+                      decoration: pw.BoxDecoration(color: index % 2 == 0 ? PdfColors.white : PdfColors.grey50), // Slightly alternating row colors
                       children: [
-                        pw.Text(parsedItem['name']!, style: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, font: boldFont)),
-                        if (parsedItem['itemCode']!.isNotEmpty)
-                          pw.Text('Code: ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7.5, color: PdfColors.grey700, font: font)),
+                        _buildTableCell(item['SNo']?.toString() ?? '', font: font),
+                        _buildPdfImageCell(item['ItemImagePath']?.toString(), imageCache),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.all(3),
+                          child: pw.Column(
+                            crossAxisAlignment: pw.CrossAxisAlignment.start,
+                            children: [
+                              pw.Text(parsedItem['name'] ?? '', style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold, font: boldFont)),
+                              if (parsedItem['itemCode']!.isNotEmpty || parsedItem['itemGroup']!.isNotEmpty || parsedItem['requiredDate']!.isNotEmpty || parsedItem['pds1Date']!.isNotEmpty)
+                                pw.SizedBox(height: 1), // Small spacing between main name and details
+                              if (parsedItem['itemCode']!.isNotEmpty)
+                                pw.Text('Item Code : ${parsedItem['itemCode']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['itemGroup']!.isNotEmpty)
+                                pw.Text('Item Group : ${parsedItem['itemGroup']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['requiredDate']!.isNotEmpty)
+                                pw.Text('Required Desired Date : ${parsedItem['requiredDate']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                              if (parsedItem['pds1Date']!.isNotEmpty)
+                                pw.Text('PDS1 Date : ${parsedItem['pds1Date']!}', style: pw.TextStyle(fontSize: 7, color: PdfColors.grey700, font: font)),
+                            ],
+                          ),
+                        ),
+                        _buildTableCell(item['BatchNo']?.toString() ?? '', font: font),
+                        _buildTableCell(item['Qty']?.toString() ?? '', textAlign: pw.TextAlign.center, font: font),
+                        _buildTableCell(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell('${(item['DisPer'] as num? ?? 0.0).toStringAsFixed(2)} %', textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['NetRate'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
+                        _buildTableCell(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2), textAlign: pw.TextAlign.right, font: font),
                       ],
-                    ),
-                    item['Qty']?.toString() ?? '',
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['MRP'] ?? 0.0, decimalPoints: 2))),
-                    pw.Align(alignment: pw.Alignment.centerRight, child: pw.Text(formatIndianNumber(item['ItemValue'] ?? 0.0, decimalPoints: 2))),
-                  ];
-                }).toList(),
+                    );
+                  }).toList(),
+                ],
               ),
               pw.SizedBox(height: 25),
             ],
@@ -1149,7 +1363,11 @@ class PrintService {
                   if (packageAmt > 0)
                     _buildPdfKeyValue('Packing', formatIndianNumber(packageAmt, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   pw.SizedBox(width: 180, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
+                  _buildPdfKeyValue('CGST', formatIndianNumber(totalCGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('SGST', formatIndianNumber(totalSGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  _buildPdfKeyValue('IGST', formatIndianNumber(totalIGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
                   _buildPdfKeyValue('Total GST', formatIndianNumber(totalGST, decimalPoints: 2), valueTextAlign: pw.TextAlign.right, labelStyle: pw.TextStyle(font: font, fontWeight: pw.FontWeight.bold), valueStyle: pw.TextStyle(font: font)),
+                  pw.SizedBox(width: 180, child: pw.Divider(thickness: 0.8, color: accentColor.lighten(0.3))),
                   pw.SizedBox(height: 10),
                   pw.Container(
                     width: 250,
@@ -1165,9 +1383,24 @@ class PrintService {
                         valueTextAlign: pw.TextAlign.right),
                   ),
                   pw.SizedBox(height: 5),
+                  pw.RichText(
+                    text: pw.TextSpan(
+                      children: [
+                        pw.TextSpan(
+                          text: '₹ ',
+                          style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.3)),
+                        ),
+                        pw.TextSpan(
+                          text: totalAmtInWordsString,
+                          style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                        ),
+                      ],
+                    ),
+                  ),
+                  pw.SizedBox(height: 5),
                   pw.Text(
-                    document['TotalAmtInWords']?.toString() ?? 'N/A',
-                    style: pw.TextStyle(fontSize: 9.5, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600, font: font),
+                    'Transporter Name : ${document['TransporterName'] ?? ''}',
+                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, font: font, color: accentColor.darken(0.3)),
                   ),
                 ],
               ),
@@ -1188,11 +1421,11 @@ class PrintService {
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
-                      pw.Text(document['Branch_FullName']?.toString() ?? 'AcquaViva India Pvt Ltd', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
+                      pw.Text(document['Branch_FullName']?.toString() ?? '', style: pw.TextStyle(fontSize: 9.5, fontWeight: pw.FontWeight.bold, font: boldFont, color: accentColor.darken(0.2))),
                       pw.SizedBox(height: 50),
                       pw.Text('_________________________', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
                       pw.Text('Authorised Signatory', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
-                      pw.Text('Prepared By: ${document['SalesManName'] ?? 'N/A'}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
+                      pw.Text('Prepared By: ${document['SalesManName'] ?? ''}', style: pw.TextStyle(fontSize: 8.5, font: font, color: PdfColors.grey700)),
                     ],
                   ),
                 ),
@@ -1209,12 +1442,6 @@ class PrintService {
               ],
             ),
           ];
-        },
-        footer: (pw.Context context) {
-          return pw.Align(
-            alignment: pw.Alignment.bottomRight,
-            child: pw.Text('Page ${context.pageNumber}/${context.pagesCount}', style: pw.TextStyle(fontSize: 8, color: PdfColors.grey, font: font)),
-          );
         },
       ),
     );

@@ -572,12 +572,18 @@ class _ReportUIState extends State<ReportUI> {
                                           debugPrint('UI: Warning: actions_config is empty or invalid for selected report: ${selection['Report_label']}. Value: $actionsRaw');
                                         }
 
+                                        // FIX: Properly extract pdf_footer_datetime from selection.
+                                        // Based on logs, it's already a boolean or null after ReportAPIService.
+                                        final bool includePdfFooter = selection['pdf_footer_datetime'] == true;
+                                        debugPrint('UI: Extracted pdf_footer_datetime from selection: ${selection['pdf_footer_datetime']} (runtimeType: ${selection['pdf_footer_datetime']?.runtimeType}) -> $includePdfFooter');
+
 
                                         // 5. Dispatch FetchApiDetails (gets general API params and client DB details)
                                         bloc.add(
                                           FetchApiDetails(
                                             selection['API_name'],
                                             selectedActionsConfig,
+                                            includePdfFooterDateTimeFromReportMetadata: includePdfFooter, // Pass the extracted flag
                                           ),
                                         );
                                         debugPrint('UI: FetchApiDetails dispatched for API: ${selection['API_name']}.'); // LOG
@@ -684,7 +690,7 @@ class _ReportUIState extends State<ReportUI> {
                                             dynamicApiParams: bloc.state.userParameterValues,
                                           ));
                                           if (context.mounted) {
-                                            debugPrint('UI: Navigating to ReportMainUI.');
+                                            debugPrint('UI: Navigating to ReportMainUI. Passing includePdfFooterDateTime: ${state.includePdfFooterDateTime}'); // LOG
                                             Navigator.push(
                                               context,
                                               MaterialPageRoute(
@@ -699,6 +705,7 @@ class _ReportUIState extends State<ReportUI> {
                                                         actionsConfig: actionsConfigForMainReport,
                                                         companyName: companyName, // Pass the extracted company name (fixed)
                                                         displayParameterValues: displayValuesForExport, // Pass display values for export (fixed)
+                                                        includePdfFooterDateTime: state.includePdfFooterDateTime, // NEW: Pass the flag here
                                                       ),
                                                     ),
                                               ),
@@ -738,6 +745,10 @@ class _ReportUIState extends State<ReportUI> {
                                           } else if (reportMetadataToSend['actions_config'] is String && reportMetadataToSend['actions_config'].isEmpty) {
                                             reportMetadataToSend['actions_config'] = '[]';
                                           }
+
+                                          // NEW: Add pdf_footer_datetime to reportMetadataToSend
+                                          // Ensure it's a string '0' or '1' as expected by the PHP script
+                                          reportMetadataToSend['pdf_footer_datetime'] = state.includePdfFooterDateTime ? '1' : '0';
 
 
                                           final String clientApiName = _selectedReport!['API_name'].toString();
