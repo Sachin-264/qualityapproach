@@ -98,7 +98,7 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'https://pdf-node-7gdmpt1wj-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
+  static const String _pdfApiBaseUrl = 'https://pdf-node-kbfu8swqw-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
 
   @override
   void initState() {
@@ -740,7 +740,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('http://localhost/sendmail.php'),
+        Uri.parse('https://aquare.co.in/mobileAPI/sachin/reportBuilder/sendmail.php'),
       );
 
       request.fields['email'] = emailController.text;
