@@ -1,4 +1,3 @@
-// lib/ReportDynamic/TableGenerator/TableMainUI.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -13,9 +12,8 @@ import '../../../ReportUtils/Export_widget.dart';
 import '../../../ReportUtils/subtleloader.dart';
 import '../../ReportAPIService.dart';
 import 'TableBLoc.dart'; // Direct import (no alias here)
-import '../PrintTemp/printpreview.dart'; // Add this if print is needed
-import '../PrintTemp/print_template_selection.dart'; // Add this if print is needed
-
+import '../PrintTemp/printpreview.dart';
+import '../PrintTemp/print_template_selection.dart';
 
 
 class TableMainUI extends StatelessWidget {
@@ -23,9 +21,10 @@ class TableMainUI extends StatelessWidget {
   final String apiName;
   final String reportLabel;
   final Map<String, String> userParameterValues;
-  final List<Map<String, dynamic>> actionsConfig; // Actions passed from parent, possibly empty
-  final Map<String, String> displayParameterValues;
+  final List<Map<String, dynamic>> actionsConfig;
+  final Map<String, String> displayParameterValues; // Parameters specific to THIS TableMainUI's API call
   final String companyName;
+  final Map<String, String>? parentDisplayParameterValues; // NEW: To hold parameters from the parent report
 
   const TableMainUI({
     super.key,
@@ -33,10 +32,10 @@ class TableMainUI extends StatelessWidget {
     required this.apiName,
     required this.reportLabel,
     required this.userParameterValues,
-    this.actionsConfig = const [], // Can be empty if nested, BLoC will fetch its own
+    this.actionsConfig = const [],
     required this.displayParameterValues,
     required this.companyName,
-    // Removed: includePdfFooterDateTime from constructor, will get from Bloc state
+    this.parentDisplayParameterValues, // NEW: Make it optional (nullable)
   });
 
   static String formatIndianNumber(double number, int decimalPoints) {
@@ -98,6 +97,7 @@ class TableMainUI extends StatelessWidget {
   Widget build(BuildContext context) {
     print('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
     print('TableMainUI: Company Name passed: $companyName');
+    print('TableMainUI: Parent Display Parameters received: $parentDisplayParameterValues'); // NEW: Log for debugging
 
     return Scaffold(
       appBar: AppBarWidget(
@@ -540,6 +540,8 @@ class TableMainUI extends StatelessWidget {
                                           actionsConfig: const [],
                                           displayParameterValues: nestedDisplayValuesForExport,
                                           companyName: companyName,
+                                          // NEW: Pass the parent's (this TableMainUI's) display parameter values to the nested TableMainUI
+                                          parentDisplayParameterValues: displayParameterValues,
                                         ),
                                       ),
                                     ),
@@ -726,11 +728,13 @@ class TableMainUI extends StatelessWidget {
                     fieldConfigs: sortedFieldConfigs,
                     reportLabel: reportLabel,
                     parameterValues: userParameterValues,
-                    displayParameterValues: displayParameterValues,
+                    // MODIFIED: Pass the parent's display parameters if available,
+                    // otherwise fall back to this TableMainUI's own parameters.
+                    displayParameterValues: parentDisplayParameterValues ?? displayParameterValues,
                     apiParameters: state.selectedApiParameters,
                     pickerOptions: state.pickerOptions,
                     companyName: companyName,
-                    includePdfFooterDateTime: state.includePdfFooterDateTime, // NEW: Pass the footer flag from Bloc state
+                    includePdfFooterDateTime: state.includePdfFooterDateTime,
                   ),
                   const SizedBox(height: 16),
                   Expanded(

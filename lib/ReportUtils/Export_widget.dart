@@ -16,7 +16,7 @@ import 'package:printing/printing.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 import 'package:collection/collection.dart'; // Import for firstWhereOrNull
 
-// Global export lock to prevent multiple exports
+
 class ExportLock {
   static bool _isExportingGlobally = false;
 
@@ -98,7 +98,7 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'https://pdf-node-abpshxrkh-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
+  static const String _pdfApiBaseUrl = 'https://pdf-node-7gdmpt1wj-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
 
   @override
   void initState() {

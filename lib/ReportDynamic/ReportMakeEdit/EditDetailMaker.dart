@@ -472,7 +472,7 @@ class _EditDetailMakerState extends State<EditDetailMaker> with SingleTickerProv
                                       const SizedBox(height: 20),
                                       // NEW: Checkbox for PDF Footer Date/Time
                                       CheckboxListTile(
-                                        title: Text('Include Generation Date/Time in PDF Footer', style: GoogleFonts.poppins(fontSize: 16)),
+                                        title: Text('Print Date/Time in Footer', style: GoogleFonts.poppins(fontSize: 16)),
                                         value: state.includePdfFooterDateTime,
                                         onChanged: (value) {
                                           debugPrint('UI: Include PDF Footer Date/Time checkbox changed to: $value'); // Retained debugPrint

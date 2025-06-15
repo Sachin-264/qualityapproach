@@ -19,8 +19,7 @@ import 'PrintTemp/printpreview.dart';
 import 'PrintTemp/printservice.dart';
 import 'Reportbloc.dart';
 import 'TableGenerate/TableBLoc.dart' as TableBlocEvents; // Alias for TableBloc
-import 'TableGenerate/TableMainUI.dart';
-
+import 'TableGenerate/TableMainUI.dart'; // Import TableMainUI
 
 // NEW EXTENSION: To convert PrintTemplateForMaker (from EditDetailMaker)
 // to PrintTemplate (from printservice.dart)
@@ -45,9 +44,9 @@ class ReportMainUI extends StatelessWidget {
   final String reportLabel;
   final Map<String, String> userParameterValues;
   final List<Map<String, dynamic>> actionsConfig;
-  final Map<String, String> displayParameterValues;
+  final Map<String, String> displayParameterValues; // This is the map you want to pass down
   final String companyName;
-  final bool includePdfFooterDateTime; // NEW: Added includePdfFooterDateTime
+  final bool includePdfFooterDateTime;
 
   const ReportMainUI({
     super.key,
@@ -58,7 +57,7 @@ class ReportMainUI extends StatelessWidget {
     this.actionsConfig = const [],
     required this.displayParameterValues,
     required this.companyName,
-    required this.includePdfFooterDateTime, // NEW: Make includePdfFooterDateTime required
+    required this.includePdfFooterDateTime,
   });
 
   // Helper function to format numbers using Indian locale
@@ -568,6 +567,8 @@ class ReportMainUI extends StatelessWidget {
                                           actionsConfig: const [],
                                           displayParameterValues: nestedDisplayValuesForExport,
                                           companyName: companyName,
+                                          // NEW: Pass the parent's display parameter values to the nested TableMainUI
+                                          parentDisplayParameterValues: this.displayParameterValues,
                                         ),
                                       ),
                                     ),
@@ -790,4 +791,3 @@ class ReportMainUI extends StatelessWidget {
     );
   }
 }
-
