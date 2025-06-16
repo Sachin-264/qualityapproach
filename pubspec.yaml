@@ -57,6 +57,11 @@ dependencies:
   http_parser: ^4.1.2
   printing: ^5.14.2
   freezed_annotation: ^3.0.0
+  syncfusion_flutter_pdf: ^28.2.12
+  image: ^4.3.0
+  encrypt: ^5.0.3
+  crypto: ^3.0.6
+  url_launcher: ^6.3.1
 
 dev_dependencies:
   flutter_test:

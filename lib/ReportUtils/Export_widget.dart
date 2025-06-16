@@ -1,7 +1,7 @@
 // lib/ReportUtils/Export_widget.dart
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:convert';
+import 'dart:convert'; // For base64Encode
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
@@ -11,10 +11,15 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart';
 import 'package:http_parser/http_parser.dart' show MediaType;
-import 'package:pdf/pdf.dart';
-import 'package:printing/printing.dart';
+
+// RE-ADDED: for PdfPageFormat in Printing.layoutPdf
+import 'package:pdf/pdf.dart' as old_pdf; // Alias to avoid conflict if 'pdf' was used elsewhere
+
+import 'package:printing/printing.dart'; // Still used for sharing/printing PDFs
 import 'package:pluto_grid/pluto_grid.dart';
 import 'package:collection/collection.dart'; // Import for firstWhereOrNull
+
+import 'package:image/image.dart' as img_lib; // NEW IMPORT for image processing
 
 
 class ExportLock {
@@ -70,7 +75,7 @@ class ExportWidget extends StatefulWidget {
   final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
   final Map<String, List<Map<String, String>>>? pickerOptions;
   final String companyName;
-  final bool includePdfFooterDateTime; // NEW: Added includePdfFooterDateTime
+  final bool includePdfFooterDateTime; // Added includePdfFooterDateTime
 
   const ExportWidget({
     required this.columns,
@@ -83,7 +88,7 @@ class ExportWidget extends StatefulWidget {
     this.apiParameters,
     this.pickerOptions,
     required this.companyName,
-    this.includePdfFooterDateTime=false , // NEW: Make required
+    this.includePdfFooterDateTime = false, // Make required
     super.key,
   });
 
@@ -98,7 +103,8 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  static const String _pdfApiBaseUrl = 'https://pdf-node-kbfu8swqw-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf'; // Make sure this is your Node.js server URL
+  // Node.js server URL for PDF generation (for non-image PDFs)
+  static const String _pdfApiBaseUrl = 'https://pdf-node-kbfu8swqw-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf';
 
   @override
   void initState() {
@@ -138,7 +144,7 @@ class _ExportWidgetState extends State<ExportWidget> {
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
     print('ExportWidget: Building with exportId=$_exportId, dataLength=${widget.plutoRows.length}, ExportLock.isExporting=${ExportLock.isExporting}');
     print('ExportWidget: Derived company name for header: ${_companyNameForHeader ?? 'N/A'}');
-    print('ExportWidget: includePdfFooterDateTime for PDF exports: ${widget.includePdfFooterDateTime}'); // NEW: Log for ExportWidget
+    print('ExportWidget: includePdfFooterDateTime for PDF exports: ${widget.includePdfFooterDateTime}');
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -224,6 +230,27 @@ class _ExportWidgetState extends State<ExportWidget> {
       ),
     );
   }
+
+  // Checks if any of the columns are marked as 'image' in fieldConfigs
+  bool _hasImageColumns() {
+    if (widget.fieldConfigs == null || widget.fieldConfigs!.isEmpty) {
+      return false;
+    }
+    for (var col in widget.columns) {
+      if (col.field == '__actions__' || col.field == '__raw_data__') continue;
+
+      final config = widget.fieldConfigs!.firstWhereOrNull(
+            (fc) => fc['Field_name'] == col.field,
+      );
+      if (config != null && config['image']?.toString() == '1') {
+        print('ExportWidget: Found image column: ${col.field}');
+        return true;
+      }
+    }
+    print('ExportWidget: No image columns found.');
+    return false;
+  }
+
 
   // MODIFIED: _executeExportTask now accepts showLoaderDialog and initialMessage
   Future<void> _executeExportTask(
@@ -335,10 +362,13 @@ class _ExportWidgetState extends State<ExportWidget> {
         String errorMessage = 'Failed to $taskName. Please try again.';
         if (e.toString().contains('Failed to generate PDF on server')) {
           errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
-        } else if (e.toString().contains('Connection refused')) {
+        } else if (e.toString().contains('Could not connect to PDF server')) { // Specific check for connection issues
           errorMessage = 'Could not connect to PDF server. Is it running?';
         } else if (e.toString().contains('Server failed to send email')) {
           errorMessage = 'Email sending failed. ${e.toString().split("Details:").last.trim()}';
+        } else if (e.toString().contains('Invalid string length') || e.toString().contains('ClientException')) {
+          // Provide more specific message for network/payload issues during pre-processing
+          errorMessage = 'PDF generation payload too large or network error during client-side image processing. Check image URLs or try with fewer rows/smaller images. Details: $e';
         } else {
           errorMessage = 'Failed to $taskName: $e';
         }
@@ -434,7 +464,142 @@ class _ExportWidgetState extends State<ExportWidget> {
     return grandTotals;
   }
 
-  // --- Helper to call Node.js PDF Generation API ---
+  // NEW: Top-level static function for image pre-processing in an Isolate
+  // This function must be static or a top-level function to be used with compute.
+  static Future<Map<String, dynamic>> _processRowsInIsolate(Map<String, dynamic> params) async {
+    // Unpack parameters received from compute
+    final List<Map<String, dynamic>> rawPlutoRowsJson = params['plutoRowsJson'] as List<Map<String, dynamic>>;
+    final List<Map<String, dynamic>> fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>;
+    final List<Map<String, dynamic>> serializableColumns = params['serializableColumns'] as List<Map<String, dynamic>>;
+
+    // Local cache for the isolate to avoid re-fetching within the isolate
+    final Map<String, String?> isolateBase64ImageCache = {};
+
+    // Helper to fetch image bytes and convert to Base64 (within the isolate)
+    Future<String?> _isolateFetchImageAndEncodeBase64(String imageUrl) async {
+      if (isolateBase64ImageCache.containsKey(imageUrl)) {
+        return isolateBase64ImageCache[imageUrl];
+      }
+      if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
+        print('[_isolateFetchImageAndEncodeBase64] Invalid URL format or not an HTTP/HTTPS URL: $imageUrl');
+        isolateBase64ImageCache[imageUrl] = null;
+        return null;
+      }
+
+      try {
+        final response = await http.get(Uri.parse(imageUrl));
+        if (response.statusCode == 200) {
+          // NEW LOGIC: Decode, resize, and re-encode image
+          img_lib.Image? image = img_lib.decodeImage(response.bodyBytes);
+          if (image == null) {
+            print('[_isolateFetchImageAndEncodeBase64] Image decoding failed for $imageUrl. Returning raw Base64 if possible.');
+            // Fallback: if decoding fails (e.g. malformed image), just base64 encode raw bytes.
+            final String base64String = base64Encode(response.bodyBytes);
+            String mimeType = response.headers['content-type']?.split(';')[0] ?? 'application/octet-stream';
+            isolateBase64ImageCache[imageUrl] = 'data:$mimeType;base64,$base64String';
+            return isolateBase64ImageCache[imageUrl];
+          }
+
+          // Define target size for PDF images (e.g., 50px tall as per HTML/CSS)
+          // Aim for a slightly higher resolution for better PDF rendering (e.g., 2x display size)
+          const int targetImageDisplayHeightPx = 50; // As in CSS: max-height: 50px
+          const int targetImageDisplayWidthPx = 50; // As in CSS: max-width: 50px
+          const double scaleFactor = 2.0; // Render at 2x resolution for sharpness in PDF
+
+          int newWidth = (targetImageDisplayWidthPx * scaleFactor).round();
+          int newHeight = (targetImageDisplayHeightPx * scaleFactor).round();
+
+          // Calculate aspect ratio to maintain proportions
+          double originalAspectRatio = image.width / image.height;
+          double targetAspectRatio = newWidth / newHeight;
+
+          // Resize strategy: Fit within target bounds while maintaining aspect ratio
+          if (originalAspectRatio > targetAspectRatio) {
+            // Image is wider than target, fit by width
+            image = img_lib.copyResize(image, width: newWidth, interpolation: img_lib.Interpolation.average);
+          } else {
+            // Image is taller than target, fit by height
+            image = img_lib.copyResize(image, height: newHeight, interpolation: img_lib.Interpolation.average);
+          }
+
+
+          // Re-encode (e.g., to JPEG for smaller size, adjust quality)
+          final List<int> resizedBytes;
+          String mimeType;
+
+          // Attempt to preserve original format if known and suitable, or default to JPEG
+          String originalMimeType = response.headers['content-type']?.split(';')[0] ?? '';
+
+          // FIXED: Use img_lib.ImageFormat.png (lowercase)
+          if (originalMimeType == 'image/png' || image.format == img_lib.ImageFormat.png) {
+            resizedBytes = img_lib.encodePng(image);
+            mimeType = 'image/png';
+          } else {
+            resizedBytes = img_lib.encodeJpg(image, quality: 75); // JPEG quality 0-100, 75 is good balance
+            mimeType = 'image/jpeg';
+          }
+
+          final String base64String = base64Encode(Uint8List.fromList(resizedBytes));
+          final String dataUrl = 'data:$mimeType;base64,$base64String';
+          isolateBase64ImageCache[imageUrl] = dataUrl;
+          return dataUrl;
+        } else {
+          print('[_isolateFetchImageAndEncodeBase64] Failed to fetch image $imageUrl: ${response.statusCode}');
+          isolateBase64ImageCache[imageUrl] = null;
+          return null;
+        }
+      } catch (e) {
+        print('[_isolateFetchImageAndEncodeBase64] Error fetching or processing image $imageUrl: $e');
+        isolateBase64ImageCache[imageUrl] = null; // Cache null for errors
+        return null; // Return null on error so PDF shows "Image not available"
+      }
+    }
+
+    final List<String> imageFieldNames = serializableColumns
+        .where((col) => fieldConfigs.firstWhereOrNull((fc) => fc['Field_name'] == col['field'])?['image'] == '1')
+        .map((col) => col['field'] as String)
+        .toList();
+
+    final List<Map<String, dynamic>> finalSerializableRows = [];
+    final List<Future<void>> rowProcessingFutures = []; // To process rows in parallel
+
+    // For compute, PlutoRow objects themselves are not directly transferable.
+    // We expect `rawPlutoRowsJson` to be a List of Map<String, dynamic> representing each PlutoRow's cells.
+    for (var rowData in rawPlutoRowsJson) { // Iterate over the raw JSON data for rows
+      rowProcessingFutures.add(() async {
+        final Map<String, dynamic> serializableRowCells = {};
+        // Use serializableColumns to ensure correct iteration order and access to field names
+        for (var colConfig in serializableColumns) {
+          final fieldName = colConfig['field'] as String;
+          final rawValue = rowData['cells'][fieldName]; // Access cell value from raw JSON row data
+
+          if (imageFieldNames.contains(fieldName) && rawValue is String && (rawValue.startsWith('http://') || rawValue.startsWith('https://'))) {
+            serializableRowCells[fieldName] = await _isolateFetchImageAndEncodeBase64(rawValue);
+          } else {
+            serializableRowCells[fieldName] = rawValue;
+          }
+        }
+        final Map<String, dynamic> processedRowData = {
+          'cells': serializableRowCells,
+        };
+        // Add '__isSubtotal__' flag back from the raw data
+        if (rowData.containsKey('__isSubtotal__')) {
+          processedRowData['__isSubtotal__'] = rowData['__isSubtotal__'];
+        }
+        finalSerializableRows.add(processedRowData);
+      }()); // Immediately invoke and add to list of futures
+    }
+
+    await Future.wait(rowProcessingFutures); // Wait for all rows to be processed
+
+    return {
+      'serializableRows': finalSerializableRows,
+      'uniqueImagesProcessed': isolateBase64ImageCache.length,
+    };
+  }
+
+
+  // --- Helper to call Node.js PDF Generation API (modified to send Base64 images) ---
   Future<Uint8List> _callPdfGenerationApi() async {
     print('Calling Node.js PDF API, exportId=$_exportId');
 
@@ -448,7 +613,6 @@ class _ExportWidgetState extends State<ExportWidget> {
       'type': col.type.runtimeType.toString(),
       'width': col.width,
       // Add other relevant column properties from fieldConfigs if needed by Node.js
-      // e.g., 'decimal_points', 'indian_format', 'num_alignment'
       'decimal_points': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['decimal_points'],
       'indian_format': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['indian_format'],
       'num_alignment': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['num_alignment'],
@@ -461,22 +625,38 @@ class _ExportWidgetState extends State<ExportWidget> {
     }).toList();
     print('ExportWidget: PDF Export Columns (filtered): ${serializableColumns.map((c) => c['field']).toList()}');
 
-    final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) {
-      final Map<String, dynamic> serializableRowCells = {};
-      for (var col in widget.columns) {
-        if (col.field != '__actions__' && col.field != '__raw_data__') {
-          serializableRowCells[col.field] = row.cells[col.field]?.value;
+    // NEW LOGIC: Pre-process rows (including image fetching/encoding) in an Isolate
+    print('ExportWidget: Starting client-side image pre-processing in an Isolate...');
+
+    // Convert PlutoRows to a serializable List<Map<String, dynamic>> before sending to isolate
+    // PlutoCell values need to be extracted explicitly for serialization across isolates.
+    final List<Map<String, dynamic>> plutoRowsJson = widget.plutoRows.map((row) {
+      final Map<String, dynamic> cellsMap = {};
+      row.cells.forEach((key, value) {
+        // Only include displayable fields. __actions__ and __raw_data__ are not processed by Isolate image logic.
+        if (serializableColumns.any((col) => col['field'] == key) || key == '__isSubtotal__') {
+          cellsMap[key] = value.value; // Get the raw value from PlutoCell
         }
-      }
-      final Map<String, dynamic> rowDataForApi = {
-        'cells': serializableRowCells,
-      };
+      });
+      final Map<String, dynamic> rowData = { 'cells': cellsMap };
       if (row.cells.containsKey('__isSubtotal__')) {
-        rowDataForApi['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
+        rowData['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
       }
-      return rowDataForApi;
+      return rowData;
     }).toList();
+
+    final preProcessResult = await compute(_processRowsInIsolate, {
+      'plutoRowsJson': plutoRowsJson, // Pass serializable data
+      'fieldConfigs': widget.fieldConfigs,
+      'serializableColumns': serializableColumns, // Pass this to help the isolate find image columns
+    });
+
+    final List<Map<String, dynamic>> serializableRows = preProcessResult['serializableRows'];
+    final int uniqueImagesProcessed = preProcessResult['uniqueImagesProcessed'];
+
     print('ExportWidget: Number of rows for PDF: ${serializableRows.length}');
+    print('ExportWidget: Number of unique images processed and cached (in isolate): $uniqueImagesProcessed');
+
 
     final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
         widget.columns, widget.plutoRows, widget.fieldConfigs);
@@ -497,18 +677,17 @@ class _ExportWidgetState extends State<ExportWidget> {
 
     final Map<String, dynamic> requestBody = {
       'columns': serializableColumns,
-      'rows': serializableRows,
+      'rows': serializableRows, // NOW CONTAINS BASE64 DATA FOR IMAGES
       'fileName': widget.fileName,
       'exportId': _exportId,
       'fieldConfigs': widget.fieldConfigs, // Also send full fieldConfigs for more granular control on Node.js side
       'reportLabel': widget.reportLabel,
       'visibleAndFormattedParameters': visibleAndFormattedParameters,
       'companyNameForHeader': _companyNameForHeader,
-      'totalPlutoConfiguredWidth': totalPdfConfiguredWidth,
       'grandTotalData': grandTotalData, // NEW: Send grand total separately
       'includePdfFooterDateTime': widget.includePdfFooterDateTime, // NEW: Pass the footer flag to Node.js
     };
-    print('ExportWidget: Request body size for PDF: ${jsonEncode(requestBody).length} bytes');
+    print('ExportWidget: Request body size for PDF: ${jsonEncode(requestBody).length} bytes. This can be large due to Base64 images.');
 
 
     try {
@@ -587,10 +766,11 @@ class _ExportWidgetState extends State<ExportWidget> {
   }
 
   // --- Export to PDF (Download) ---
+  @override
   Future<void> _exportToPDF(BuildContext context) async {
     await _executeExportTask(context, () async {
-      print('ExportToPDF: Calling Node.js API to generate PDF, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi();
+      print('ExportToPDF: Generating PDF via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
+      final pdfBytes = await _callPdfGenerationApi(); // This method now handles image pre-fetching
 
       print('ExportToPDF: Saving PDF file using FileSaver, exportId=$_exportId');
       final fileName = '${widget.fileName}.pdf';
@@ -607,15 +787,16 @@ class _ExportWidgetState extends State<ExportWidget> {
   }
 
   // --- Print Document ---
+  @override
   Future<void> _printDocument(BuildContext context) async {
     await _executeExportTask(context, () async {
-      print('PrintDocument: Calling Node.js API to generate PDF for printing, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi();
+      print('PrintDocument: Generating PDF via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
+      final pdfBytes = await _callPdfGenerationApi(); // This method now handles image pre-fetching
 
       if (kIsWeb) {
         print('PrintDocument: Platform is web. Using Printing.layoutPdf for direct browser print dialog, exportId=$_exportId');
         await Printing.layoutPdf(
-          onLayout: (PdfPageFormat format) async => pdfBytes,
+          onLayout: (old_pdf.PdfPageFormat format) async => pdfBytes,
           name: '${widget.fileName}_Print.pdf',
         );
         // SnackBar for web print is specific and handled here, not by general success
@@ -714,9 +895,9 @@ class _ExportWidgetState extends State<ExportWidget> {
         return cellsMap;
       }).toList();
 
-      final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
+      final Map<String, dynamic>? grandTotalDataExcel = _calculateGrandTotals(
           widget.columns, widget.plutoRows, widget.fieldConfigs);
-      print('SendToEmail: Grand Total data for Excel: $grandTotalData');
+      print('SendToEmail: Grand Total data for Excel: $grandTotalDataExcel');
 
 
       final excelBytes = await compute(_generateExcel, {
@@ -727,13 +908,16 @@ class _ExportWidgetState extends State<ExportWidget> {
         'reportLabel': widget.reportLabel,
         'displayParameterValues': widget.displayParameterValues,
         'companyNameForHeader': _companyNameForHeader,
-        'grandTotalData': grandTotalData,
+        'grandTotalData': grandTotalDataExcel,
       });
       print('SendToEmail: Excel file generated. Size: ${excelBytes.length} bytes, exportId=$_exportId');
 
 
-      print('SendToEmail: Generating PDF file for email attachment via API, exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // This method already uses widget.includePdfFooterDateTime
+      Uint8List pdfBytes;
+      // For email, always use the main _callPdfGenerationApi which handles image pre-fetching now
+      print('SendToEmail: Generating PDF for email attachment via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
+      pdfBytes = await _callPdfGenerationApi();
+
       print('SendToEmail: PDF file generated. Size: ${pdfBytes.length} bytes, exportId=$_exportId');
 
 
@@ -913,8 +1097,10 @@ class _ExportWidgetState extends State<ExportWidget> {
           return TextCellValue(_formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat));
         } else if (config?['image']?.toString() == '1' &&
             rawValue != null &&
-            (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://'))) {
-          return TextCellValue('Image Link: ${rawValue.toString()}');
+            (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://') || rawValue.toString().startsWith('data:image/'))) {
+          // For Excel, just print the image link text (URLs or Base64 strings)
+          // If it's a Base64 string, it will be very long but still text.
+          return TextCellValue('Image Data: ${rawValue.toString().substring(0, rawValue.toString().length > 50 ? 50 : rawValue.toString().length)}...'); // Truncate for display
         }
         return TextCellValue(rawValue?.toString() ?? '');
       }).toList();
