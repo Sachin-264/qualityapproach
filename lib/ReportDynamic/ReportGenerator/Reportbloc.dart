@@ -1,4 +1,5 @@
-// lib/ReportDynamic/Reportbloc.dart
+// Reportbloc.dart
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
@@ -104,6 +105,7 @@ class ReportState {
   final List<Map<String, dynamic>> selectedApiParameters;
   final Map<String, String> userParameterValues;
   final Map<String, List<Map<String, String>>> pickerOptions;
+  final Map<String, List<String>> apiDrivenFieldOptions; // NEW: Field_name -> List of FieldName values
   final String? serverIP; // Client's ServerIP for picker options, *not* your main system's
   final String? userName; // Client's UserName for picker options
   final String? password; // Client's Password for picker options
@@ -126,6 +128,7 @@ class ReportState {
     this.selectedApiParameters = const [],
     this.userParameterValues = const {},
     this.pickerOptions = const {},
+    this.apiDrivenFieldOptions = const {}, // NEW: Initialize
     this.serverIP,
     this.userName,
     this.password,
@@ -149,6 +152,7 @@ class ReportState {
     List<Map<String, dynamic>>? selectedApiParameters,
     Map<String, String>? userParameterValues,
     Map<String, List<Map<String, String>>>? pickerOptions,
+    Map<String, List<String>>? apiDrivenFieldOptions, // NEW: Add to copyWith
     String? serverIP,
     String? userName,
     String? password,
@@ -171,6 +175,7 @@ class ReportState {
       selectedApiParameters: selectedApiParameters ?? this.selectedApiParameters,
       userParameterValues: userParameterValues ?? this.userParameterValues,
       pickerOptions: pickerOptions ?? this.pickerOptions,
+      apiDrivenFieldOptions: apiDrivenFieldOptions ?? this.apiDrivenFieldOptions, // NEW: Assign
       serverIP: serverIP ?? this.serverIP,
       userName: userName ?? this.userName,
       password: password ?? this.password,
@@ -210,10 +215,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     }
   }
 
-  // FetchApiDetails is primarily for the *current* report's parameter inputs AND its own actions config
+// FetchApiDetails is primarily for the *current* report's parameter inputs AND its own actions config
   Future<void> _onFetchApiDetails(FetchApiDetails event, Emitter<ReportState> emit) async {
-    // IMPORTANT: Set includePdfFooterDateTime from the event's data immediately.
-    // This value originates from the demo_table metadata when the report is selected in ReportUI.
+// IMPORTANT: Set includePdfFooterDateTime from the event's data immediately.
+// This value originates from the demo_table metadata when the report is selected in ReportUI.
     emit(state.copyWith(
       isLoading: true,
       error: null,
@@ -221,37 +226,38 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       selectedApiParameters: [],
       userParameterValues: {},
       pickerOptions: {},
+      apiDrivenFieldOptions: {}, // NEW: Clear api driven options too
       selectedApiUrl: null,
       serverIP: null,
       userName: null,
       password: null,
       databaseName: null,
-      // fieldConfigs is intentionally NOT cleared here; it's managed by FetchFieldConfigs
+// fieldConfigs is intentionally NOT cleared here; it's managed by FetchFieldConfigs
       documentData: null,
       reportData: [], // Clear report data as new API details mean new data
       includePdfFooterDateTime: event.includePdfFooterDateTimeFromReportMetadata, // Set it here!
     ));
     try {
-      // This call still fetches API URL, DB credentials, and default API parameters
-      // from DatabaseServerMaster, which are separate from pdf_footer_datetime.
+// This call still fetches API URL, DB credentials, and default API parameters
+// from DatabaseServerMaster, which are separate from pdf_footer_datetime.
       final apiDetails = await apiService.getApiDetails(event.apiName);
 
       List<Map<String, dynamic>> fetchedParameters = List<Map<String, dynamic>>.from(apiDetails['parameters'] ?? []);
 
       final Map<String, String> initialUserParameterValues = {};
-      final Map<String, List<Map<String, String>>> initialPickerOptions = {};
+// initialPickerOptions will be built by FetchPickerOptions if needed, not here.
 
       final String? serverIP = apiDetails['serverIP']?.toString();
       final String? userName = apiDetails['userName']?.toString();
       final String? password = apiDetails['password']?.toString();
       final String? databaseName = apiDetails['databaseName']?.toString();
 
-      // Determine the final actions config for the state:
-      // Prefer actions from the API response for this specific API.
-      List<Map<String, dynamic>> finalActionsConfig = List<Map<String, dynamic>>.from(apiDetails['actions'] ?? []);
+// Determine the final actions config for the state:
+// Prefer actions from the API response for this specific API.
+      List<Map<String, dynamic>> finalActionsConfig = List<Map<String, dynamic>>.from(apiDetails['actions_config'] ?? []);
 
-      // Fallback: If API did not provide actions, but the event did (e.g., from main UI's metadata), use event's actions.
-      // This ensures that the main report's actions, which might be sourced from its initial metadata fetch, are preserved.
+// Fallback: If API did not provide actions, but the event did (e.g., from main UI's metadata), use event's actions.
+// This ensures that the main report's actions, which might be sourced from its initial metadata fetch, are preserved.
       if (finalActionsConfig.isEmpty && event.actionsConfig.isNotEmpty) {
         finalActionsConfig = event.actionsConfig;
       }
@@ -278,14 +284,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         selectedApiUrl: apiDetails['url'],
         selectedApiParameters: fetchedParameters,
         userParameterValues: initialUserParameterValues,
-        pickerOptions: initialPickerOptions,
+// pickerOptions: initialPickerOptions, // Removed, will be populated on demand
         serverIP: serverIP,
         userName: userName,
         password: password,
         databaseName: databaseName,
         actionsConfig: finalActionsConfig, // Set the actionsConfig in BLoC state
-        // includePdfFooterDateTime is already correctly set from the event in the initial emit.
-        // No need to set it again here, as it's sourced from demo_table and explicitly passed.
+// includePdfFooterDateTime is already correctly set from the event in the initial emit.
+// No need to set it again here, as it's sourced from demo_table and explicitly passed.
         error: null,
       ));
       debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${finalActionsConfig.isNotEmpty ? finalActionsConfig.length : 'empty'} items. Include PDF Footer Date/Time (from event): ${event.includePdfFooterDateTimeFromReportMetadata}');
@@ -303,8 +309,8 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
   }
 
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
-    // Keep loading state until both field configs and report data (if any) are fetched.
-    // reportData is cleared here as we are fetching new data.
+// Keep loading state until both field configs and report data (if any) are fetched.
+// reportData is cleared here as we are fetching new data.
     emit(state.copyWith(isLoading: true, error: null, successMessage: null, reportData: [], documentData: null));
 
     debugPrint('Bloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
@@ -313,10 +319,34 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     try {
       final fieldConfigs = await apiService.fetchDemoTable2(event.recNo);
 
-      // --- ADDED DEBUGGING LOG ---
-      debugPrint('Bloc: _onFetchFieldConfigs - fieldConfigs received from API service (length): ${fieldConfigs.length}');
-      debugPrint('Bloc: _onFetchFieldConfigs - First field config item (if any): ${fieldConfigs.isNotEmpty ? fieldConfigs.first : 'N/A'}');
-      // --- END ADDITION ---
+// --- Fetch API-driven dropdown options ---
+      final Map<String, List<String>> apiDrivenOptions = Map.from(state.apiDrivenFieldOptions); // Preserve existing if any
+      for (var config in fieldConfigs) {
+        final fieldName = config['Field_name']?.toString() ?? '';
+        final bool isApiDriven = config['is_api_driven'] == true || config['is_api_driven']?.toString() == '1'; // Assuming '1' from DB means true
+        final String apiUrl = config['api_url']?.toString() ?? '';
+
+        if (isApiDriven && apiUrl.isNotEmpty) {
+          try {
+            debugPrint('Bloc: Fetching API-driven options for field: $fieldName from $apiUrl');
+            // FIX: Using the newly defined fetchReportDataFromUrl method (previously fetchGenericData)
+            final List<Map<String, dynamic>> data = await apiService.fetchReportDataFromUrl(apiUrl);
+// Assuming 'FieldName' is the key for the display value in the API response
+            final List<String> options = data.map((item) => item['FieldName']?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+            if (options.isNotEmpty) {
+              apiDrivenOptions[fieldName] = options;
+              debugPrint('Bloc: Fetched ${options.length} options for $fieldName.');
+            } else {
+              debugPrint('Bloc: No options found for $fieldName from $apiUrl.');
+            }
+          } catch (e) {
+            debugPrint('Bloc: Error fetching API-driven options for $fieldName: $e');
+// Continue processing other fields even if one fails
+          }
+        }
+      }
+// --- End fetch API-driven dropdown options ---
+
 
       final apiResponse = await apiService.fetchApiDataWithParams(
         event.apiName,
@@ -342,11 +372,12 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         selectedApiName: event.apiName,
         selectedReportLabel: event.reportLabel,
         error: errorMessage,
+        apiDrivenFieldOptions: apiDrivenOptions, // NEW: Pass the fetched options
       );
       emit(newState);
-      debugPrint('Bloc: FetchFieldConfigs success. Emitted state with ${newState.fieldConfigs.length} field configs.');
+      debugPrint('Bloc: FetchFieldConfigs success. Emitted state with ${newState.fieldConfigs.length} field configs and ${newState.apiDrivenFieldOptions.length} api-driven options.');
     } catch (e) {
-      // Fallback field configs in case primary API data fetch fails but field configs might still be accessible.
+// Fallback field configs in case primary API data fetch fails but field configs might still be accessible.
       List<Map<String, dynamic>> fieldConfigsFallback = [];
       try {
         fieldConfigsFallback = await apiService.fetchDemoTable2(event.recNo);
@@ -474,6 +505,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       selectedApiParameters: [], // Clear selected parameters
       userParameterValues: {}, // Clear user parameter values
       pickerOptions: {}, // Clear picker options
+      apiDrivenFieldOptions: {}, // NEW: Reset this too
       serverIP: null, // Clear client credentials
       userName: null,
       password: null,
@@ -484,15 +516,15 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     debugPrint('Bloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');
   }
 
-  // NEW: Handler for DeployReportToClient event
+// NEW: Handler for DeployReportToClient event
   Future<void> _onDeployReportToClient(DeployReportToClient event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null)); // Indicate loading, clear previous messages
     debugPrint('Bloc: DeployReportToClient event received for report RecNo: ${event.reportMetadata['RecNo']}');
 
     try {
-      // 1. Get client database connection details from cache
-      // The `clientApiName` in the event is the API_name of the report,
-      // which corresponds to an entry in your main system's DatabaseServerMaster.
+// 1. Get client database connection details from cache
+// The `clientApiName` in the event is the API_name of the report,
+// which corresponds to an entry in your main system's DatabaseServerMaster.
       final apiDetails = await apiService.getApiDetails(event.clientApiName);
 
       final String? clientServerIP = apiDetails['serverIP']?.toString();
@@ -504,7 +536,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         throw Exception('Client database credentials not found for API: ${event.clientApiName}');
       }
 
-      // 2. Call the new API service method to deploy
+// 2. Call the new API service method to deploy
       final response = await apiService.deployReportToClient(
         reportMetadata: event.reportMetadata,
         fieldConfigs: event.fieldConfigs,
@@ -514,7 +546,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         clientDatabaseName: clientDatabaseName,
       );
 
-      // 3. Handle the response from the deployment PHP script
+// 3. Handle the response from the deployment PHP script
       if (response['status'] == 'success') {
         emit(state.copyWith(
           isLoading: false,
@@ -538,5 +570,4 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       ));
       debugPrint('Bloc: DeployReportToClient error: $e');
     }
-  }
-}
+  }}

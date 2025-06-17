@@ -1,15 +1,14 @@
 import 'dart:convert';
-import 'dart:typed_data'; // Required for Uint8List
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:uuid/uuid.dart'; // Required for unique parameter IDs
+import 'package:uuid/uuid.dart';
 import 'package:universal_html/html.dart' as html;
-import 'package:encrypt/encrypt.dart' as encrypt; // For encryption (client-side URL generation)
-import 'package:crypto/crypto.dart'; // For MD5 and SHA256 (client-side URL generation)
-import 'package:url_launcher/url_launcher.dart'; // For opening URLs
+import 'package:encrypt/encrypt.dart' as encrypt;
+import 'package:crypto/crypto.dart';
+import 'package:url_launcher/url_launcher.dart';
 
-// Keeping SubtleLoader as it's a nice general loader
 class SubtleLoader extends StatefulWidget {
   const SubtleLoader({super.key});
 
@@ -59,7 +58,7 @@ class _SubtleLoaderState extends State<SubtleLoader> with SingleTickerProviderSt
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.blueAccent.withOpacity(0.5), // Blue glow for the loader
+                    color: Colors.blueAccent.withOpacity(0.5),
                     blurRadius: 15,
                     spreadRadius: 3,
                   ),
@@ -78,7 +77,6 @@ class _SubtleLoaderState extends State<SubtleLoader> with SingleTickerProviderSt
   }
 }
 
-// Enhanced AppBarWidget with blue theme
 class AppBarWidget extends StatelessWidget implements PreferredSizeWidget {
   final String title;
   final VoidCallback onBackPress;
@@ -129,11 +127,10 @@ class AppBarWidget extends StatelessWidget implements PreferredSizeWidget {
   Size get preferredSize => const Size.fromHeight(60);
 }
 
-// New Model for an API Parameter
 class ApiParameter {
-  final String id; // Unique ID for keying in UI lists
-  String name; // e.g., P_UserCode
-  String type; // 'String', 'Integer', 'Date', 'Boolean'
+  final String id;
+  String name;
+  String type;
   String exampleValue;
 
   TextEditingController nameController;
@@ -143,39 +140,44 @@ class ApiParameter {
     required this.name,
     required this.type,
     this.exampleValue = '',
-  }) : id = const Uuid().v4(), // Generate unique ID
+  }) : id = const Uuid().v4(),
         nameController = TextEditingController(text: name),
         valueController = TextEditingController(text: exampleValue);
 
-  // Getter for consistent URL parameter name (lowercase and no special chars)
-  // Removes leading 'P_' if present, then replaces non-alphanumeric with underscores
   String get urlParamName {
     String cleanName = name.startsWith('P_') ? name.substring(2) : name;
-    return cleanName.toLowerCase().replaceAll(RegExp(r'[^a-z0-9_]'), '');
+    return cleanName.replaceAllMapped(RegExp(r'([A-Z])'), (match) => '_${match.group(1)!.toLowerCase()}').toLowerCase();
   }
 
-  // Dispose controllers when parameter is removed
+  String get phpVarName {
+    String cleanName = name.startsWith('P_') ? name.substring(2) : name;
+    if (cleanName.isEmpty) return '';
+    return cleanName[0].toLowerCase() + cleanName.substring(1);
+  }
+
+  String get spParamName {
+    return name;
+  }
+
   void dispose() {
     nameController.dispose();
     valueController.dispose();
   }
 
-  // Update internal model from controller values before generating code/URL
   void updateFromControllers() {
     name = nameController.text;
     exampleValue = valueController.text;
   }
 }
 
-// Model for API configuration
 class ApiConfig {
-  final String connectionStringInput; // This can be plaintext or encrypted
-  final bool isConnectionStringEncrypted; // New flag
-  final String baseUrlPrefix; // Base URL for API
-  final String encryptionKey; // Key for 'str' encryption
+  final String connectionStringInput;
+  final bool isConnectionStringEncrypted;
+  final String baseUrlPrefix;
+  final String encryptionKey;
 
-  final String storedProcedureName; // New: User-provided SP name
-  final List<ApiParameter> parameters; // New: List of dynamic parameters
+  final String storedProcedureName;
+  final List<ApiParameter> parameters;
 
   final String folderName;
   final String apiFileName;
@@ -192,7 +194,6 @@ class ApiConfig {
   });
 }
 
-// Main API Generator Page
 class ApiGeneratorPage extends StatefulWidget {
   const ApiGeneratorPage({super.key});
 
@@ -203,15 +204,14 @@ class ApiGeneratorPage extends StatefulWidget {
 class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
 
-  // Controllers for all inputs
   final _connectionStringInputController = TextEditingController();
   final _baseUrlPrefixController = TextEditingController(text: 'http://localhost/');
   final _storedProcedureNameController = TextEditingController(text: 'sp_YourStoredProcedureName');
 
-  bool _isConnectionStringInputEncrypted = false; // New state variable for encrypted input
-  String _internalEncryptionKey = '9qGxCtZw2xAI00D3VLOUNTs+qr50rpfWggluskAhgww='; // Default key
+  bool _isConnectionStringInputEncrypted = false;
+  String _internalEncryptionKey = '9qGxCtZw2xAI00D3VLOUNTs+qr50rpfWggluskAhgww=';
 
-  List<ApiParameter> _apiParameters = []; // This will hold the dynamic parameters
+  List<ApiParameter> _apiParameters = [];
 
   bool _isLoading = false;
   late AnimationController _pageFadeController;
@@ -230,7 +230,6 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
       CurvedAnimation(parent: _pageFadeController, curve: Curves.easeInOut),
     );
 
-    // Initialize controllers for the two main sections (config and parameters)
     for (int i = 0; i < 2; i++) {
       final controller = AnimationController(
         duration: Duration(milliseconds: 800 + i * 200),
@@ -247,9 +246,9 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
 
     _pageFadeController.forward();
 
-    // Initialize with only one example parameter to start
     _apiParameters = [
-      ApiParameter(name: 'P_Param1', type: 'String', exampleValue: 'ExampleValue'),
+      ApiParameter(name: 'P_UserCode', type: 'String', exampleValue: 'user123'),
+      ApiParameter(name: 'P_FromDate', type: 'Date', exampleValue: ''),
     ];
   }
 
@@ -263,7 +262,7 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
     _baseUrlPrefixController.dispose();
     _storedProcedureNameController.dispose();
     for (var param in _apiParameters) {
-      param.dispose(); // Dispose each parameter's controllers
+      param.dispose();
     }
     super.dispose();
   }
@@ -281,7 +280,7 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
 
   void _removeParameter(int index) {
     setState(() {
-      _apiParameters[index].dispose(); // Dispose controllers of the removed parameter
+      _apiParameters[index].dispose();
       _apiParameters.removeAt(index);
     });
   }
@@ -289,10 +288,10 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
   Future<Map<String, dynamic>?> _showSaveDialog() async {
     bool useFolder = false;
     String folderName = '';
-    String apiFileName = 'api.php'; // Default filename
+    String apiFileName = 'api.php';
     final fileNameController = TextEditingController(text: apiFileName);
-    bool includeSecureFunction = true; // New: default to include secure function
-    final encryptionKeyController = TextEditingController(text: _internalEncryptionKey); // Use internal key as default
+    bool includeSecureFunction = true;
+    final encryptionKeyController = TextEditingController(text: _internalEncryptionKey);
 
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
@@ -366,16 +365,14 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
                       activeColor: Colors.blue[600],
                     ),
                   ),
-                  // Always show encryption key input now, it's critical for security and decryption
                   _AnimatedTextField(
-                    controller: encryptionKeyController, // Use a local controller for the dialog
+                    controller: encryptionKeyController,
                     label: 'Encryption Key for `secure/function.php`',
                     hintText: 'This key is used for encryption/decryption.',
                     icon: Icons.vpn_key,
                     validator: (value) =>
                     value!.isEmpty ? 'Encryption key is required' : null,
                     onChanged: (value) {
-                      // Update the internal key if user changes it here
                       _internalEncryptionKey = value;
                     },
                   ),
@@ -423,7 +420,7 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
                     ? fileNameController.text
                     : '${fileNameController.text}.php',
                 'includeSecureFunction': includeSecureFunction,
-                'encryptionKey': encryptionKeyController.text, // Pass the chosen key from the dialog
+                'encryptionKey': encryptionKeyController.text,
               });
             },
             child: Text(
@@ -437,52 +434,51 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
     return result;
   }
 
-  // --- PHP Code Generation (Main API File) ---
   String _generatePhpCode(ApiConfig config) {
     final StringBuffer paramDeclarations = StringBuffer();
     final StringBuffer spCallParams = StringBuffer();
     final StringBuffer bindValues = StringBuffer();
 
     for (var p in config.parameters) {
-      // Sanitize PHP variable name to be safe (remove leading P_ if present, then non-alphanumeric)
-      final phpVarName = '\$P_${p.name.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '')}';
-      final getParamName = p.urlParamName; // Use the URL-friendly name for $_GET
+      p.updateFromControllers();
+
+      final phpVarName = p.phpVarName;
+      final getParamName = p.urlParamName;
 
       String assignment = '';
       String validation = '';
-      // Default value in PHP, handles empty strings for required parameters
-      String exampleValueForPhp = p.exampleValue.isEmpty ? "''" : "'${p.exampleValue}'";
+      String defaultValueForPhp = "''";
+
       if (p.type == 'Boolean') {
-        exampleValueForPhp = p.exampleValue.toLowerCase() == 'true' ? 'true' : 'false';
+        defaultValueForPhp = p.exampleValue.toLowerCase() == 'true' ? 'true' : 'false';
+        assignment = '\$$phpVarName = filter_var(\$_GET[\'$getParamName\'] ?? $defaultValueForPhp, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);';
+        validation = 'if (\$$phpVarName === null && !empty(\$_GET[\'$getParamName\'])) { \$errors[] = "Invalid boolean for ${p.name}. Expected \'true\' or \'false\'. Received: \$_GET[\'$getParamName\']"; }';
       } else if (p.type == 'Integer') {
-        exampleValueForPhp = p.exampleValue.isEmpty ? '0' : p.exampleValue; // Default to 0 for empty integers
+        defaultValueForPhp = p.exampleValue.isEmpty ? '0' : p.exampleValue;
+        assignment = '\$$phpVarName = filter_var(\$_GET[\'$getParamName\'] ?? $defaultValueForPhp, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE);';
+        validation = 'if (\$$phpVarName === null && !empty(\$_GET[\'$getParamName\'])) { \$errors[] = "Invalid integer for ${p.name}. Received: \$_GET[\'$getParamName\']"; }';
+      } else if (p.type == 'Date') {
+        assignment = '\$${phpVarName}Raw = \$_GET[\'$getParamName\'] ?? \'${p.exampleValue}\';';
+        paramDeclarations.writeln('    $assignment');
+        paramDeclarations.writeln('    \$${phpVarName} = convertDateToSQLFormat(\$${phpVarName}Raw);');
+        validation = 'if (!\$${phpVarName} && !empty(\$${phpVarName}Raw)) { \$errors[] = "Invalid date format for ${p.name}. Please use DD-MMM-YYYY or YYYY-MM-DD. Received: \$${phpVarName}Raw"; }';
+      } else {
+        defaultValueForPhp = p.exampleValue.isEmpty ? "''" : "'${p.exampleValue}'";
+        assignment = '\$$phpVarName = \$_GET[\'$getParamName\'] ?? $defaultValueForPhp;';
       }
 
-
-      if (p.type == 'Date') {
-        assignment = '$phpVarName = convertDateToSQLFormat(\$_GET[\'$getParamName\'] ?? $exampleValueForPhp);';
-        validation = 'if (!${phpVarName} && !empty(\$_GET[\'$getParamName\'])) { \$errors[] = "Invalid date format for ${p.name}. Please use DD-MMM-YYYY. Received: \$_GET[\'$getParamName\']"; }';
-      } else if (p.type == 'Integer') {
-        // Use filter_var with default value handling for cleaner code
-        assignment = '$phpVarName = filter_var(\$_GET[\'$getParamName\'] ?? $exampleValueForPhp, FILTER_VALIDATE_INT, FILTER_NULL_ON_FAILURE);';
-        validation = 'if (${phpVarName} === null && !empty(\$_GET[\'$getParamName\'])) { \$errors[] = "Invalid integer for ${p.name}. Received: \$_GET[\'$getParamName\']"; }';
-      } else if (p.type == 'Boolean') {
-        assignment = '$phpVarName = filter_var(\$_GET[\'$getParamName\'] ?? $exampleValueForPhp, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);';
-        validation = 'if (${phpVarName} === null && !empty(\$_GET[\'$getParamName\'])) { \$errors[] = "Invalid boolean for ${p.name}. Expected \'true\' or \'false\'. Received: \$_GET[\'$getParamName\']"; }';
-      } else { // String
-        assignment = '$phpVarName = \$_GET[\'$getParamName\'] ?? $exampleValueForPhp;';
+      if (p.type != 'Date') {
+        paramDeclarations.writeln('    $assignment');
       }
 
-      paramDeclarations.writeln('    $assignment');
       if (validation.isNotEmpty) {
         paramDeclarations.writeln('    $validation');
       }
 
-      spCallParams.write('@${p.name} = ?, ');
-      bindValues.write('$phpVarName, ');
+      spCallParams.write('@${p.spParamName} = ?, ');
+      bindValues.write('\$$phpVarName, ');
     }
 
-    // Remove trailing comma and space
     String finalSpCallParams = spCallParams.toString().replaceAll(RegExp(r', $'), '');
     String finalBindValues = bindValues.toString().replaceAll(RegExp(r', $'), '');
 
@@ -491,12 +487,10 @@ class _ApiGeneratorPageState extends State<ApiGeneratorPage> with TickerProvider
 
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
-include './secure/function.php'; // Ensure this path is correct relative to your API file
+include './secure/function.php';
 
-// Database connection string decryption
 \$message = new stdClass();
 
-// Check if the 'str' parameter is present and if it's plaintext or encrypted
 if (!isset(\$_GET['str']) || empty(\$_GET['str'])) {
     echo json_encode(['status' => 'error', 'message' => 'Connection string (str) parameter is missing.']);
     exit;
@@ -504,8 +498,6 @@ if (!isset(\$_GET['str']) || empty(\$_GET['str'])) {
 
 \$connInput = \$_GET['str'];
 
-// Check if the connection string appears plaintext (contains ':-:')
-// If not, assume it's encrypted and attempt to decrypt
 if (!str_contains(\$connInput, ':-:')) {
     \$connInput = secured_decrypt(base64_decode(\$connInput));
     if (\$connInput === false) {
@@ -527,12 +519,10 @@ if (count(\$connVal) != 4) {
     "PWD" => \$connVal[3]
 ];
 
-// Helper to convert DD-MMM-YYYY to YYYY-MM-DD for SQL Server
 function convertDateToSQLFormat(\$dateStr) {
     if (empty(\$dateStr)) {
-        return null; // Return null for empty dates
+        return null;
     }
-    // Attempt to parse d-M-Y first, then Y-m-d if that fails
     \$date = DateTime::createFromFormat('d-M-Y', \$dateStr);
     if (!\$date) {
         \$date = DateTime::createFromFormat('Y-m-d', \$dateStr);
@@ -540,13 +530,11 @@ function convertDateToSQLFormat(\$dateStr) {
     return \$date ? \$date->format('Y-m-d') : null;
 }
 
-// Helper to convert date from SQL to DD-MMM-YYYY
 function formatDateOutput(\$dateStr) {
     \$date = DateTime::createFromFormat('Y-m-d H:i:s.u', \$dateStr) ?: DateTime::createFromFormat('Y-m-d', \$dateStr);
     return \$date ? \$date->format('d-M-Y') : \$dateStr;
 }
 
-// Get parameters and prepare for stored procedure
 \$errors = [];
 ${paramDeclarations.toString()}
 
@@ -555,14 +543,12 @@ if (!empty(\$errors)) {
     exit;
 }
 
-// Stored Procedure Name
 \$storedProc = "${config.storedProcedureName}";
 
 try {
     \$conn = new PDO("sqlsrv:server=\$serverName;Database={\$connectionOptions['Database']}", \$connectionOptions['Uid'], \$connectionOptions['PWD']);
     \$conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    // Build and execute the stored procedure call dynamically
     \$spCall = "EXEC \$storedProc $finalSpCallParams";
     
     \$stmt = \$conn->prepare(\$spCall);
@@ -572,10 +558,8 @@ try {
 
     \$results = \$stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Format any date fields in result
     foreach (\$results as &\$row) {
         foreach (\$row as \$key => &\$val) {
-            // Check if key contains 'date' (case-insensitive) and value is not null/empty
             if (strpos(strtolower(\$key), 'date') !== false && \$val) {
                 \$val = formatDateOutput(\$val);
             }
@@ -592,7 +576,6 @@ try {
 """;
   }
 
-  // --- Secure Function PHP Code Generation ---
   String _generateSecureFunctionPhpCode(String key) {
     return """
 <?php
@@ -631,15 +614,11 @@ if (!function_exists('str_contains')) {
 """;
   }
 
-  // --- Dart-side Encryption (must match PHP's secured_encrypt) ---
   String _securedEncrypt(String data, String encryptionKey) {
     final keyBytes = md5.convert(utf8.encode(encryptionKey)).bytes;
     final ivBytes = sha256.convert(utf8.encode("aaaabbbbcccccddddeweee")).bytes.sublist(0, 16);
 
     final key = encrypt.Key(Uint8List.fromList(keyBytes));
-    // For PHP's openssl_encrypt with OPENSSL_RAW_DATA (which implies no padding is applied by OpenSSL itself),
-    // and given no explicit padding constant in PHP, we must explicitly apply PKCS7 padding in Dart
-    // to ensure the data length is a multiple of the block size (16 bytes) for AES-128-CBC.
     final encrypter = encrypt.Encrypter(encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'));
     final iv = encrypt.IV(Uint8List.fromList(ivBytes));
 
@@ -650,19 +629,18 @@ if (!function_exists('str_contains')) {
   String _generateUrl(ApiConfig config) {
     String strParamValue;
     if (config.isConnectionStringEncrypted) {
-      strParamValue = config.connectionStringInput; // Already encrypted by user, use as-is
+      strParamValue = config.connectionStringInput;
     } else {
-      strParamValue = _securedEncrypt(config.connectionStringInput, config.encryptionKey); // Encrypt plaintext
+      strParamValue = _securedEncrypt(config.connectionStringInput, config.encryptionKey);
     }
 
     final folderPath = config.folderName.isEmpty ? '' : '${config.folderName}/';
 
-    // Construct query parameters dynamically from the list of ApiParameter
     final Map<String, String> queryParams = {};
     for (var param in config.parameters) {
-      queryParams[param.urlParamName] = param.exampleValue; // Use the URL-friendly name for GET parameters
+      param.updateFromControllers();
+      queryParams[param.urlParamName] = param.exampleValue;
     }
-    // Add the encrypted/plaintext connection string last
     queryParams['str'] = strParamValue;
 
     final queryString = queryParams.entries
@@ -675,33 +653,31 @@ if (!function_exists('str_contains')) {
   void _generateApi() async {
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
-      await Future.delayed(const Duration(seconds: 1)); // Simulate loading
+      await Future.delayed(const Duration(seconds: 1));
 
       final saveConfig = await _showSaveDialog();
       if (saveConfig != null) {
-        // Use the encryption key from the dialog, or fallback to default
         final chosenEncryptionKey = saveConfig['encryptionKey'] ?? _internalEncryptionKey;
 
-        // Ensure all parameter models are updated from their controllers
         final List<ApiParameter> currentParameters = _apiParameters.map((p) {
           p.updateFromControllers();
           return p;
         }).toList();
 
         final config = ApiConfig(
-          connectionStringInput: _connectionStringInputController.text, // This will be the user's raw input
-          isConnectionStringEncrypted: _isConnectionStringInputEncrypted, // Flag indicates how to treat it
+          connectionStringInput: _connectionStringInputController.text,
+          isConnectionStringEncrypted: _isConnectionStringInputEncrypted,
           baseUrlPrefix: _baseUrlPrefixController.text,
-          encryptionKey: chosenEncryptionKey, // Use the key chosen in the dialog
-          storedProcedureName: _storedProcedureNameController.text, // Use the new SP name
-          parameters: currentParameters, // Pass the list of parameters
+          encryptionKey: chosenEncryptionKey,
+          storedProcedureName: _storedProcedureNameController.text,
+          parameters: currentParameters,
           folderName: saveConfig['folderName'],
           apiFileName: saveConfig['apiFileName'],
         );
 
         final phpCode = _generatePhpCode(config);
-        final secureFunctionPhp = _generateSecureFunctionPhpCode(config.encryptionKey); // Uses the *chosen* key
-        final localhostUrl = _generateUrl(config); // _generateUrl handles encryption based on isConnectionStringEncrypted
+        final secureFunctionPhp = _generateSecureFunctionPhpCode(config.encryptionKey);
+        final localhostUrl = _generateUrl(config);
 
         setState(() => _isLoading = false);
 
@@ -733,7 +709,7 @@ if (!function_exists('str_contains')) {
           ),
         );
       } else {
-        setState(() => _isLoading = false); // Dismiss loader if dialog cancelled
+        setState(() => _isLoading = false);
       }
     }
   }
@@ -746,7 +722,7 @@ if (!function_exists('str_contains')) {
     return SlideTransition(
       position: _sectionSlideAnimations[index],
       child: FadeTransition(
-        opacity: _pageFadeAnimation, // Use page fade for whole card
+        opacity: _pageFadeAnimation,
         child: Container(
           margin: const EdgeInsets.only(bottom: 24),
           decoration: BoxDecoration(
@@ -792,7 +768,7 @@ if (!function_exists('str_contains')) {
         onBackPress: () => Navigator.pop(context),
       ),
       body: Container(
-        color: Colors.grey[50], // Very light grey background for the whole page
+        color: Colors.grey[50],
         child: _isLoading
             ? const SubtleLoader()
             : SingleChildScrollView(
@@ -820,12 +796,10 @@ if (!function_exists('str_contains')) {
                         onChanged: (value) {
                           setState(() {
                             _isConnectionStringInputEncrypted = value;
-                            // Optionally clear the text field when switching modes
                             _connectionStringInputController.clear();
                           });
                         },
                         activeColor: Colors.blue[600],
-                        // contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -842,17 +816,6 @@ if (!function_exists('str_contains')) {
                         if (value == null || value.isEmpty) {
                           return 'Connection string is required';
                         }
-                        // ONLY validate plaintext string format
-                        if (!_isConnectionStringInputEncrypted) {
-                          if (!value.contains(':-:')) {
-                            return 'Missing separator \':-:\' for plaintext string';
-                          }
-                          final parts = value.split(':-:');
-                          if (parts.length != 4) {
-                            return 'Plaintext requires exactly 4 parts: Server, DB, User, Pass';
-                          }
-                        }
-                        // No specific validation for pre-encrypted string beyond being non-empty
                         return null;
                       },
                       keyboardType: TextInputType.url,
@@ -889,15 +852,21 @@ if (!function_exists('str_contains')) {
                         color: Colors.blue[700],
                       ),
                     ),
+                    Text(
+                      'Parameter names (e.g., UserCode) will become @UserCode in the SP call and user_code in the URL.',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: Colors.grey[700],
+                      ),
+                    ),
                     const SizedBox(height: 12),
-                    // Loop through _apiParameters to build the dynamic input fields
                     ..._apiParameters.asMap().entries.map((entry) {
                       int index = entry.key;
                       ApiParameter param = entry.value;
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 16.0),
                         child: Card(
-                          key: ValueKey(param.id), // Use unique key for dynamic list items
+                          key: ValueKey(param.id),
                           elevation: 2,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           color: Colors.white,
@@ -910,7 +879,7 @@ if (!function_exists('str_contains')) {
                                     Expanded(
                                       child: _AnimatedTextField(
                                         controller: param.nameController,
-                                        label: 'Parameter Name (e.g., P_UserCode)',
+                                        label: 'Parameter Name (e.g., P_UserCode or UserCode)',
                                         icon: Icons.label,
                                         validator: (value) => value!.isEmpty ? 'Name required' : null,
                                       ),
@@ -945,12 +914,10 @@ if (!function_exists('str_contains')) {
                                   onChanged: (String? newValue) {
                                     setState(() {
                                       param.type = newValue!;
-                                      // Reset example value for type changes if it's not valid for new type
                                       if ((newValue == 'Boolean' && param.valueController.text != 'true' && param.valueController.text != 'false') ||
                                           (newValue == 'Integer' && param.valueController.text.isNotEmpty && int.tryParse(param.valueController.text) == null)) {
-                                        param.valueController.text = ''; // Clear if invalid for new type
+                                        param.valueController.text = '';
                                       } else if (newValue == 'Date' && param.valueController.text.isNotEmpty) {
-                                        // A simple check to see if it resembles a date, clear if not
                                         try {
                                           DateTime.parse(param.valueController.text);
                                         } catch (e) {
@@ -991,11 +958,8 @@ if (!function_exists('str_contains')) {
                                       }
                                     },
                                     validator: (value) {
-                                      // Only validate if not empty, PHP will handle null for empty dates
                                       if (value != null && value.isNotEmpty) {
-                                        // More robust date validation would be needed for production
-                                        // For simplicity here, just check if it's empty or has some basic format
-                                        final regex = RegExp(r'^\d{2}-\w{3}-\d{4}$'); // DD-MMM-YYYY
+                                        final regex = RegExp(r'^\d{2}-\w{3}-\d{4}$');
                                         if (!regex.hasMatch(value)) {
                                           return 'Expected DD-MMM-YYYY format';
                                         }
@@ -1005,7 +969,7 @@ if (!function_exists('str_contains')) {
                                   )
                                 else if (param.type == 'Boolean')
                                   DropdownButtonFormField<String>(
-                                    value: param.valueController.text.isEmpty ? 'false' : param.valueController.text, // Default to false if empty
+                                    value: param.valueController.text.isEmpty ? 'false' : param.valueController.text,
                                     decoration: InputDecoration(
                                       labelText: 'Example Boolean Value',
                                       labelStyle: GoogleFonts.poppins(color: Colors.blue[800]!),
@@ -1067,7 +1031,7 @@ if (!function_exists('str_contains')) {
                 Center(
                   child: ShimmerButton(
                     text: 'Generate API',
-                    onPressed: _generateApi, // Call the new _generateApi method
+                    onPressed: _generateApi,
                   ),
                 ),
               ],
@@ -1079,7 +1043,6 @@ if (!function_exists('str_contains')) {
   }
 }
 
-// Animated TextField with a new cleaner style
 class _AnimatedTextField extends StatefulWidget {
   final TextEditingController controller;
   final String label;
@@ -1122,12 +1085,12 @@ class __AnimatedTextFieldState extends State<_AnimatedTextField> with SingleTick
       duration: const Duration(milliseconds: 250),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.005).animate( // Very subtle scale up
+    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.005).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOut),
     );
     _colorAnimation = ColorTween(
-      begin: Colors.grey[100], // Default background color
-      end: Colors.blue[50],   // Background color on focus
+      begin: Colors.grey[100],
+      end: Colors.blue[50],
     ).animate(_controller);
 
     _focusNode.addListener(() {
@@ -1155,11 +1118,11 @@ class __AnimatedTextFieldState extends State<_AnimatedTextField> with SingleTick
           scale: _scaleAnimation.value,
           child: Container(
             decoration: BoxDecoration(
-              color: _colorAnimation.value, // Animated background color
+              color: _colorAnimation.value,
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(_focusNode.hasFocus ? 0.1 : 0.05), // More prominent shadow on focus
+                  color: Colors.black.withOpacity(_focusNode.hasFocus ? 0.1 : 0.05),
                   blurRadius: _focusNode.hasFocus ? 10 : 5,
                   offset: _focusNode.hasFocus ? const Offset(0, 4) : const Offset(0, 2),
                 ),
@@ -1174,13 +1137,13 @@ class __AnimatedTextFieldState extends State<_AnimatedTextField> with SingleTick
                 labelText: widget.label,
                 labelStyle: GoogleFonts.poppins(color: Colors.blue[800]!),
                 prefixIcon: Icon(widget.icon, color: Colors.blue[600]),
-                suffixIcon: widget.readOnly && widget.onTap != null // For date picker icon
+                suffixIcon: widget.readOnly && widget.onTap != null
                     ? IconButton(
                   icon: Icon(Icons.calendar_month, color: Colors.blue[600]),
                   onPressed: widget.onTap,
                 )
                     : null,
-                border: InputBorder.none, // No default border
+                border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
                 hintText: widget.hintText,
                 hintStyle: GoogleFonts.poppins(color: Colors.grey[500]),
@@ -1198,7 +1161,6 @@ class __AnimatedTextFieldState extends State<_AnimatedTextField> with SingleTick
   }
 }
 
-// Shimmer Button (no changes)
 class ShimmerButton extends StatefulWidget {
   final String text;
   final VoidCallback onPressed;
@@ -1281,7 +1243,6 @@ class _ShimmerButtonState extends State<ShimmerButton> with SingleTickerProvider
   }
 }
 
-// Page to display generated code and URLs (no major changes to its layout, just data)
 class CodeDisplayPage extends StatefulWidget {
   final String phpCode;
   final String localhostUrl;
@@ -1412,7 +1373,7 @@ class _CodeDisplayPageState extends State<CodeDisplayPage> with TickerProviderSt
         onBackPress: () => Navigator.pop(context),
       ),
       body: Container(
-        color: Colors.white, // Solid white background for CodeDisplayPage
+        color: Colors.white,
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: FadeTransition(
@@ -1451,7 +1412,7 @@ class _CodeDisplayPageState extends State<CodeDisplayPage> with TickerProviderSt
                     onSave: () => _saveEditedCode(_phpCodeEditController, true),
                   ),
                   const SizedBox(height: 16),
-                  if (widget.includeSecureFunction) // Conditionally display secure function code
+                  if (widget.includeSecureFunction)
                     ...[
                       _buildCodeSection(
                         title: 'Generated `secure/function.php` Code',
@@ -1484,7 +1445,7 @@ class _CodeDisplayPageState extends State<CodeDisplayPage> with TickerProviderSt
                       const SizedBox(height: 16),
                       Container(
                         decoration: BoxDecoration(
-                          color: Colors.blue[50], // Light blue background
+                          color: Colors.blue[50],
                           borderRadius: BorderRadius.circular(15),
                           border: Border.all(color: Colors.blue[100]!),
                           boxShadow: [
@@ -1579,10 +1540,10 @@ class _CodeDisplayPageState extends State<CodeDisplayPage> with TickerProviderSt
                   ? TextFormField(
                 controller: controller,
                 style: GoogleFonts.sourceCodePro(fontSize: 14),
-                maxLines: null, // Allows multiline input
+                maxLines: null,
                 keyboardType: TextInputType.multiline,
                 decoration: const InputDecoration(
-                  border: InputBorder.none, // Remove default border
+                  border: InputBorder.none,
                   isDense: true,
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -1647,7 +1608,7 @@ class _CodeDisplayPageState extends State<CodeDisplayPage> with TickerProviderSt
               ),
             ),
             const SizedBox(height: 4),
-            SelectableText( // Use SelectableText to easily copy from UI
+            SelectableText(
               widget.localhostUrl,
               style: GoogleFonts.sourceCodePro(
                 fontSize: 14,

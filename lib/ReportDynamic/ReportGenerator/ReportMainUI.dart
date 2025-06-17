@@ -1,20 +1,23 @@
+// ReportMainUI.dart
+
 import 'dart:async';
+import 'dart:convert'; // For JSON decoding of payload_structure
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:pluto_grid/pluto_grid.dart';
+import 'package:pluto_grid/pluto_grid.dart'; // Ensure this is imported
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart'; // For PdfColor constants
 
 
 import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/CustomPlutogrid.dart';
-import '../../ReportUtils/Export_widget.dart'; // This is the file we're modifying
+import '../../ReportUtils/Export_widget.dart';
 import '../../ReportUtils/subtleloader.dart';
-import '../ReportAPIService.dart';
+import '../ReportAPIService.dart'; // Ensure this is correctly imported and accessible
 
-import '../ReportMakeEdit/EditDetailMaker.dart';
+import '../ReportMakeEdit/EditDetailMaker.dart'; // Needed for PrintTemplateForMaker
 import 'PrintTemp/printpreview.dart';
 import 'PrintTemp/printservice.dart';
 import 'Reportbloc.dart';
@@ -120,6 +123,128 @@ class ReportMainUI extends StatelessWidget {
     return PlutoRow(cells: subtotalCells);
   }
 
+  // NEW: Helper method to show the user input dialog for 'is_user_filling' columns
+  void _showUserInputDialog(
+      BuildContext context,
+      Map<String, dynamic> originalRowData,
+      String updatedUrl,
+      List<dynamic> payloadStructureConfig, // Changed to List<dynamic> for decoded structure
+      String fieldName,
+      PlutoCell cellToUpdate,
+      PlutoGridStateManager stateManager,
+      ) async {
+    if (updatedUrl.isEmpty || payloadStructureConfig.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update URL or Payload structure missing for this action.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    TextEditingController _textController = TextEditingController(text: cellToUpdate.value?.toString() ?? '');
+    String? userTextInput;
+
+    await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: Text('Edit $fieldName', style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          content: TextField(
+            controller: _textController,
+            decoration: InputDecoration(
+              labelText: 'Enter new value for $fieldName',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: null, // Allow multiline input
+            keyboardType: TextInputType.multiline,
+            onChanged: (value) {
+              userTextInput = value; // Capture value as user types
+            },
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.red)),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            ElevatedButton(
+              child: Text('Submit', style: GoogleFonts.poppins(color: Colors.white)),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+              onPressed: () async {
+                // Pop with the final text from the controller (userTextInput might be null if no change)
+                Navigator.of(dialogContext).pop(userTextInput ?? _textController.text);
+              },
+            ),
+          ],
+        );
+      },
+    ).then((result) async {
+      if (result != null) {
+        // User clicked submit and result is the text entered
+        String finalUserInput = result;
+
+        try {
+          // payloadStructureConfig is already decoded here (List<dynamic>)
+          final Map<String, dynamic> payload = {};
+
+          for (var item in payloadStructureConfig) {
+            final String key = item['key']?.toString() ?? '';
+            final String valueType = item['value_type']?.toString().toLowerCase() ?? '';
+            // Check for boolean `true` or string "true"
+            final bool isUserInput = (item['is_user_input'] == true) || (item['is_user_input']?.toString().toLowerCase() == 'true');
+
+            if (key.isEmpty) continue;
+
+            if (isUserInput) {
+              payload[key] = finalUserInput;
+              debugPrint('Payload: $key = "$finalUserInput" (User Input)');
+            } else if (valueType == 'static') {
+              payload[key] = item['value'];
+              debugPrint('Payload: $key = "${item['value']}" (Static)');
+            } else if (valueType == 'dynamic') {
+              final String dynamicFieldName = item['value']?.toString() ?? '';
+              if (dynamicFieldName.isNotEmpty && originalRowData.containsKey(dynamicFieldName)) {
+                payload[key] = originalRowData[dynamicFieldName];
+                debugPrint('Payload: $key = "${originalRowData[dynamicFieldName]}" (Dynamic from row: $dynamicFieldName)');
+              } else {
+                debugPrint('Warning: Dynamic field "$dynamicFieldName" not found in row data or empty in payload config. Setting empty.');
+                payload[key] = ''; // Or handle as error
+              }
+            } else {
+              debugPrint('Warning: Unknown value_type "${valueType}" for key "$key". Setting empty.');
+              payload[key] = ''; // Default for unknown types
+            }
+          }
+
+          debugPrint('Constructed Payload for $fieldName update: $payload');
+
+          // Access the ReportAPIService via context
+          final ReportAPIService apiService = context.read<ReportBlocGenerate>().apiService;
+          final response = await apiService.postJson(updatedUrl, payload); // FIX: postJson call
+
+          if (response['status'] == 'success') {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Update successful: ${response['message']}'), backgroundColor: Colors.green),
+            );
+            // Update the PlutoGrid cell value directly for immediate visual feedback
+            cellToUpdate.value = finalUserInput;
+            stateManager.notifyListeners(); // Notify PlutoGrid to rebuild the cell/row
+            debugPrint('Cell updated to: $finalUserInput');
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Update failed: ${response['message']}'), backgroundColor: Colors.red),
+            );
+          }
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error processing update: $e'), backgroundColor: Colors.red),
+          );
+          debugPrint('Error in _showUserInputDialog submit: $e');
+        }
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool showActionsColumn = actionsConfig.isNotEmpty;
@@ -148,9 +273,8 @@ class ReportMainUI extends StatelessWidget {
                 'reportData.length=${state.reportData.length}');
             debugPrint('ReportMainUI: actionsConfig in constructor for "$reportLabel": ${actionsConfig.length} items.');
             debugPrint('ReportMainUI: Company Name passed: $companyName');
-            debugPrint('ReportMainUI: Include PDF Footer Date/Time passed (from ReportUI/Bloc state): $includePdfFooterDateTime'); // NEW: Log footer flag
+            debugPrint('ReportMainUI: Include PDF Footer Date/Time passed (from ReportUI/Bloc state): $includePdfFooterDateTime');
 
-            // --- Reorder rendering conditions to prevent flicker ---
             if (state.isLoading) {
               debugPrint('ReportMainUI: Showing loader');
               return const Center(child: SubtleLoader());
@@ -188,8 +312,6 @@ class ReportMainUI extends StatelessWidget {
                 ),
               );
             }
-            // --- End reorder rendering conditions ---
-
 
             final sortedFieldConfigs = List<Map<String, dynamic>>.from(state.fieldConfigs)
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0')
@@ -232,7 +354,8 @@ class ReportMainUI extends StatelessWidget {
               }
               debugPrint('  Field: $fieldName, Label: ${config['Field_label']}, Type: ${config['data_type']}, '
                   'Total: ${config['Total']}, SubTotal: ${config['SubTotal']}, Breakpoint: ${config['Breakpoint']}, '
-                  'Decimal: ${config['decimal_points']}, Width: ${config['width']}, isNumeric: $isNumeric, indian_format: $useIndianFormat');
+                  'Decimal: ${config['decimal_points']}, Width: ${config['width']}, isNumeric: $isNumeric, indian_format: $useIndianFormat, '
+                  'is_api_driven: ${config['is_api_driven']}, api_url: ${config['api_url']}, is_user_filling: ${config['is_user_filling']}'); // Log new properties
             }
             debugPrint('  Calculated Properties: hasGrandTotals=$hasGrandTotals, breakpointColumnName=$breakpointColumnName, subtotalColumns=$subtotalColumnNames');
             debugPrint('----------------------------------------------------');
@@ -243,6 +366,9 @@ class ReportMainUI extends StatelessWidget {
             };
 
             final List<PlutoColumn> columns = [];
+
+            // NEW: Get API-driven options from bloc state
+            final Map<String, List<String>> apiDrivenFieldOptions = state.apiDrivenFieldOptions;
 
             columns.addAll(sortedFieldConfigs.asMap().entries.map((entry) {
               final i = entry.key;
@@ -257,15 +383,32 @@ class ReportMainUI extends StatelessWidget {
               final bool isImageColumn = imageColumnMap[fieldName] ?? false;
               final bool useIndianFormatForColumn = indianFormatColumnMap[fieldName] ?? false;
 
+              // NEW: Check for API-driven and user-filling properties
+              final bool isApiDriven = config['is_api_driven']?.toString() == '1';
+              final bool isUserFilling = config['is_user_filling']?.toString() == '1';
+
               String plutoGridFormatString = '#,##0';
               if (decimalPoints > 0) {
                 plutoGridFormatString += '.' + '0' * decimalPoints;
               }
 
+              // Determine PlutoColumnType based on properties
+              PlutoColumnType columnType = isNumericField ? PlutoColumnType.number(format: plutoGridFormatString) : PlutoColumnType.text();
+
+              // FIX: Corrected PlutoColumnType.select constructor for pluto_grid 8.0.0+
+              if (isApiDriven && apiDrivenFieldOptions.containsKey(fieldName)) {
+                // PlutoGrid 8.0.0+ expects enableFilter and enableToggleAll directly
+                columnType = PlutoColumnType.select(
+                  apiDrivenFieldOptions[fieldName]?.cast<String>() ?? [],
+                  enableFilter: true, // Direct named parameter
+                  enableToggleAll: false, // Direct named parameter
+                );
+              }
+
               return PlutoColumn(
                 title: fieldLabel,
                 field: fieldName,
-                type: isNumericField ? PlutoColumnType.number(format: plutoGridFormatString) : PlutoColumnType.text(),
+                type: columnType, // Use the determined column type
                 width: width,
                 textAlign: alignment == 'center'
                     ? PlutoColumnTextAlign.center
@@ -341,6 +484,24 @@ class ReportMainUI extends StatelessWidget {
                   }
 
 
+                  if (isSubtotalRow) {
+                    // For subtotal rows, always return a simple text widget
+                    return Align(
+                      alignment: alignment == 'center'
+                          ? Alignment.center
+                          : alignment == 'right'
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Text(
+                        valueString,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold, // Subtotal text is bold
+                        ),
+                      ),
+                    );
+                  }
+
                   if (isImageColumn && valueString.isNotEmpty && (valueString.startsWith('http://') || valueString.startsWith('https://'))) {
                     return Padding(
                       padding: const EdgeInsets.all(2.0),
@@ -376,25 +537,63 @@ class ReportMainUI extends StatelessWidget {
                     );
                   }
 
-                  Widget textWidget;
+                  // NEW: Handle user-filling columns with a clickable text
+                  if (isUserFilling) {
+                    final String updatedUrl = config['updated_url']?.toString() ?? '';
+                    // Ensure payload_structure is decoded if it's still a string
+                    List<dynamic> payloadStructureConfig = [];
+                    if (config['payload_structure'] is String && config['payload_structure'].toString().isNotEmpty) {
+                      try {
+                        payloadStructureConfig = jsonDecode(config['payload_structure'].toString());
+                      } catch (e) {
+                        debugPrint('Error decoding payload_structure for $fieldName: ${config['payload_structure']} - $e');
+                      }
+                    } else if (config['payload_structure'] is List) {
+                      payloadStructureConfig = config['payload_structure'];
+                    }
 
+                    return GestureDetector(
+                      onTap: () {
+                        _showUserInputDialog(
+                          context,
+                          rendererContext.row.cells['__raw_data__']!.value as Map<String, dynamic>,
+                          updatedUrl,
+                          payloadStructureConfig, // Pass the decoded list
+                          fieldName,
+                          rendererContext.cell,
+                          rendererContext.stateManager, // Pass state manager to update cell directly
+                        );
+                      },
+                      child: Container(
+                        alignment: alignment == 'center'
+                            ? Alignment.center
+                            : alignment == 'right'
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Text(
+                          valueString,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: Colors.blue.shade800, // Indicate clickable
+                            decoration: TextDecoration.underline, // Indicate clickable
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    );
+                  }
+
+                  // Standard text/number rendering for other columns (including API-driven select, which PlutoGrid renders itself)
+                  Widget textWidget;
                   if (isNumericField && valueString.isNotEmpty) {
                     final number = double.tryParse(valueString) ?? 0.0;
-                    if (fieldName == 'Qty') {
-                      debugPrint('  Parsed number (in renderer): $number');
-                    }
                     final String formattedNumber = useIndianFormatForColumn
                         ? formatIndianNumber(number, decimalPoints)
                         : number.toStringAsFixed(decimalPoints);
-                    if (fieldName == 'Qty') {
-                      debugPrint('  Final formatted number (in renderer): "$formattedNumber"');
-                    }
-
                     textWidget = Text(
                       formattedNumber,
                       style: GoogleFonts.poppins(
                         fontSize: 12,
-                        fontWeight: isSubtotalRow ? FontWeight.bold : FontWeight.normal,
                       ),
                       textAlign: alignment == 'center'
                           ? TextAlign.center
@@ -407,11 +606,8 @@ class ReportMainUI extends StatelessWidget {
                       valueString,
                       style: GoogleFonts.poppins(
                         fontSize: 12,
-                        fontWeight: isSubtotalRow ? FontWeight.bold : FontWeight.normal,
                       ),
-                      textAlign: isSubtotalRow && fieldName == breakpointColumnName
-                          ? TextAlign.left
-                          : alignment == 'center'
+                      textAlign: alignment == 'center'
                           ? TextAlign.center
                           : alignment == 'right'
                           ? TextAlign.right
@@ -567,31 +763,25 @@ class ReportMainUI extends StatelessWidget {
                                           actionsConfig: const [],
                                           displayParameterValues: nestedDisplayValuesForExport,
                                           companyName: companyName,
-                                          // NEW: Pass the parent's display parameter values to the nested TableMainUI
                                           parentDisplayParameterValues: this.displayParameterValues,
                                         ),
                                       ),
                                     ),
                                   );
                                 } else if (actionType == 'print') {
-                                  // Directly read template and color from the action config
                                   final String templateName = action['printTemplate']?.toString() ?? PrintTemplateForMaker.premium.name;
                                   final PrintTemplate selectedTemplate = PrintTemplateForMaker.values
                                       .firstWhere(
                                         (e) => e.name == templateName,
                                     orElse: () => PrintTemplateForMaker.premium,
                                   )
-                                      .toPrintTemplate(); // Use the new extension
+                                      .toPrintTemplate();
 
                                   final String colorName = action['printColor']?.toString() ?? 'Blue';
-                                  // This `predefinedPdfColors` map needs to be accessible here.
-                                  // It's defined in EditDetailMaker.dart. You might need to import it here.
-                                  // For simplicity, let's assume it's globally accessible or copied here if circular dependencies are an issue.
-                                  // If not imported globally, ensure it's imported correctly.
                                   final PdfColor selectedColor = predefinedPdfColors[colorName] ?? PdfColors.blue;
 
                                   debugPrint('Navigating to PrintPreview with template: ${selectedTemplate.displayName}, color: $colorName');
-                                  debugPrint('Passing companyName: $companyName, NOT passing includePdfFooterDateTime to PrintPreviewPage.'); // DEBUG
+                                  debugPrint('Passing companyName: $companyName');
 
                                   Navigator.push(
                                     context,
@@ -602,7 +792,6 @@ class ReportMainUI extends StatelessWidget {
                                         reportLabel: actionReportLabel,
                                         selectedTemplate: selectedTemplate,
                                         selectedColor: selectedColor,
-                                        // includePdfFooterDateTime: includePdfFooterDateTime, // REMOVED: NO LONGER PASSED TO PRINTPREVIEW
                                       ),
                                     ),
                                   );
@@ -779,6 +968,9 @@ class ReportMainUI extends StatelessWidget {
                       },
                       onChanged: (PlutoGridOnChangedEvent event) {
                         // This callback is for changes *within* the grid cells.
+                        // If PlutoColumnType.select is used, changes will be notified here.
+                        // If you need to persist these changes, implement an API call here.
+                        debugPrint('PlutoGrid onChanged: Column: ${event.column.field}, Row Index: ${event.rowIdx}, Value: ${event.value}');
                       },
                     ),
                   ),
