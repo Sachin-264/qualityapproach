@@ -51,9 +51,9 @@ class _PrintPreviewPageState extends State<PrintPreviewPage> {
       fullPrintApiUrl = uri.replace(queryParameters: mergedParams).toString();
 
       final apiService = ReportAPIService();
-      final dynamic rawData = await apiService.fetchDataFromFullUrl(fullPrintApiUrl);
+      final dynamic rawData = await apiService.fetchRawJsonFromUrl(fullPrintApiUrl);
 
-      // --- CRITICAL FIX START: Handle List of Lists scenario ---
+
       if (rawData is List) {
         if (rawData.isNotEmpty) {
           // Check if the first element of the list is also a list (e.g., [[{...}],[{...}]])
