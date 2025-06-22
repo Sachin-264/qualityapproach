@@ -1,9 +1,12 @@
+// lib/ReportDynamic/TableGenerator/TableMainUI.dart
+
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 import 'package:intl/intl.dart';
+import 'dart:convert';
 import 'package:pdf/pdf.dart'; // For PdfColor constants
 
 import '../../../ReportUtils/Appbar.dart';
@@ -97,7 +100,7 @@ class TableMainUI extends StatelessWidget {
   Widget build(BuildContext context) {
     print('TableMainUI: BUILDING "${reportLabel}" (RecNo: $recNo, ApiName: $apiName)');
     print('TableMainUI: Company Name passed: $companyName');
-    print('TableMainUI: Parent Display Parameters received: $parentDisplayParameterValues'); // NEW: Log for debugging
+    print('TableMainUI: Parent Display Parameters received: $parentDisplayParameterValues');
 
     return Scaffold(
       appBar: AppBarWidget(
@@ -122,7 +125,7 @@ class TableMainUI extends StatelessWidget {
                 'fieldConfigs.length=${state.fieldConfigs.length}, '
                 'reportData.length=${state.reportData.length}, '
                 'state.actionsConfig.length=${state.actionsConfig.length}, '
-                'state.includePdfFooterDateTime=${state.includePdfFooterDateTime}'); // NEW: Log footer flag from state
+                'state.includePdfFooterDateTime=${state.includePdfFooterDateTime}');
 
             if (state.isLoading) {
               print('TableMainUI: Showing loader for "$reportLabel"');
@@ -173,7 +176,7 @@ class TableMainUI extends StatelessWidget {
             final Map<String, bool> imageColumnMap = {};
             final Map<String, bool> indianFormatColumnMap = {};
 
-            bool hasGrandTotals = false; // Flag to indicate if any column has 'Total: 1'
+            bool hasGrandTotals = false;
 
             print('--- TableMainUI: Field Configs for "$reportLabel" (RecNo: $recNo) ---');
             for (var config in sortedFieldConfigs) {
@@ -190,7 +193,6 @@ class TableMainUI extends StatelessWidget {
               ) {
                 currentFieldIsNumeric = true;
               }
-              // If it's marked for Total or SubTotal, always treat as numeric.
               if (config['Total']?.toString() == '1' || config['SubTotal']?.toString() == '1') {
                 currentFieldIsNumeric = true;
               }
@@ -210,7 +212,6 @@ class TableMainUI extends StatelessWidget {
                 subtotalColumnNames.add(fieldName);
                 subtotalColumnDecimals[fieldName] = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
               }
-              // Check if any column has 'Total: 1' to enable grand total footer
               if (config['Total']?.toString() == '1' && currentFieldIsNumeric) {
                 hasGrandTotals = true;
               }
@@ -223,7 +224,6 @@ class TableMainUI extends StatelessWidget {
 
             final List<PlutoColumn> columns = [];
 
-            // Get all visible field names (excluding actions and raw data)
             final List<String> allVisibleFieldNames = sortedFieldConfigs
                 .map((c) => c['Field_name'].toString())
                 .where((fName) => fName != '__actions__')
@@ -235,7 +235,7 @@ class TableMainUI extends StatelessWidget {
               final fieldName = config['Field_name']?.toString() ?? '';
               final fieldLabel = config['Field_label']?.toString() ?? '';
               final width = double.tryParse(config['width']?.toString() ?? '120') ?? 120.0;
-              final total = config['Total']?.toString() == '1'; // Check if this column contributes to grand total
+              final total = config['Total']?.toString() == '1';
               final alignment = config['num_alignment']?.toString().toLowerCase() ?? 'left';
               final int decimalPoints = int.tryParse(config['decimal_points']?.toString().trim() ?? '0') ?? 0;
               final bool isNumericField = numericColumnMap[fieldName] ?? false;
@@ -258,17 +258,15 @@ class TableMainUI extends StatelessWidget {
                     ? PlutoColumnTextAlign.right
                     : PlutoColumnTextAlign.left,
                 enableFilterMenuItem: true,
-                // REVERTED: Show footer renderer for grand totals in UI
                 footerRenderer: (rendererContext) {
-                  if (!hasGrandTotals) { // Only show if any column has 'Total: 1'
+                  if (!hasGrandTotals) {
                     return const SizedBox.shrink();
                   }
 
-                  // Place 'Grand Total' label on the first column (index 0)
                   if (i == 0) {
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.count, // Type count just for layout
+                      type: PlutoAggregateColumnType.count,
                       alignment: Alignment.centerLeft,
                       titleSpanBuilder: (text) {
                         return [
@@ -279,10 +277,9 @@ class TableMainUI extends StatelessWidget {
                         ];
                       },
                     );
-                  } else if (total && isNumericField) { // Only render sum for numeric columns marked as 'Total'
+                  } else if (total && isNumericField) {
                     double sum = 0.0;
                     for (var row in rendererContext.stateManager.rows) {
-                      // Exclude subtotal rows from grand total calculation for footer
                       if (row.cells.containsKey('__isSubtotal__') && row.cells['__isSubtotal__']!.value == true) {
                         continue;
                       }
@@ -296,7 +293,7 @@ class TableMainUI extends StatelessWidget {
 
                     return PlutoAggregateColumnFooter(
                       rendererContext: rendererContext,
-                      type: PlutoAggregateColumnType.sum, // Use sum type for actual calculation
+                      type: PlutoAggregateColumnType.sum,
                       format: plutoGridFormatString,
                       alignment: Alignment.centerRight,
                       titleSpanBuilder: (text) {
@@ -315,9 +312,6 @@ class TableMainUI extends StatelessWidget {
                   final rawCellValue = rendererContext.cell.value;
                   final String valueString = rawCellValue?.toString() ?? '';
                   final isSubtotalRow = rendererContext.row.cells.containsKey('__isSubtotal__') && rendererContext.row.cells['__isSubtotal__']!.value == true;
-                  // No need to check for __isGrandTotal__ flag here as we are not injecting it as a row anymore
-                  // final isGrandTotalRow = rendererContext.row.cells.containsKey('__isGrandTotal__') && rendererContext.row.cells['__isGrandTotal__']!.value == true;
-
 
                   if (isImageColumn && valueString.isNotEmpty && (valueString.startsWith('http://') || valueString.startsWith('https://'))) {
                     return Padding(
@@ -395,7 +389,6 @@ class TableMainUI extends StatelessWidget {
               );
             }));
 
-            // Add a hidden column to store the full raw data for the row
             columns.add(
               PlutoColumn(
                 title: 'Raw Data (Hidden)',
@@ -433,8 +426,6 @@ class TableMainUI extends StatelessWidget {
 
                     final Map<String, dynamic> originalRowData =
                         (rendererContext.row.cells['__raw_data__']?.value as Map<String, dynamic>?) ?? {};
-                    print('Action renderer: Original row data from __raw_data__ cell: $originalRowData');
-
 
                     return SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -449,44 +440,55 @@ class TableMainUI extends StatelessWidget {
                           final String actionReportLabel = action['reportLabel']?.toString() ?? 'Action Report';
                           final String actionApiNameResolved = action['apiName_resolved']?.toString() ?? '';
 
-                          final Map<String, String> dynamicApiParams = {};
-                          for (var paramConfig in actionParamsConfig) {
-                            final paramName = paramConfig['parameterName']?.toString() ?? '';
-                            final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
-
-                            String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
-                            print('  Action param: $paramName, sourceFieldName: $sourceFieldName, valueFromRow: "$valueFromRow"');
-
-                            if (paramName.isNotEmpty) {
-                              dynamicApiParams[paramName] = valueFromRow;
-                            }
-                          }
-
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
                               onPressed: () async {
-                                print('TableMainUI Action button pressed: $actionName (Type: $actionType)');
-                                print('TableMainUI Action API URL (template): $actionApiUrlTemplate');
-                                print('TableMainUI Dynamic Params for action: $dynamicApiParams');
+                                // #######################################################
+                                // #                  START OF FINAL FIX                  #
+                                // #######################################################
+                                debugPrint('\n\n\n--- ACTION BUTTON CLICKED (in TableMainUI) ---');
+                                debugPrint('[ACTION_UI] Action Name: "$actionName"');
+
+                                final Map<String, String> dynamicApiParams = {};
+
+                                debugPrint('[ACTION_UI] Building override params map...');
+                                for (var paramConfig in actionParamsConfig) {
+                                  final paramName = paramConfig['parameterName']?.toString() ?? '';
+                                  final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
+
+                                  if (paramName.isNotEmpty && originalRowData.containsKey(sourceFieldName)) {
+                                    String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
+
+                                    // FINAL FIX: Convert numbers with .0 to integers.
+                                    final double? numericValue = double.tryParse(valueFromRow);
+                                    if (numericValue != null && numericValue == numericValue.truncate()) {
+                                      valueFromRow = numericValue.toInt().toString();
+                                      debugPrint('  -> Converted numeric value for "$sourceFieldName" to integer: "$valueFromRow"');
+                                    }
+
+                                    debugPrint('  -> Mapping row field "$sourceFieldName" (value: "$valueFromRow") to param "$paramName"');
+                                    dynamicApiParams[paramName] = valueFromRow;
+                                  }
+                                }
+                                debugPrint('[ACTION_UI] Final Override Params to be dispatched: ${jsonEncode(dynamicApiParams)}');
+                                debugPrint('--- END OF UI LOGGING, DISPATCHING BLOC EVENT ---');
+                                // #######################################################
+                                // #                   END OF FINAL FIX                    #
+                                // #######################################################
 
                                 if (actionType == 'table') {
                                   final Map<String, String> nestedDisplayValuesForExport = {};
                                   for (var param in state.selectedApiParameters) {
                                     final pName = param['name'].toString();
                                     final String currentApiValue = state.userParameterValues[pName] ?? '';
-
                                     String displayValue = '';
-
                                     if (param['is_company_name_field'] == true) {
                                       if (param['show'] == true && currentApiValue.isNotEmpty) {
                                         final String configType = param['config_type']?.toString().toLowerCase() ?? '';
                                         if (configType == 'database' && state.pickerOptions.containsKey(pName)) {
                                           final List<Map<String, String>> pickerOptions = state.pickerOptions[pName] ?? [];
-                                          displayValue = pickerOptions.firstWhere(
-                                                (opt) => opt['value'] == currentApiValue,
-                                            orElse: () => {'label': currentApiValue, 'value': currentApiValue},
-                                          )['label']!;
+                                          displayValue = pickerOptions.firstWhere((opt) => opt['value'] == currentApiValue, orElse: () => {'label': currentApiValue, 'value': currentApiValue})['label']!;
                                         } else {
                                           displayValue = currentApiValue;
                                         }
@@ -496,19 +498,12 @@ class TableMainUI extends StatelessWidget {
                                       }
                                     } else {
                                       final pConfigType = param['config_type']?.toString().toLowerCase() ?? '';
-
                                       if ((pConfigType == 'radio' || pConfigType == 'checkbox') && currentApiValue.isNotEmpty) {
                                         final opts = List<Map<String, String>>.from(param['options']?.map((e) => Map<String, String>.from(e ?? {})) ?? []);
-                                        displayValue = opts.firstWhere(
-                                              (opt) => opt['value'] == currentApiValue,
-                                          orElse: () => {'label': currentApiValue, 'value': currentApiValue},
-                                        )['label']!;
+                                        displayValue = opts.firstWhere((opt) => opt['value'] == currentApiValue, orElse: () => {'label': currentApiValue, 'value': currentApiValue})['label']!;
                                       } else if (pConfigType == 'database' && currentApiValue.isNotEmpty && state.pickerOptions.containsKey(pName)) {
                                         final pOpts = state.pickerOptions[pName] ?? [];
-                                        displayValue = pOpts.firstWhere(
-                                              (opt) => opt['value'] == currentApiValue,
-                                          orElse: () => {'label': currentApiValue, 'value': currentApiValue},
-                                        )['label']!;
+                                        displayValue = pOpts.firstWhere((opt) => opt['value'] == currentApiValue, orElse: () => {'label': currentApiValue, 'value': currentApiValue})['label']!;
                                       } else {
                                         displayValue = currentApiValue;
                                       }
@@ -518,85 +513,30 @@ class TableMainUI extends StatelessWidget {
                                       nestedDisplayValuesForExport[paramLabel] = displayValue;
                                     }
                                   }
-
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) => BlocProvider<TableBlocGenerate>(
                                         create: (context) => TableBlocGenerate(ReportAPIService())
                                           ..add(FetchApiDetails(actionApiNameResolved, const []))
-                                          ..add(FetchFieldConfigs(
-                                            actionRecNoResolved,
-                                            actionApiNameResolved,
-                                            actionReportLabel,
-                                            actionApiUrlTemplate: actionApiUrlTemplate,
-                                            dynamicApiParams: dynamicApiParams,
-                                          )),
-                                        child: TableMainUI(
-                                          recNo: actionRecNoResolved,
-                                          apiName: actionApiNameResolved,
-                                          reportLabel: actionReportLabel,
-                                          userParameterValues: dynamicApiParams,
-                                          actionsConfig: const [],
-                                          displayParameterValues: nestedDisplayValuesForExport,
-                                          companyName: companyName,
-                                          // NEW: Pass the parent's (this TableMainUI's) display parameter values to the nested TableMainUI
-                                          parentDisplayParameterValues: displayParameterValues,
-                                        ),
+                                          ..add(FetchFieldConfigs(actionRecNoResolved, actionApiNameResolved, actionReportLabel, actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams)),
+                                        child: TableMainUI(recNo: actionRecNoResolved, apiName: actionApiNameResolved, reportLabel: actionReportLabel, userParameterValues: dynamicApiParams, actionsConfig: const [], displayParameterValues: nestedDisplayValuesForExport, companyName: companyName, parentDisplayParameterValues: displayParameterValues),
                                       ),
                                     ),
                                   );
                                 } else if (actionType == 'print') {
-                                  // For print action, still let the user select template/color
-                                  // (This flow is typically for actions, not the main report export)
-                                  final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(
-                                    context: context,
-                                    builder: (BuildContext dialogContext) {
-                                      // Using the ReportTemplateSelectionDialog from the ReportGenerator subfolder
-                                      return const ReportTemplateSelectionDialog();
-                                    },
-                                  );
-
+                                  final TemplateSelectionResult? result = await showDialog<TemplateSelectionResult>(context: context, builder: (BuildContext dialogContext) => const ReportTemplateSelectionDialog());
                                   if (result != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => PrintPreviewPage(
-                                          actionApiUrlTemplate: actionApiUrlTemplate,
-                                          dynamicApiParams: dynamicApiParams,
-                                          reportLabel: actionReportLabel,
-                                          selectedTemplate: result.template,
-                                          selectedColor: result.color,
-                                        ),
-                                      ),
-                                    );
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => PrintPreviewPage(actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams, reportLabel: actionReportLabel, selectedTemplate: result.template, selectedColor: result.color)));
                                   } else {
                                     print('No print template or color selected.');
                                   }
                                 } else if (actionType == 'form') {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Form action triggered for $actionName. (Not yet implemented)'), backgroundColor: Colors.orange),
-                                  );
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Form action triggered for $actionName. (Not yet implemented)'), backgroundColor: Colors.orange));
                                 }
                               },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueAccent,
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                minimumSize: const Size(60, 30),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                elevation: 2,
-                                shadowColor: Colors.blueAccent.withOpacity(0.4),
-                              ),
-                              child: Text(
-                                actionName,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 11,
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: const Size(60, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), elevation: 2, shadowColor: Colors.blueAccent.withOpacity(0.4)),
+                              child: Text(actionName, style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis),
                             ),
                           );
                         }).toList(),
@@ -714,9 +654,6 @@ class TableMainUI extends StatelessWidget {
               }));
             }
 
-            print('TableMainUI: Final PlutoRows count before passing to ExportWidget: ${finalRows.length}');
-            print('TableMainUI: CustomPlutoGrid created for "$reportLabel" with columns=${columns.length}, rows=${finalRows.length}');
-
             return Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
@@ -728,8 +665,6 @@ class TableMainUI extends StatelessWidget {
                     fieldConfigs: sortedFieldConfigs,
                     reportLabel: reportLabel,
                     parameterValues: userParameterValues,
-                    // MODIFIED: Pass the parent's display parameters if available,
-                    // otherwise fall back to this TableMainUI's own parameters.
                     displayParameterValues: parentDisplayParameterValues ?? displayParameterValues,
                     apiParameters: state.selectedApiParameters,
                     pickerOptions: state.pickerOptions,
@@ -747,9 +682,7 @@ class TableMainUI extends StatelessWidget {
                         }
                         return rowContext.rowIdx % 2 == 0 ? Colors.white : Colors.grey[50]!;
                       },
-                      onChanged: (PlutoGridOnChangedEvent event) {
-                        // This callback is for changes *within* the grid cells.
-                      },
+                      onChanged: (PlutoGridOnChangedEvent event) {},
                     ),
                   ),
                 ],

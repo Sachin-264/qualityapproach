@@ -1,3 +1,5 @@
+// lib/ReportUtils/ReportAPIService.dart
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -28,6 +30,11 @@ class ReportAPIService {
       'edit_demo_tables': '$_baseUrl?mode=edit_demo_tables',
       'delete_demo_tables': '$_baseUrl?mode=delete_demo_tables',
       'deploy_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
+
+      // NEW DASHBOARD ENDPOINTS
+      'post_dashboard': '$_baseUrl?mode=post_dashboard',
+      'edit_dashboard': '$_baseUrl?mode=edit_dashboard',
+      'delete_dashboard': '$_baseUrl?mode=delete_dashboard',
     };
 
     _getEndpoints = {
@@ -36,7 +43,44 @@ class ReportAPIService {
       'get_demo_table': '$_baseUrl?mode=get_demo_table',
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
       'fetch_databases': _databaseFetchUrl,
+
+      // NEW DASHBOARD ENDPOINTS
+      'get_dashboards': '$_baseUrl?mode=get_dashboards',
     };
+  }
+
+  // --- Centralized Logging Helper ---
+  void _logRequest({
+    required String httpMethod,
+    required String url,
+    Object? payload,
+    String? functionName,
+  }) {
+    debugPrint('--- ReportAPIService Request ---');
+    if (functionName != null) {
+      debugPrint('Function: $functionName');
+    }
+    debugPrint('HTTP Method: $httpMethod');
+    debugPrint('URL: $url');
+    if (payload != null) {
+      try {
+        // Pretty-print JSON for better readability
+        const encoder = JsonEncoder.withIndent('  ');
+        final prettyPayload = encoder.convert(payload);
+        debugPrint('Payload:\n$prettyPayload');
+      } catch (e) {
+        // Fallback for non-JSON or malformed payloads
+        debugPrint('Payload: ${payload.toString()}');
+      }
+    }
+    debugPrint('---------------------------------');
+  }
+
+  // NEW METHOD: To clear the API details cache
+  void clearApiDetailsCache() {
+    _apiDetails = {};
+    _apiDetailsLoadingCompleter = null; // Also clear any pending completer
+    debugPrint('ReportAPIService: API details cache cleared.');
   }
 
   Future<void> _ensureApiDetailsCacheLoaded() async {
@@ -71,8 +115,12 @@ class ReportAPIService {
 
     try {
       final payload = {'server': serverIP.trim(), 'user': userName.trim(), 'password': password.trim()};
+      final uri = Uri.parse(url);
+
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'fetchDatabases');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -104,8 +152,11 @@ class ReportAPIService {
 
     final payload = {'server': server.trim(), 'UID': UID.trim(), 'PWD': PWD.trim(), 'Database': database.trim(), 'action': 'table'};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'fetchTables');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -138,8 +189,11 @@ class ReportAPIService {
 
     final payload = {'server': server.trim(), 'UID': UID.trim(), 'PWD': PWD.trim(), 'Database': database.trim(), 'action': 'fields', 'table': table.trim()};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'fetchFields');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -174,8 +228,11 @@ class ReportAPIService {
 
     final payload = {'server': server.trim(), 'UID': UID.trim(), 'PWD': PWD.trim(), 'Database': database.trim(), 'action': 'picker_data', 'table': masterTable.trim(), 'master_field': masterField.trim(), 'display_field': displayField.trim()};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'fetchPickerData');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -209,8 +266,11 @@ class ReportAPIService {
 
     final payload = {'server': server.trim(), 'UID': UID.trim(), 'PWD': PWD.trim(), 'Database': database.trim(), 'action': 'field', 'table': table.trim(), 'field': field.trim()};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'fetchFieldValues');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -236,15 +296,21 @@ class ReportAPIService {
     if (url == null) throw Exception('GET API not found');
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getAvailableApis');
+
+      final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] == 'success') {
-          _apiDetails = {};
+          _apiDetails = {}; // Always clear the cache when fetching from source
           final uniqueApis = <String>{};
           for (var item in jsonData['data']) {
             if (item is Map<String, dynamic> && item['APIName'] != null) {
+              // Ensure 'IsDashboard' is parsed as a boolean, default to false
+              final bool isDashboard = (item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true);
+
               if (!uniqueApis.contains(item['APIName'])) {
                 uniqueApis.add(item['APIName']);
                 _apiDetails[item['APIName']] = {
@@ -255,6 +321,7 @@ class ReportAPIService {
                   'password': item['Password'],
                   'databaseName': item['DatabaseName'],
                   'id': item['id'],
+                  'IsDashboard': isDashboard, // Store dashboard status as a boolean
                   'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
                 };
               }
@@ -295,6 +362,7 @@ class ReportAPIService {
     }
     final uri = Uri.parse(baseUrl).replace(queryParameters: queryParams);
     try {
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchApiData');
       final response = await http.get(uri);
       return _parseApiResponse(response);
     } catch (e) {
@@ -304,7 +372,9 @@ class ReportAPIService {
 
   Future<List<Map<String, dynamic>>> fetchReportDataFromUrl(String url) async {
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 120));
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchReportDataFromUrl');
+      final response = await http.get(uri).timeout(const Duration(seconds: 120));
       return _parseApiResponse(response);
     } catch (e) {
       rethrow;
@@ -313,7 +383,9 @@ class ReportAPIService {
 
   Future<dynamic> fetchRawJsonFromUrl(String url) async {
     try {
-      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 120));
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchRawJsonFromUrl');
+      final response = await http.get(uri).timeout(const Duration(seconds: 120));
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return {};
         return jsonDecode(response.body);
@@ -353,6 +425,7 @@ class ReportAPIService {
     final uri = baseUriNoQuery.replace(queryParameters: finalQueryParams);
 
     try {
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchApiDataWithParams');
       final response = await http.get(uri).timeout(const Duration(seconds: 180));
       final parsedData = _parseApiResponse(response);
       return {'status': response.statusCode, 'data': parsedData, 'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null};
@@ -402,7 +475,9 @@ class ReportAPIService {
     if (url == null) throw Exception('GET API not found');
 
     try {
-      final response = await http.get(Uri.parse(url));
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchDemoTable');
+      final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
         final jsonData = jsonDecode(response.body);
@@ -442,7 +517,9 @@ class ReportAPIService {
 
     final fullUrl = '$url&RecNo=$recNo';
     try {
-      final response = await http.get(Uri.parse(fullUrl));
+      final uri = Uri.parse(fullUrl);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchDemoTable2');
+      final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
         final jsonData = jsonDecode(response.body);
@@ -487,8 +564,11 @@ class ReportAPIService {
     final recNo = ++_recNoCounter;
     final payload = {'RecNo': recNo, 'Report_name': reportName, 'Report_label': reportLabel, 'API_name': apiName, 'Parameter': parameter, 'actions_config': jsonEncode(actions), 'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveReport');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -517,10 +597,23 @@ class ReportAPIService {
     if (serverIP.isEmpty || userName.isEmpty || password.isEmpty || databaseName.isEmpty || apiServerURL.isEmpty || (parameters.isNotEmpty && apiName.isEmpty)) {
       throw Exception('Invalid input parameters: All required fields must be provided');
     }
-    final payload = {'ServerIP': serverIP.trim(), 'UserName': userName.trim(), 'Password': password.trim(), 'DatabaseName': databaseName.trim(), 'APIServerURl': apiServerURL.trim(), 'APIName': apiName.trim(), 'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : ''};
+    final payload = {
+      'ServerIP': serverIP.trim(),
+      'UserName': userName.trim(),
+      'Password': password.trim(),
+      'DatabaseName': databaseName.trim(),
+      'APIServerURl': apiServerURL.trim(),
+      'APIName': apiName.trim(),
+      'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
+      // Default to false for new database server entries if not explicitly set
+      'IsDashboard': 0,
+    };
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveDatabaseServer');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -568,8 +661,11 @@ class ReportAPIService {
       };
 
       try {
+        final uri = Uri.parse(url);
+        _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveFieldConfigs (field: ${field['Field_name']})');
+
         final response = await http.post(
-          Uri.parse(url),
+          uri,
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(payload),
         );
@@ -588,8 +684,11 @@ class ReportAPIService {
     if (url == null) throw Exception('POST API not found');
     final payload = {'id': id};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'deleteDatabaseServer');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -611,13 +710,27 @@ class ReportAPIService {
     required String apiServerURL,
     required String apiName,
     required List<Map<String, dynamic>> parameters,
+    required bool isDashboard,
   }) async {
     final url = _postEndpoints['edit_database_server'];
     if (url == null) throw Exception('POST API not found');
-    final payload = {'id': id, 'ServerIP': serverIP.trim(), 'UserName': userName.trim(), 'Password': password.trim(), 'DatabaseName': databaseName.trim(), 'APIServerURl': apiServerURL.trim(), 'APIName': apiName.trim(), 'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : ''};
+    final payload = {
+      'id': id,
+      'ServerIP': serverIP.trim(),
+      'UserName': userName.trim(),
+      'Password': password.trim(),
+      'DatabaseName': databaseName.trim(),
+      'APIServerURl': apiServerURL.trim(),
+      'APIName': apiName.trim(),
+      'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
+      'IsDashboard': isDashboard ? 1 : 0, // Send dashboard status as 0 or 1
+    };
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'editDatabaseServer');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -625,12 +738,17 @@ class ReportAPIService {
       if (response.body.isEmpty) return;
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+
+      // CRUCIAL ADDITION HERE: Clear cache after successful save
+      clearApiDetailsCache(); // Invalidate the cache so getAvailableApis fetches fresh data
+      debugPrint('ReportAPIService: Successfully edited database server, cache cleared.');
+
     } catch (e) {
       rethrow;
     }
   }
 
-  Future<void> editDemoTables({
+  Future<Map<String, dynamic>> editDemoTables({
     required int recNo,
     required String reportName,
     required String reportLabel,
@@ -640,20 +758,60 @@ class ReportAPIService {
     required List<Map<String, dynamic>> actions,
     required bool includePdfFooterDateTime,
   }) async {
-    final url = _postEndpoints['edit_demo_tables'];
-    if (url == null) throw Exception('POST API not found');
-    final payload = {'RecNo': recNo.toString(), 'Demo_table': {'Report_name': reportName.trim(), 'Report_label': reportLabel.trim(), 'API_name': apiName.trim(), 'Parameter': parameter.trim(), 'actions_config': jsonEncode(actions), 'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0}, 'Demo_table_2': fieldConfigs};
+    final urlString = _postEndpoints['edit_demo_tables'];
+    if (urlString == null) {
+      throw Exception('POST API endpoint "edit_demo_tables" not found');
+    }
+    final url = Uri.parse(urlString);
+
+    final payload = {
+      'RecNo': recNo.toString(),
+      'Demo_table': {
+        'Report_name': reportName.trim(),
+        'Report_label': reportLabel.trim(),
+        'API_name': apiName.trim(),
+        'Parameter': parameter.trim(),
+        'actions_config': jsonEncode(actions),
+        'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0,
+      },
+      'Demo_table_2': fieldConfigs
+    };
+
     try {
+      _logRequest(httpMethod: 'POST', url: url.toString(), payload: payload, functionName: 'editDemoTables');
       final response = await http.post(
-        Uri.parse(url),
-        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        url,
+        headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload),
       );
-      if (response.statusCode != 200) throw Exception('Failed to edit demo tables: ${response.statusCode} - ${response.body}');
-      if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        try {
+          final data = jsonDecode(response.body);
+          if (data['status'] == 'success') {
+            return data;
+          } else {
+            throw Exception('API returned an error: ${data['message'] ?? 'Unknown error'}');
+          }
+        } catch (e) {
+          debugPrint('JSON Decode Error: ${e.toString()}');
+          debugPrint('Server Response Body: ${response.body}');
+          throw Exception('Failed to parse server response. The server script likely has an error.');
+        }
+      } else {
+        debugPrint('Server Error ${response.statusCode}: ${response.body}');
+        try {
+          final errorJson = jsonDecode(response.body);
+          if (errorJson['error'] != null) {
+            throw Exception('Server Error: ${errorJson['error']}');
+          }
+        } catch (_) {
+          throw Exception('Server returned error code: ${response.statusCode}');
+        }
+        throw Exception('Server returned error code: ${response.statusCode}');
+      }
     } catch (e) {
+      debugPrint('Error in editDemoTables API call: $e');
       rethrow;
     }
   }
@@ -663,8 +821,11 @@ class ReportAPIService {
     if (url == null) throw Exception('POST API not found');
     final payload = {'RecNo': recNo};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'deleteDemoTables');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       );
@@ -690,8 +851,11 @@ class ReportAPIService {
     if (url == null) throw Exception('POST API not found for deployment.');
     final payload = {'report_metadata': jsonEncode(reportMetadata), 'field_configs': jsonEncode(fieldConfigs), 'client_server': clientServerIP.trim(), 'client_user': clientUserName.trim(), 'client_password': clientPassword.trim(), 'client_database': clientDatabaseName.trim()};
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'deployReportToClient');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 180));
@@ -708,8 +872,11 @@ class ReportAPIService {
 
   Future<Map<String, dynamic>> postJson(String url, Map<String, dynamic> payload) async {
     try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'postJson');
+
       final response = await http.post(
-        Uri.parse(url),
+        uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 120));
@@ -740,6 +907,154 @@ class ReportAPIService {
       }
     } catch (e) {
       return {'status': 'error', 'message': 'Failed to process request: $e'};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getDashboards() async {
+    final url = _getEndpoints['get_dashboards'];
+    if (url == null) throw Exception('GET API not found for dashboards');
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getDashboards');
+
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) return <Map<String, dynamic>>[];
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+          return List<Map<String, dynamic>>.from(jsonData['data']);
+        } else {
+          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        }
+      } else {
+        throw Exception('Failed to load dashboards: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<String> saveDashboard({
+    required String dashboardName,
+    String? dashboardDescription,
+    required String templateId,
+    required Map<String, dynamic> layoutConfig,
+    Map<String, dynamic>? globalFiltersConfig,
+  }) async {
+    final url = _postEndpoints['post_dashboard'];
+    if (url == null) throw Exception('POST API not found for saving dashboard');
+
+    final payload = {
+      'DashboardName': dashboardName.trim(),
+      'DashboardDescription': dashboardDescription?.trim(),
+      'TemplateID': templateId.trim(),
+      'LayoutConfig': jsonEncode(layoutConfig),
+      'GlobalFiltersConfig': globalFiltersConfig != null ? jsonEncode(globalFiltersConfig) : null,
+    };
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveDashboard');
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        if (response.body.isEmpty) throw Exception('API returned empty response for save dashboard.');
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] == 'success') {
+          final dashboardId = jsonData['DashboardID']?.toString();
+          if (dashboardId == null || dashboardId.isEmpty) {
+            throw Exception('API did not return a valid DashboardID.');
+          }
+          return dashboardId; // Return the String ID
+        } else {
+          throw Exception('API returned error: ${jsonData['message']}');
+        }
+      } else {
+        throw Exception('Failed to save dashboard: ${response.statusCode} - ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('Error in saveDashboard: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> editDashboard({
+    required String dashboardId, // *** FIX: Expect String ***
+    required String dashboardName,
+    String? dashboardDescription,
+    required String templateId,
+    required Map<String, dynamic> layoutConfig,
+    Map<String, dynamic>? globalFiltersConfig,
+  }) async {
+    final url = _postEndpoints['edit_dashboard'];
+    if (url == null) throw Exception('POST API not found for editing dashboard');
+
+    final payload = {
+      'DashboardID': dashboardId, // *** FIX: Send String ID ***
+      'DashboardName': dashboardName.trim(),
+      'DashboardDescription': dashboardDescription?.trim(),
+      'TemplateID': templateId.trim(),
+      'LayoutConfig': jsonEncode(layoutConfig),
+      'GlobalFiltersConfig': globalFiltersConfig != null ? jsonEncode(globalFiltersConfig) : null,
+    };
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'editDashboard');
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to edit dashboard: ${response.statusCode} - ${response.body}');
+      }
+      if (response.body.isEmpty) return;
+      final jsonData = jsonDecode(response.body);
+      if (jsonData['status'] != 'success') {
+        throw Exception('API returned error: ${jsonData['message']}');
+      }
+    } catch (e) {
+      debugPrint('Error in editDashboard: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> deleteDashboard({required String dashboardId}) async { // *** FIX: Expect String ***
+    final url = _postEndpoints['delete_dashboard'];
+    if (url == null) throw Exception('POST API not found for deleting dashboard');
+
+    final payload = {'DashboardID': dashboardId}; // *** FIX: Send String ID ***
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'deleteDashboard');
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to delete dashboard: ${response.statusCode} - ${response.body}');
+      }
+      if (response.body.isEmpty) return;
+      final jsonData = jsonDecode(response.body);
+      if (jsonData['status'] != 'success') {
+        throw Exception('API returned error: ${jsonData['message']}');
+      }
+    } catch (e) {
+      debugPrint('Error in deleteDashboard: $e');
+      rethrow;
     }
   }
 }

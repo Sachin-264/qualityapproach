@@ -3,12 +3,12 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
 import 'dart:convert';
 import 'package:uuid/uuid.dart';
-import 'package:collection/collection.dart'; // <--- ADD THIS IMPORT
+import 'package:collection/collection.dart';
 
 import '../ReportAPIService.dart';
 
 // ======== Events ========
-// ... (Your events are fine, no changes needed) ...
+// (No changes to events)
 class EditDetailMakerEvent {
   const EditDetailMakerEvent();
 }
@@ -162,7 +162,7 @@ class ToggleIncludePdfFooterDateTime extends EditDetailMakerEvent {
 }
 
 // ======== State ========
-// ... (Your state is fine, no changes needed) ...
+// (No changes to state)
 class EditDetailMakerState {
   final List<String> fields;
   final List<Map<String, dynamic>> selectedFields;
@@ -260,7 +260,6 @@ class EditDetailMakerState {
 }
 
 // ======== BLoC ========
-
 class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerState> {
   final ReportAPIService apiService;
   final Uuid _uuid = const Uuid();
@@ -269,7 +268,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     on<LoadPreselectedFields>(_onLoadPreselectedFields);
     on<SelectField>(_onSelectField);
     on<DeselectField>(_onDeselectField);
-    // ... other handlers
     on<UpdateFieldConfig>(_onUpdateFieldConfig);
     on<ToggleFieldApiDriven>(_onToggleFieldApiDriven);
     on<UpdateFieldApiUrl>(_onUpdateFieldApiUrl);
@@ -296,7 +294,41 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     on<ToggleIncludePdfFooterDateTime>(_onToggleIncludePdfFooterDateTime);
   }
 
-  // ... (Your other handlers are fine)
+// ... (All other methods remain the same) ...
+
+  void _onAddAction(AddAction event, Emitter<EditDetailMakerState> emit) {
+    if (state.actions.length >= 5) {
+      emit(state.copyWith(error: 'Maximum 5 actions allowed.'));
+      return;
+    }
+    if (event.type == 'form' && state.actions.any((a) => a['type'] == 'form')) {
+      emit(state.copyWith(error: 'Only one Form action is allowed.'));
+      return;
+    }
+
+    final name = '${event.type.toCapitalized()} ${state.actions.length + 1}';
+    Map<String, dynamic> newAction;
+
+// MODIFIED: Replaced ternary with if/else if/else to support 'graph'
+    if (event.type == 'print') {
+      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'params': <Map<String, dynamic>>[], 'printTemplate': 'premium', 'printColor': 'Blue'};
+    } else if (event.type == 'graph') {
+      newAction = {
+        'id': event.id,
+        'type': 'graph',
+        'name': name,
+        'graphType': 'Line Chart', // Default value as requested
+        'xAxisField': '',
+        'yAxisField': '',
+      };
+    } else { // Covers 'form' and 'table'
+      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'reportLabel': '', 'apiName_resolved': '', 'recNo_resolved': '', 'params': <Map<String, dynamic>>[]};
+    }
+
+    emit(state.copyWith(actions: [...state.actions, newAction], error: null));
+  }
+
+// ... (The rest of the BLoC file is unchanged) ...
   Future<void> _onLoadPreselectedFields(LoadPreselectedFields event, Emitter<EditDetailMakerState> emit) async {
     emit(state.copyWith(
       isLoading: true,
@@ -436,20 +468,15 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     return <Map<String, dynamic>>[];
   }
 
-
-  // ############### THIS IS THE CORRECTED METHOD ###############
   void _onSelectField(SelectField event, Emitter<EditDetailMakerState> emit) {
     if (state.selectedFields.any((f) => f['Field_name'] == event.field)) return;
 
     final List<Map<String, dynamic>> preselectedFields = state.preselectedFields;
 
-    // Use `firstWhereOrNull` from the collection package. It's safer and avoids the type error.
     final preselectedMatch = preselectedFields.firstWhereOrNull(
           (f) => f['Field_name'] == event.field,
     );
 
-    // If a pre-configured field is found, use it. Otherwise, create a new default one.
-    // We check for `null` now, instead of `isNotEmpty`.
     final newField = preselectedMatch != null
         ? preselectedMatch
         : {
@@ -487,8 +514,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
       currentField: newField,
     ));
   }
-  // ###############################################################
-
 
   void _onDeselectField(DeselectField event, Emitter<EditDetailMakerState> emit) {
     final updatedFields = state.selectedFields.where((f) => f['Field_name'] != event.field).toList();
@@ -502,7 +527,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     ));
   }
 
-  // ... (All your other BLoC methods remain unchanged)
   void _onUpdateFieldConfig(UpdateFieldConfig event, Emitter<EditDetailMakerState> emit) {
     if (state.currentField == null) return;
     final updatedField = {...state.currentField!, event.key: event.value};
@@ -656,16 +680,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
   void _onToggleNeedsAction(ToggleNeedsActionEvent event, Emitter<EditDetailMakerState> emit) => emit(state.copyWith(needsAction: event.needsAction));
 
-  void _onAddAction(AddAction event, Emitter<EditDetailMakerState> emit) {
-    if (state.actions.length >= 5) { emit(state.copyWith(error: 'Maximum 5 actions allowed.')); return; }
-    if (event.type == 'form' && state.actions.any((a) => a['type'] == 'form')) { emit(state.copyWith(error: 'Only one Form action is allowed.')); return; }
-    final name = '${event.type.toCapitalized()} ${state.actions.length + 1}';
-    final newAction = event.type == 'print'
-        ? {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'params': <Map<String, dynamic>>[], 'printTemplate': 'premium', 'printColor': 'Blue'}
-        : {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'reportLabel': '', 'apiName_resolved': '', 'recNo_resolved': '', 'params': <Map<String, dynamic>>[]};
-    emit(state.copyWith(actions: [...state.actions, newAction], error: null));
-  }
-
   void _onRemoveAction(RemoveAction event, Emitter<EditDetailMakerState> emit) {
     final updatedActions = state.actions.where((a) => a['id'] != event.id).toList();
     final updatedCache = Map<String, List<String>>.from(state.apiParametersCache)..remove(event.id);
@@ -791,7 +805,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   void _onToggleIncludePdfFooterDateTime(ToggleIncludePdfFooterDateTime event, Emitter<EditDetailMakerState> emit) {
     emit(state.copyWith(includePdfFooterDateTime: event.include));
   }
-
 }
 
 extension StringCasingExtension on String {

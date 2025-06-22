@@ -1,12 +1,14 @@
+// lib/ReportDynamic/ReportMainUI.dart
+
 import 'dart:async';
-import 'dart:convert'; // For JSON decoding
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:pluto_grid/pluto_grid.dart';
 import 'package:intl/intl.dart';
-import 'package:pdf/pdf.dart'; // For PdfColor constants
+import 'package:pdf/pdf.dart';
 
 import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/CustomPlutogrid.dart';
@@ -14,13 +16,15 @@ import '../../ReportUtils/Export_widget.dart';
 import '../../ReportUtils/subtleloader.dart';
 import '../ReportAPIService.dart';
 
-import '../ReportMakeEdit/EditDetailMaker.dart'; // Needed for PrintTemplateForMaker
+import '../ReportMakeEdit/EditDetailMaker.dart';
+import 'Graph/graph_view.dart';
 import 'PrintTemp/printpreview.dart';
 import 'PrintTemp/printservice.dart';
 import 'Reportbloc.dart';
-import 'TableGenerate/TableBLoc.dart' as TableBlocEvents; // Alias for TableBloc
+import 'TableGenerate/TableBLoc.dart' as TableBlocEvents;
 import 'TableGenerate/TableMainUI.dart';
-import 'api_driven_dropdown.dart'; // <-- **STEP 1: IMPORT THE NEW WIDGET**
+import 'api_driven_dropdown.dart';
+
 
 extension PrintTemplateForMakerToPrintTemplate on PrintTemplateForMaker {
   PrintTemplate toPrintTemplate() {
@@ -59,7 +63,7 @@ class ReportMainUI extends StatelessWidget {
     required this.includePdfFooterDateTime,
   });
 
-  // Helper function to format numbers using Indian locale
+  // Helper functions... (keep them as they are)
   static String formatIndianNumber(double number, int decimalPoints) {
     String pattern = '##,##,##0';
     if (decimalPoints > 0) {
@@ -69,7 +73,6 @@ class ReportMainUI extends StatelessWidget {
     return indianFormat.format(number);
   }
 
-  // Helper function to create a subtotal row
   PlutoRow _createSubtotalRow({
     required String groupName,
     required Map<String, double> subtotals,
@@ -113,7 +116,6 @@ class ReportMainUI extends StatelessWidget {
     return PlutoRow(cells: subtotalCells);
   }
 
-  // Helper method to show the user input dialog for 'is_user_filling' columns
   void _showUserInputDialog(
       BuildContext context,
       Map<String, dynamic> originalRowData,
@@ -212,6 +214,7 @@ class ReportMainUI extends StatelessWidget {
     });
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -232,9 +235,9 @@ class ReportMainUI extends StatelessWidget {
             if (state.fieldConfigs.isEmpty) return Center(child: Text('No field configurations available.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
             if (state.reportData.isEmpty) return Center(child: Text('No report data available.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
 
+            // ... (keep the config loop as is)
             final sortedFieldConfigs = List<Map<String, dynamic>>.from(state.fieldConfigs)
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0').compareTo(int.parse(b['Sequence_no']?.toString() ?? '0')));
-
             String? breakpointColumnName;
             final List<String> subtotalColumnNames = [];
             final Map<String, int> subtotalColumnDecimals = {};
@@ -242,7 +245,6 @@ class ReportMainUI extends StatelessWidget {
             final Map<String, bool> imageColumnMap = {};
             final Map<String, bool> indianFormatColumnMap = {};
             bool hasGrandTotals = false;
-
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? 'N/A';
               final bool isNumeric = ['number', 'decimal'].contains(config['data_type']?.toString().toLowerCase()) || ['Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName);
@@ -256,11 +258,7 @@ class ReportMainUI extends StatelessWidget {
               }
               if (config['Total']?.toString() == '1' && isNumeric) hasGrandTotals = true;
             }
-
             final List<PlutoColumn> columns = [];
-            // We no longer need this map from the BLoC state
-            // final Map<String, List<String>> apiDrivenFieldOptions = state.apiDrivenFieldOptions;
-
             columns.addAll(sortedFieldConfigs.asMap().entries.map((entry) {
               final i = entry.key;
               final config = entry.value;
@@ -273,22 +271,17 @@ class ReportMainUI extends StatelessWidget {
               final bool isNumericField = numericColumnMap[fieldName] ?? false;
               final bool isImageColumn = imageColumnMap[fieldName] ?? false;
               final bool useIndianFormatForColumn = indianFormatColumnMap[fieldName] ?? false;
-
               final bool isApiDriven = config['is_api_driven'] == true;
               final bool isUserFilling = config['is_user_filling'] == true;
-
-              // The column type remains text. The renderer will handle what to display.
               PlutoColumnType columnType = isNumericField
                   ? PlutoColumnType.number(format: '#,##0${decimalPoints > 0 ? '.${'0' * decimalPoints}' : ''}')
                   : PlutoColumnType.text();
-
               return PlutoColumn(
                 title: fieldLabel,
                 field: fieldName,
                 type: columnType,
                 width: width,
                 textAlign: alignment == 'center' ? PlutoColumnTextAlign.center : (alignment == 'right' ? PlutoColumnTextAlign.right : PlutoColumnTextAlign.left),
-                // All columns are read-only except the ones we explicitly allow.
                 enableEditingMode: isUserFilling || isApiDriven,
                 enableFilterMenuItem: true,
                 footerRenderer: (rendererContext) {
@@ -306,13 +299,9 @@ class ReportMainUI extends StatelessWidget {
                   final rawCellValue = rendererContext.cell.value;
                   final String valueString = rawCellValue?.toString() ?? '';
                   final bool isSubtotalRow = rendererContext.row.cells['__isSubtotal__']?.value == true;
-
                   if (isSubtotalRow) {
                     return Align(alignment: alignment == 'center' ? Alignment.center : (alignment == 'right' ? Alignment.centerRight : Alignment.centerLeft), child: Text(valueString, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.bold)));
                   }
-
-                  // **STEP 2: UPDATE THE RENDERER LOGIC**
-                  // PRIORITY 1: Handle API-driven columns
                   if (isApiDriven) {
                     return ApiDrivenDropdown(
                       columnConfig: config,
@@ -322,18 +311,13 @@ class ReportMainUI extends StatelessWidget {
                       onSelectionChanged: (newValue) {
                         if (newValue != null) {
                           rendererContext.stateManager.changeCellValue(rendererContext.cell, newValue, force: true);
-                          debugPrint('Value changed for ${fieldName}: $newValue. Ready to save.');
-                          // TODO: Add your API call here to save the new value to the backend.
                         }
                       },
                     );
                   }
-
-                  // PRIORITY 2: Handle user-filling columns
                   if (isUserFilling) {
                     final String updatedUrl = config['updated_url']?.toString() ?? '';
                     final List<dynamic> payloadStructureConfig = config['payload_structure'] as List<dynamic>? ?? [];
-
                     return GestureDetector(
                       onTap: () {
                         _showUserInputDialog(context, rendererContext.row.cells['__raw_data__']!.value as Map<String, dynamic>, updatedUrl, payloadStructureConfig, fieldName, rendererContext.cell, rendererContext.stateManager);
@@ -366,8 +350,6 @@ class ReportMainUI extends StatelessWidget {
                       ),
                     );
                   }
-
-                  // PRIORITY 3: Handle image columns
                   if (isImageColumn && valueString.isNotEmpty && (valueString.startsWith('http://') || valueString.startsWith('https://'))) {
                     return Padding(
                       padding: const EdgeInsets.all(2.0),
@@ -380,8 +362,6 @@ class ReportMainUI extends StatelessWidget {
                       ),
                     );
                   }
-
-                  // FALLBACK: Default text rendering
                   Widget textWidget;
                   if (isNumericField && valueString.isNotEmpty) {
                     final number = double.tryParse(valueString) ?? 0.0;
@@ -394,8 +374,6 @@ class ReportMainUI extends StatelessWidget {
                 },
               );
             }));
-
-            // ... (rest of the build method is unchanged)
 
             columns.add(
               PlutoColumn(
@@ -438,26 +416,54 @@ class ReportMainUI extends StatelessWidget {
                         children: state.actionsConfig.map((action) {
                           final String actionName = action['name']?.toString() ?? 'Action';
                           final String actionType = action['type']?.toString() ?? 'unknown';
+
                           final String actionApiUrlTemplate = action['api']?.toString() ?? '';
                           final List<dynamic> actionParamsConfig = List<dynamic>.from(action['params'] ?? []);
                           final String actionRecNoResolved = action['recNo_resolved']?.toString() ?? '';
                           final String actionReportLabel = action['reportLabel']?.toString() ?? 'Action Report';
                           final String actionApiNameResolved = action['apiName_resolved']?.toString() ?? '';
 
-                          final Map<String, String> dynamicApiParams = {};
-                          for (var paramConfig in actionParamsConfig) {
-                            final paramName = paramConfig['parameterName']?.toString() ?? '';
-                            final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
-                            String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
-                            if (paramName.isNotEmpty) {
-                              dynamicApiParams[paramName] = valueFromRow;
-                            }
-                          }
+                          final String graphType = action['graphType']?.toString() ?? '';
+                          final String xAxisField = action['xAxisField']?.toString() ?? '';
+                          final String yAxisField = action['yAxisField']?.toString() ?? '';
 
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
                               onPressed: () {
+                                // #######################################################
+                                // #                  START OF FINAL FIX                  #
+                                // #######################################################
+                                debugPrint('\n\n\n--- ACTION BUTTON CLICKED (in ReportMainUI) ---');
+                                debugPrint('[ACTION_UI] Action Name: "$actionName"');
+
+                                final Map<String, String> dynamicApiParams = {};
+
+                                debugPrint('[ACTION_UI] Building override params map...');
+                                for (var paramConfig in actionParamsConfig) {
+                                  final paramName = paramConfig['parameterName']?.toString() ?? '';
+                                  final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
+
+                                  if (paramName.isNotEmpty && originalRowData.containsKey(sourceFieldName)) {
+                                    String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
+
+                                    // FINAL FIX: Convert numbers with .0 to integers.
+                                    final double? numericValue = double.tryParse(valueFromRow);
+                                    if (numericValue != null && numericValue == numericValue.truncate()) {
+                                      valueFromRow = numericValue.toInt().toString();
+                                      debugPrint('  -> Converted numeric value for "$sourceFieldName" to integer: "$valueFromRow"');
+                                    }
+
+                                    debugPrint('  -> Mapping row field "$sourceFieldName" (value: "$valueFromRow") to param "$paramName"');
+                                    dynamicApiParams[paramName] = valueFromRow;
+                                  }
+                                }
+                                debugPrint('[ACTION_UI] Final Override Params to be dispatched: ${jsonEncode(dynamicApiParams)}');
+                                debugPrint('--- END OF UI LOGGING, DISPATCHING BLOC EVENT ---');
+                                // #######################################################
+                                // #                   END OF FINAL FIX                    #
+                                // #######################################################
+
                                 if (actionType == 'table') {
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => BlocProvider<TableBlocEvents.TableBlocGenerate>(
                                     create: (_) => TableBlocEvents.TableBlocGenerate(ReportAPIService())..add(TableBlocEvents.FetchApiDetails(actionApiNameResolved, const []))..add(TableBlocEvents.FetchFieldConfigs(actionRecNoResolved, actionApiNameResolved, actionReportLabel, actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams)),
@@ -469,6 +475,20 @@ class ReportMainUI extends StatelessWidget {
                                   final colorName = action['printColor']?.toString() ?? 'Blue';
                                   final selectedColor = predefinedPdfColors[colorName] ?? PdfColors.blue;
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => PrintPreviewPage(actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams, reportLabel: actionReportLabel, selectedTemplate: selectedTemplate, selectedColor: selectedColor)));
+                                } else if (actionType == 'graph') {
+                                  if (xAxisField.isEmpty || yAxisField.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Graph action "$actionName" is not configured correctly (X/Y axis missing).'), backgroundColor: Colors.orange),
+                                    );
+                                    return;
+                                  }
+                                  Navigator.push(context, MaterialPageRoute(builder: (_) => GraphView(
+                                    graphTitle: actionName,
+                                    graphType: graphType,
+                                    xAxisField: xAxisField,
+                                    yAxisField: yAxisField,
+                                    reportData: state.reportData,
+                                  )));
                                 }
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: const Size(60, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), elevation: 2, shadowColor: Colors.blueAccent.withOpacity(0.4)),
@@ -482,10 +502,9 @@ class ReportMainUI extends StatelessWidget {
                 ),
               );
             }
-
+            // ... (keep rest of the build method)
             final List<PlutoRow> finalRows = [];
             List<Map<String, dynamic>> currentReportData = List.from(state.reportData);
-
             if (breakpointColumnName != null) {
               currentReportData.sort((a, b) => (a[breakpointColumnName]?.toString() ?? '').compareTo(b[breakpointColumnName]?.toString() ?? ''));
               String? currentBreakpointValue;
@@ -532,7 +551,6 @@ class ReportMainUI extends StatelessWidget {
                 return PlutoRow(cells: rowCells);
               }));
             }
-
             return Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(

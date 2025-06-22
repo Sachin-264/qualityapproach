@@ -5,7 +5,7 @@ import 'dart:convert';
 import '../../ReportAPIService.dart'; // Ensure this path is correct
 import 'package:flutter/foundation.dart'; // Import for debugPrint
 
-// Events
+// Events (No changes needed here)
 abstract class EditDetailAdminEvent {}
 
 class FetchDatabases extends EditDetailAdminEvent {
@@ -128,9 +128,14 @@ class UpdateParameterSelectedValues extends EditDetailAdminEvent {
   UpdateParameterSelectedValues(this.index, this.selectedValues);
 }
 
+class UpdateDashboardStatus extends EditDetailAdminEvent {
+  final bool isDashboard;
+  UpdateDashboardStatus(this.isDashboard);
+}
+
 class SaveChanges extends EditDetailAdminEvent {}
 
-// State
+// State (No changes needed here)
 class EditDetailAdminState {
   final String id;
   final String serverIP;
@@ -139,6 +144,7 @@ class EditDetailAdminState {
   final String databaseName;
   final String apiServerURl;
   final String apiName;
+  final bool isDashboard; // NEW
   final List<Map<String, dynamic>> parameters;
   final List<String> availableDatabases;
   final bool isLoading;
@@ -153,6 +159,7 @@ class EditDetailAdminState {
     required this.databaseName,
     required this.apiServerURl,
     required this.apiName,
+    required this.isDashboard, // NEW
     required this.parameters,
     this.availableDatabases = const [],
     this.isLoading = false,
@@ -168,6 +175,7 @@ class EditDetailAdminState {
     String? databaseName,
     String? apiServerURl,
     String? apiName,
+    bool? isDashboard, // NEW
     List<Map<String, dynamic>>? parameters,
     List<String>? availableDatabases,
     bool? isLoading,
@@ -182,6 +190,7 @@ class EditDetailAdminState {
       databaseName: databaseName ?? this.databaseName,
       apiServerURl: apiServerURl ?? this.apiServerURl,
       apiName: apiName ?? this.apiName,
+      isDashboard: isDashboard ?? this.isDashboard, // NEW
       parameters: parameters ?? this.parameters,
       availableDatabases: availableDatabases ?? this.availableDatabases,
       isLoading: isLoading ?? this.isLoading,
@@ -204,6 +213,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     apiServerURl: apiData['APIServerURl']?.toString() ?? '',
     apiName: apiData['APIName']?.toString() ?? '',
     userName: apiData['UserName']?.toString() ?? '',
+    isDashboard: (apiData['IsDashboard'] as bool?) ?? false, // NEW: Initialize dashboard status
     parameters: (() {
       debugPrint('Bloc Constructor: Parsing initial API parameters.');
       dynamic paramsRaw = apiData['Parameter'];
@@ -251,10 +261,11 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
           'selected_values': (p['selected_values'] is List)
               ? (p['selected_values'] as List).map((e) => e.toString()).toList()
               : <String>[],
-          'display_value_cache': null, // Initialize to null for now
+          // MODIFICATION 1: Retrieve existing display_value_cache if present in the incoming API data
+          'display_value_cache': p['display_value_cache']?.toString(),
         };
 
-        // Set initial display_value_cache using the helper
+        // Set initial display_value_cache using the helper (this will override the above if logic applies)
         param['display_value_cache'] = _getInitialDisplayValueCache(param);
         return param;
       }).toList();
@@ -276,23 +287,27 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     on<UpdateParameterFromModal>(_onUpdateParameterFromModal);
     on<UpdateParameterOptions>(_onUpdateParameterOptions);
     on<UpdateParameterSelectedValues>(_onUpdateParameterSelectedValues);
+    on<UpdateDashboardStatus>(_onUpdateDashboardStatus); // NEW
     on<SaveChanges>(_onSaveChanges);
   }
 
-  // Helper to determine initial display_value_cache
+  // MODIFICATION 2: Update _getInitialDisplayValueCache logic
   // This helper will only set display_value_cache if a distinct label can be found.
-  // Otherwise, it returns null, signaling the UI to display the 'value'.
+  // Otherwise, it returns the 'value' itself, signaling the UI to display the raw value.
   static String? _getInitialDisplayValueCache(Map<String, dynamic> param) {
     final String? configType = param['config_type'] as String?;
     final String? value = param['value']?.toString();
 
-    // 1. If API already provided a non-empty display_value_cache, use it.
-    if (param.containsKey('display_value_cache') && param['display_value_cache'] != null && param['display_value_cache'].toString().isNotEmpty) {
+    // 1. Prioritize an existing, non-empty 'display_value_cache' from the incoming data.
+    // This handles cases where the API might directly provide the display label.
+    if (param.containsKey('display_value_cache') &&
+        param['display_value_cache'] != null &&
+        param['display_value_cache'].toString().isNotEmpty) {
       debugPrint('  _getInitialDisplayValueCache: Using existing display_value_cache "${param['display_value_cache']}" for ${param['name']}');
       return param['display_value_cache']?.toString();
     }
 
-    // 2. For radio/checkbox types, try to find the label from the 'options' list.
+    // 2. For radio/checkbox types, try to find the label from the 'options' list based on the 'value'.
     if ((configType == 'radio' || configType == 'checkbox') && (param['options'] is List)) {
       final List<Map<String, dynamic>> options = List<Map<String, dynamic>>.from(param['options']);
 
@@ -326,12 +341,11 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
       }
     }
 
-    // 3. For database or any other type, if no explicit display_value_cache was provided
-    //    and no label could be derived from options, then the display_value_cache should be null.
-    //    This signifies that no distinct user-friendly label exists for this value,
-    //    and the UI should just show the 'value' itself.
-    debugPrint('  _getInitialDisplayValueCache: No distinct display label found for ${param['name']}. Setting display_value_cache to null.');
-    return null;
+    // 3. For all other cases (e.g., 'database' type, or text input where no specific display label is provided),
+    // the 'value' itself should be displayed in the UI.
+    // This is crucial for initial load when a distinct label isn't retrieved from the API or options.
+    debugPrint('  _getInitialDisplayCache: Defaulting display_value_cache to the parameter "value" ("$value") for ${param['name']}.');
+    return value; // Return the actual value as the display cache
   }
 
 
@@ -382,31 +396,18 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     emit(state.copyWith(apiName: event.apiName));
   }
 
-  // Handle direct text input from UI
+// Handle direct text input from UI
   void _onUpdateParameterUIValue(UpdateParameterUIValue event, Emitter<EditDetailAdminState> emit) {
     debugPrint('Bloc Event: UpdateParameterUIValue for index ${event.index} to typedText="${event.typedText}"');
     final updatedParameters = List<Map<String, dynamic>>.from(state.parameters);
     Map<String, dynamic> currentParam = Map<String, dynamic>.from(updatedParameters[event.index]);
 
-    final String? configType = currentParam['config_type'] as String?;
-
-    // Logic:
-    // If it's a 'text' type (or default), the typed text IS the value and display_value_cache.
-    // If it's 'database', 'radio', 'checkbox', the typed text is *only* for temporary UI display.
-    // The actual 'value' and 'display_value_cache' for these types are set *only* by the modal.
-    if (configType != 'database' && configType != 'radio' && configType != 'checkbox') {
-      // This is a plain text field. Typed text affects both value and display_value_cache.
-      debugPrint('  Parameter ${event.index} config_type is "$configType" (or default). Updating "value" and "display_value_cache" to typedText.');
-      currentParam['value'] = event.typedText;
-      currentParam['display_value_cache'] = event.typedText;
-    } else {
-      // This is a picker type. Typed text should NOT change the underlying 'value'
-      // nor permanently change the 'display_value_cache' in the Bloc state.
-      // The UI controller itself handles the immediate display of typed text,
-      // and this state update is effectively skipped for picker types.
-      debugPrint('  Parameter ${event.index} config_type is "$configType". Typed text will NOT update Bloc state.');
-      return; // Do not emit a new state for this event if it's a picker type.
-    }
+// Always update value and display_value_cache to the typed text.
+// For picker types, this will be overwritten when the modal returns.
+// For date pickers and plain text, this is the correct behavior.
+    debugPrint('  Parameter ${event.index}. Updating "value" and "display_value_cache" to typedText "${event.typedText}".');
+    currentParam['value'] = event.typedText;
+    currentParam['display_value_cache'] = event.typedText;
 
     updatedParameters[event.index] = currentParam;
     emit(state.copyWith(parameters: updatedParameters));
@@ -464,24 +465,24 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
 
     currentParam['config_type'] = event.configType;
 
-    // When config type changes, clear irrelevant config data
+// When config type changes, clear irrelevant config data
     if (event.configType == 'database') {
       currentParam['options'] = [];
       currentParam['selected_values'] = [];
-      // 'value' and 'display_value_cache' for database type will be updated from modal.
+// 'value' and 'display_value_cache' for database type will be updated from modal.
     } else if (event.configType == 'radio' || event.configType == 'checkbox') {
       currentParam['master_table'] = null;
       currentParam['master_field'] = null;
       currentParam['display_field'] = null;
-      // 'value' and 'display_value_cache' for radio/checkbox will be updated from modal.
+// 'value' and 'display_value_cache' for radio/checkbox will be updated from modal.
     } else {
-      // 'text' or other default
+// 'text' or other default
       currentParam['master_table'] = null;
       currentParam['master_field'] = null;
       currentParam['display_field'] = null;
       currentParam['options'] = [];
       currentParam['selected_values'] = [];
-      // 'value' and 'display_value_cache' are just the text field content.
+// 'value' and 'display_value_cache' are just the text field content.
     }
 
     updatedParameters[event.index] = currentParam;
@@ -489,7 +490,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     emit(state.copyWith(parameters: updatedParameters));
   }
 
-  // Atomically updates parameter properties from modal result
+// Atomically updates parameter properties from modal result
   void _onUpdateParameterFromModal(UpdateParameterFromModal event, Emitter<EditDetailAdminState> emit) {
     debugPrint(
         'Bloc Event: UpdateParameterFromModal for index ${event.index}. Config type: ${event.newConfigType}, Value: ${event.newValue}, DisplayLabel: ${event.newDisplayLabel}');
@@ -498,10 +499,10 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
 
     currentParam['config_type'] = event.newConfigType;
 
-    // The modal provides the definitive API value and display label.
+// The modal provides the definitive API value and display label.
     currentParam['value'] = event.newValue;
-    // Set display_value_cache to the newDisplayLabel provided by the modal.
-    // If newDisplayLabel is null (e.g., if it's a plain text input or API value should be shown), then cache is null.
+// Set display_value_cache to the newDisplayLabel provided by the modal.
+// If newDisplayLabel is null (e.g., if it's a plain text input or API value should be shown), then cache is null.
     currentParam['display_value_cache'] = event.newDisplayLabel; // This will store the label from the modal
 
     if (event.newConfigType == 'database') {
@@ -517,7 +518,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
       currentParam['master_field'] = null;
       currentParam['display_field'] = null;
     } else {
-      // For a 'text' or default type (should ideally not happen from modal), clear all specialized config properties
+// For a 'text' or default type (should ideally not happen from modal), clear all specialized config properties
       currentParam['master_table'] = null;
       currentParam['master_field'] = null;
       currentParam['display_field'] = null;
@@ -547,7 +548,7 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     final currentParam = updatedParameters[event.index];
 
     final String newValue = event.selectedValues.join(','); // This is the API value string
-    // Derive new display cache from selected values and existing options
+// Derive new display cache from selected values and existing options
     final String? newDisplayCache = event.selectedValues.isNotEmpty
         ? event.selectedValues.map((val) {
       final option = (currentParam['options'] as List<dynamic>?)?.firstWhere(
@@ -567,8 +568,18 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
     emit(state.copyWith(parameters: updatedParameters));
   }
 
+  void _onUpdateDashboardStatus(UpdateDashboardStatus event, Emitter<EditDetailAdminState> emit) {
+    debugPrint('Bloc Event: UpdateDashboardStatus to ${event.isDashboard}');
+    emit(state.copyWith(isDashboard: event.isDashboard));
+  }
+
   Future<void> _onSaveChanges(SaveChanges event, Emitter<EditDetailAdminState> emit) async {
     debugPrint('Bloc Event: SaveChanges initiated. Current state parameters: ${state.parameters.length}');
+    // IMPORTANT: The `state.parameters` at this point should contain all the updated fields
+    // including 'config_type', 'master_table', 'master_field', 'display_field', 'options', 'selected_values',
+    // and 'display_value_cache'.
+    // Ensure your PHP backend for `edit_database_server` correctly receives and persists
+    // ALL these properties when it decodes `Parameter` JSON.
     debugPrint('Parameters being sent for save: ${jsonEncode(state.parameters)}'); // Log full parameters being saved
     emit(state.copyWith(isLoading: true, error: null, saveInitiated: true));
     try {
@@ -580,7 +591,8 @@ class EditDetailAdminBloc extends Bloc<EditDetailAdminEvent, EditDetailAdminStat
         databaseName: state.databaseName,
         apiServerURL: state.apiServerURl,
         apiName: state.apiName,
-        parameters: state.parameters,
+        parameters: state.parameters, // Pass the full parameters list
+        isDashboard: state.isDashboard, // NEW: Pass dashboard status
       );
       debugPrint('Bloc Event: SaveChanges successful. API call completed.');
       emit(state.copyWith(isLoading: false, saveInitiated: true));
