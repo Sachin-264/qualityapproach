@@ -158,37 +158,37 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBarWidget(
-        title: 'Dashboard Viewer',
-        onBackPress: () => Navigator.pop(context),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadDashboardAndReports,
-          ),
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () async {
-              final dashboard = await _dashboardFuture;
-              if (dashboard != null && mounted) {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => BlocProvider<DashboardBuilderBloc>(
-                      create: (context) => DashboardBuilderBloc(widget.apiService),
-                      child: DashboardBuilderScreen(
-                        apiService: widget.apiService,
-                        dashboardToEdit: dashboard,
-                      ),
-                    ),
-                  ),
-                );
-                _loadDashboardAndReports(); // Refresh after edit
-              }
-            },
-          ),
-        ],
-      ),
+      // appBar: AppBarWidget(
+      //   title: 'Dashboard Viewer',
+      //   onBackPress: () => Navigator.pop(context),
+      //   actions: [
+      //     IconButton(
+      //       icon: const Icon(Icons.refresh),
+      //       onPressed: _loadDashboardAndReports,
+      //     ),
+      //     IconButton(
+      //       icon: const Icon(Icons.edit),
+      //       onPressed: () async {
+      //         final dashboard = await _dashboardFuture;
+      //         if (dashboard != null && mounted) {
+      //           await Navigator.push(
+      //             context,
+      //             MaterialPageRoute(
+      //               builder: (context) => BlocProvider<DashboardBuilderBloc>(
+      //                 create: (context) => DashboardBuilderBloc(widget.apiService),
+      //                 child: DashboardBuilderScreen(
+      //                   apiService: widget.apiService,
+      //                   dashboardToEdit: dashboard,
+      //                 ),
+      //               ),
+      //             ),
+      //           );
+      //           _loadDashboardAndReports(); // Refresh after edit
+      //         }
+      //       },
+      //     ),
+      //   ],
+      // ),
       body: FutureBuilder<Dashboard>(
         future: _dashboardFuture,
         builder: (context, snapshot) {
