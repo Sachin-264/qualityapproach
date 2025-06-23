@@ -232,10 +232,9 @@ class ReportMainUI extends StatelessWidget {
           builder: (context, state) {
             if (state.isLoading) return const Center(child: SubtleLoader());
             if (state.error != null) return Center(child: Text('Error: ${state.error}', style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16), textAlign: TextAlign.center));
-            if (state.fieldConfigs.isEmpty) return Center(child: Text('No field configurations available.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
-            if (state.reportData.isEmpty) return Center(child: Text('No report data available.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
+            if (state.fieldConfigs.isEmpty)
+            if (state.reportData.isEmpty) return Center(child: Text('Fetching Wait ', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
 
-            // ... (keep the config loop as is)
             final sortedFieldConfigs = List<Map<String, dynamic>>.from(state.fieldConfigs)
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0').compareTo(int.parse(b['Sequence_no']?.toString() ?? '0')));
             String? breakpointColumnName;
@@ -247,7 +246,21 @@ class ReportMainUI extends StatelessWidget {
             bool hasGrandTotals = false;
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? 'N/A';
-              final bool isNumeric = ['number', 'decimal'].contains(config['data_type']?.toString().toLowerCase()) || ['Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName);
+
+              // #######################################################
+              // #                  START OF FIX (Grand Total)           #
+              // #######################################################
+              // A column is considered numeric if its data_type is numeric, if it's in a hardcoded list of common
+              // numeric field names, OR if it's marked for aggregation (Total or SubTotal), as non-numeric
+              // fields would not be aggregated. This fixes totals for fields like 'Excise', 'Cess', etc.
+              final bool isMarkedForAggregation = config['Total']?.toString() == '1' || config['SubTotal']?.toString() == '1';
+              final bool isNumeric = ['number', 'decimal'].contains(config['data_type']?.toString().toLowerCase()) ||
+                  ['Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
+                  isMarkedForAggregation;
+              // #######################################################
+              // #                  END OF FIX (Grand Total)             #
+              // #######################################################
+
               numericColumnMap[fieldName] = isNumeric;
               imageColumnMap[fieldName] = config['image']?.toString() == '1';
               indianFormatColumnMap[fieldName] = config['indian_format']?.toString() == '1';
@@ -432,39 +445,56 @@ class ReportMainUI extends StatelessWidget {
                             child: ElevatedButton(
                               onPressed: () {
                                 // #######################################################
-                                // #                  START OF FINAL FIX                  #
+                                // #       START OF ENHANCED LOGGING & PARAM LOGIC       #
                                 // #######################################################
-                                debugPrint('\n\n\n--- ACTION BUTTON CLICKED (in ReportMainUI) ---');
-                                debugPrint('[ACTION_UI] Action Name: "$actionName"');
+                                debugPrint('\n\n\n================================================================');
+                                debugPrint('===== ACTION BUTTON CLICKED (ReportMainUI) =====');
+                                debugPrint('================================================================');
+                                debugPrint('[ACTION_CONFIG] Action Name: "$actionName"');
+                                debugPrint('[ACTION_CONFIG] Action Type: "$actionType"');
+                                debugPrint('[ACTION_CONFIG] Raw Action Config: ${jsonEncode(action)}');
+                                debugPrint('---');
+                                debugPrint('[SOURCE_DATA] Full Row Data: ${jsonEncode(originalRowData)}');
+                                debugPrint('---');
+                                debugPrint('[PARAM_RESOLUTION] Building dynamic parameters for the action...');
 
                                 final Map<String, String> dynamicApiParams = {};
-
-                                debugPrint('[ACTION_UI] Building override params map...');
                                 for (var paramConfig in actionParamsConfig) {
                                   final paramName = paramConfig['parameterName']?.toString() ?? '';
                                   final sourceFieldName = paramConfig['parameterValue']?.toString() ?? '';
 
-                                  if (paramName.isNotEmpty && originalRowData.containsKey(sourceFieldName)) {
-                                    String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
+                                  if (paramName.isNotEmpty && sourceFieldName.isNotEmpty) {
+                                    if (originalRowData.containsKey(sourceFieldName)) {
+                                      String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
 
-                                    // FINAL FIX: Convert numbers with .0 to integers.
-                                    final double? numericValue = double.tryParse(valueFromRow);
-                                    if (numericValue != null && numericValue == numericValue.truncate()) {
-                                      valueFromRow = numericValue.toInt().toString();
-                                      debugPrint('  -> Converted numeric value for "$sourceFieldName" to integer: "$valueFromRow"');
+                                      // Convert numbers like 123.0 to just "123"
+                                      final double? numericValue = double.tryParse(valueFromRow);
+                                      if (numericValue != null && numericValue == numericValue.truncate()) {
+                                        valueFromRow = numericValue.toInt().toString();
+                                      }
+
+                                      debugPrint('  ✅ [SUCCESS] Mapped param "$paramName" <- from row field "$sourceFieldName" (Value: "$valueFromRow")');
+                                      dynamicApiParams[paramName] = valueFromRow;
+                                    } else {
+                                      debugPrint('  ⚠️ [WARNING] Source field "$sourceFieldName" for param "$paramName" NOT FOUND in row data. Parameter will be omitted.');
                                     }
-
-                                    debugPrint('  -> Mapping row field "$sourceFieldName" (value: "$valueFromRow") to param "$paramName"');
-                                    dynamicApiParams[paramName] = valueFromRow;
+                                  } else {
+                                    debugPrint('  ❌ [ERROR] Invalid parameter configuration skipped (missing name or value): ${jsonEncode(paramConfig)}');
                                   }
                                 }
-                                debugPrint('[ACTION_UI] Final Override Params to be dispatched: ${jsonEncode(dynamicApiParams)}');
-                                debugPrint('--- END OF UI LOGGING, DISPATCHING BLOC EVENT ---');
+                                debugPrint('---');
+                                debugPrint('[ACTION_DISPATCH] Final Dynamic Params: ${jsonEncode(dynamicApiParams)}');
                                 // #######################################################
-                                // #                   END OF FINAL FIX                    #
+                                // #       END OF ENHANCED LOGGING & PARAM LOGIC         #
                                 // #######################################################
 
                                 if (actionType == 'table') {
+                                  debugPrint('[ACTION_DISPATCH] Type: Table');
+                                  debugPrint('[ACTION_DISPATCH]   -> Report Label: "$actionReportLabel"');
+                                  debugPrint('[ACTION_DISPATCH]   -> API Name: "$actionApiNameResolved"');
+                                  debugPrint('[ACTION_DISPATCH]   -> RecNo: "$actionRecNoResolved"');
+                                  debugPrint('[ACTION_DISPATCH]   -> URL Template: "$actionApiUrlTemplate"');
+                                  debugPrint('================================================================\n\n');
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => BlocProvider<TableBlocEvents.TableBlocGenerate>(
                                     create: (_) => TableBlocEvents.TableBlocGenerate(ReportAPIService())..add(TableBlocEvents.FetchApiDetails(actionApiNameResolved, const []))..add(TableBlocEvents.FetchFieldConfigs(actionRecNoResolved, actionApiNameResolved, actionReportLabel, actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams)),
                                     child: TableMainUI(recNo: actionRecNoResolved, apiName: actionApiNameResolved, reportLabel: actionReportLabel, userParameterValues: dynamicApiParams, actionsConfig: const [], displayParameterValues: {}, companyName: companyName, parentDisplayParameterValues: displayParameterValues),
@@ -474,14 +504,25 @@ class ReportMainUI extends StatelessWidget {
                                   final selectedTemplate = PrintTemplateForMaker.values.firstWhere((e) => e.name == templateName, orElse: () => PrintTemplateForMaker.premium).toPrintTemplate();
                                   final colorName = action['printColor']?.toString() ?? 'Blue';
                                   final selectedColor = predefinedPdfColors[colorName] ?? PdfColors.blue;
+                                  debugPrint('[ACTION_DISPATCH] Type: Print');
+                                  debugPrint('[ACTION_DISPATCH]   -> Report Label: "$actionReportLabel"');
+                                  debugPrint('[ACTION_DISPATCH]   -> URL Template: "$actionApiUrlTemplate"');
+                                  debugPrint('[ACTION_DISPATCH]   -> Template: $templateName, Color: $colorName');
+                                  debugPrint('================================================================\n\n');
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => PrintPreviewPage(actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams, reportLabel: actionReportLabel, selectedTemplate: selectedTemplate, selectedColor: selectedColor)));
                                 } else if (actionType == 'graph') {
+                                  debugPrint('[ACTION_DISPATCH] Type: Graph');
+                                  debugPrint('[ACTION_DISPATCH]   -> Title: "$actionName"');
+                                  debugPrint('[ACTION_DISPATCH]   -> Graph Type: "$graphType", X-Axis: "$xAxisField", Y-Axis: "$yAxisField"');
                                   if (xAxisField.isEmpty || yAxisField.isEmpty) {
+                                    debugPrint('  ❌ [ERROR] Graph action is missing X or Y axis field configuration.');
+                                    debugPrint('================================================================\n\n');
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       SnackBar(content: Text('Graph action "$actionName" is not configured correctly (X/Y axis missing).'), backgroundColor: Colors.orange),
                                     );
                                     return;
                                   }
+                                  debugPrint('================================================================\n\n');
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => GraphView(
                                     graphTitle: actionName,
                                     graphType: graphType,
@@ -489,6 +530,9 @@ class ReportMainUI extends StatelessWidget {
                                     yAxisField: yAxisField,
                                     reportData: state.reportData,
                                   )));
+                                } else {
+                                  debugPrint('[ACTION_DISPATCH] Type: Unknown ("$actionType")');
+                                  debugPrint('================================================================\n\n');
                                 }
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent, padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6), minimumSize: const Size(60, 30), tapTargetSize: MaterialTapTargetSize.shrinkWrap, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)), elevation: 2, shadowColor: Colors.blueAccent.withOpacity(0.4)),

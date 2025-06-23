@@ -1,6 +1,6 @@
-// lib/screens/dashboard_view_screen.dart
+// lib/ReportDashboard/DashboardScreen/dashboard_view_screen.dart
 
-import 'dart:convert'; // For jsonDecode
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -12,7 +12,9 @@ import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/subtleloader.dart';
 import '../DashboardBloc/dashboard_builder_bloc.dart';
 import '../DashboardModel/dashboard_model.dart';
-import '../dashboardWidget/dashboard_report_card.dart';
+import 'dashboardTemplates/classic_clean_template.dart';
+import 'dashboardTemplates/modern_minimal_template.dart';
+import 'dashboardTemplates/vibrant_bold_template.dart';
 import 'dashboard_builder_screen.dart';
 
 
@@ -26,6 +28,8 @@ enum DashboardTemplateEnum {
 extension DashboardTemplateEnumExtension on DashboardTemplateEnum {
   String get id => toString().split('.').last;
 }
+
+
 
 class DashboardViewScreen extends StatefulWidget {
   final String dashboardId;
@@ -165,26 +169,21 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () async {
-              if (_dashboardFuture != null && _dashboardFuture is Future<Dashboard>) {
-                final dashboard = await _dashboardFuture;
-                if (dashboard != null) {
-                  // Ensure BlocProvider is provided for DashboardBuilderScreen
-                  if (mounted) {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => BlocProvider<DashboardBuilderBloc>(
-                          create: (context) => DashboardBuilderBloc(widget.apiService),
-                          child: DashboardBuilderScreen(
-                            apiService: widget.apiService,
-                            dashboardToEdit: dashboard,
-                          ),
-                        ),
+              final dashboard = await _dashboardFuture;
+              if (dashboard != null && mounted) {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => BlocProvider<DashboardBuilderBloc>(
+                      create: (context) => DashboardBuilderBloc(widget.apiService),
+                      child: DashboardBuilderScreen(
+                        apiService: widget.apiService,
+                        dashboardToEdit: dashboard,
                       ),
-                    );
-                    _loadDashboardAndReports(); // Refresh after edit
-                  }
-                }
+                    ),
+                  ),
+                );
+                _loadDashboardAndReports(); // Refresh after edit
               }
             },
           ),
@@ -196,38 +195,15 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: SubtleLoader());
           } else if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text(
-                  'Failed to load dashboard: ${snapshot.error}',
-                  style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            );
+            return Center(child: Padding(padding: const EdgeInsets.all(16.0), child: Text('Failed to load dashboard: ${snapshot.error}', style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16), textAlign: TextAlign.center)));
           } else if (!snapshot.hasData) {
-            return Center(
-              child: Text(
-                'Dashboard not found or no data.',
-                style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
-            );
+            return Center(child: Text('Dashboard not found or no data.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
           } else {
             final dashboard = snapshot.data!;
             if (dashboard.reportsOnDashboard.isEmpty) {
-              return Center(
-                child: Text(
-                  'This dashboard has no reports configured.',
-                  style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16),
-                  textAlign: TextAlign.center,
-                ),
-              );
+              return Center(child: Text('This dashboard has no reports configured.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
             }
-
-            // Delegate rendering to a helper to keep build method clean
-            // The template rendering logic is now inside this helper
+            // *** UPDATED: Use the new renderer widget ***
             return _DashboardTemplateRenderer(
               dashboard: dashboard,
               onReportCardTap: _navigateToReportMainUI,
@@ -238,6 +214,7 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
     );
   }
 }
+
 
 // --- HELPER CLASS: Renders the specific dashboard template ---
 class _DashboardTemplateRenderer extends StatelessWidget {
@@ -252,218 +229,19 @@ class _DashboardTemplateRenderer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Determine which template to render based on dashboard.templateConfig.id
     final DashboardTemplateEnum template = DashboardTemplateEnum.values.firstWhere(
           (e) => e.id == dashboard.templateConfig.id,
-      orElse: () => DashboardTemplateEnum.classicClean, // Fallback to Classic Clean
+      orElse: () => DashboardTemplateEnum.classicClean, // Fallback
     );
 
-    final String? bannerUrl = dashboard.templateConfig.bannerUrl;
-    final Color accentColor = dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor;
-
-    // These properties will be adjusted based on the selected template style
-    BoxDecoration backgroundDecoration;
-    double cardElevation = 4.0;
-    BorderRadius cardBorderRadius = BorderRadius.circular(12.0);
-    int crossAxisCount = 2; // Default grid columns
-    double cardSpacing = 16.0;
-    double cardAspectRatio = 1.0; // Default square
-
-    // Apply template-specific styles
+    // This switch now just returns the correct template widget
     switch (template) {
       case DashboardTemplateEnum.classicClean:
-        backgroundDecoration = BoxDecoration(color: Colors.grey[100]);
-        cardElevation = 4.0;
-        cardBorderRadius = BorderRadius.circular(12.0);
-        crossAxisCount = 2;
-        cardSpacing = 16.0;
-        cardAspectRatio = 1.0;
-        break;
+        return ClassicCleanTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
       case DashboardTemplateEnum.modernMinimal:
-        backgroundDecoration = BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Colors.white, accentColor.withOpacity(0.1)],
-          ),
-        );
-        cardElevation = 2.0;
-        cardBorderRadius = BorderRadius.circular(16.0);
-        crossAxisCount = 2;
-        cardSpacing = 24.0;
-        cardAspectRatio = 1.1;
-        break;
+        return ModernMinimalTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
       case DashboardTemplateEnum.vibrantBold:
-        backgroundDecoration = BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [accentColor.withOpacity(0.2), Colors.white],
-          ),
-        );
-        cardElevation = 8.0;
-        cardBorderRadius = BorderRadius.circular(10.0);
-        crossAxisCount = 2; // Can be 3 for wider screens if desired
-        cardSpacing = 16.0;
-        cardAspectRatio = 0.9;
-        break;
+        return VibrantBoldTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
     }
-
-    return Container(
-      decoration: backgroundDecoration,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Dashboard Header / Banner Area
-          Container(
-            height: 180, // Fixed height for header
-            decoration: BoxDecoration(
-              color: accentColor, // Use accent color as base
-              image: bannerUrl != null && bannerUrl.isNotEmpty
-                  ? DecorationImage(
-                image: NetworkImage(bannerUrl),
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(
-                  Colors.black.withOpacity(0.3), // Darken image slightly
-                  BlendMode.darken,
-                ),
-              )
-                  : null,
-              gradient: bannerUrl == null || bannerUrl.isEmpty
-                  ? LinearGradient( // Apply gradient if no banner image
-                colors: [accentColor, accentColor.withOpacity(0.7)],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              )
-                  : null,
-              borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    dashboard.dashboardName,
-                    style: GoogleFonts.poppins(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white, // Header text is white for contrast
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (dashboard.dashboardDescription != null && dashboard.dashboardDescription!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                      child: Text(
-                        dashboard.dashboardDescription!,
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          color: Colors.white70, // Slightly transparent white
-                        ),
-                        textAlign: TextAlign.center,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          // Main content area for reports (grid)
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: GridView.builder(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: crossAxisCount,
-                  crossAxisSpacing: cardSpacing,
-                  mainAxisSpacing: cardSpacing,
-                  childAspectRatio: cardAspectRatio,
-                ),
-                itemCount: dashboard.reportsOnDashboard.length,
-                itemBuilder: (context, index) {
-                  final cardConfig = dashboard.reportsOnDashboard[index];
-
-                  // Special rendering for Vibrant & Bold template
-                  if (template == DashboardTemplateEnum.vibrantBold) {
-                    final Color effectiveCardColor = cardConfig.displayColor ?? accentColor; // Use card's color or template's accent
-                    return Transform.rotate( // Apply rotation
-                      angle: index % 2 == 0 ? 0.02 : -0.02, // Minor alternating tilt
-                      child: Card(
-                        elevation: cardElevation,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: cardBorderRadius,
-                        ),
-                        color: effectiveCardColor.withOpacity(0.9), // Stronger opaque color
-                        child: InkWell(
-                          borderRadius: cardBorderRadius,
-                          onTap: () => onReportCardTap(cardConfig),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                if (cardConfig.displayIcon != null) ...[
-                                  Icon(
-                                    cardConfig.displayIcon,
-                                    size: 64, // Larger icon
-                                    color: Colors.white, // White icon for vibrant colors
-                                  ),
-                                  const SizedBox(height: 15),
-                                ],
-                                Text(
-                                  cardConfig.displayTitle,
-                                  style: GoogleFonts.poppins(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.w900, // Extra bold text
-                                    color: Colors.white, // White text for vibrant colors
-                                  ),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (cardConfig.displaySubtitle != null && cardConfig.displaySubtitle!.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    cardConfig.displaySubtitle!,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 14,
-                                      color: Colors.white70, // Slightly muted white subtitle
-                                    ),
-                                    textAlign: TextAlign.center,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  } else {
-                    // For ClassicClean and ModernMinimal, use the reusable DashboardReportCard
-                    return DashboardReportCard(
-                      cardConfig: cardConfig, // Passes original card config
-                      onTap: () => onReportCardTap(cardConfig),
-                    );
-                  }
-                },
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
