@@ -9,12 +9,26 @@ abstract class ReportEvent {}
 
 class LoadReports extends ReportEvent {}
 
+// We make this event public so the loader can dispatch it.
+class StartPreselectedReportChain extends ReportEvent {
+  final Map<String, dynamic> reportDefinition;
+  final Map<String, String> initialParameters;
+  StartPreselectedReportChain(this.reportDefinition, this.initialParameters);
+}
+
+// MODIFIED to carry the optional payload for chaining.
 class FetchApiDetails extends ReportEvent {
   final String apiName;
-  final List<Map<String, dynamic>> actionsConfig; // Kept as requested
-  final bool includePdfFooterDateTimeFromReportMetadata; // NEW: Flag from demo_table
+  final List<Map<String, dynamic>> actionsConfig;
+  final bool includePdfFooterDateTimeFromReportMetadata;
+  final StartPreselectedReportChain? chainPayload; // The special payload
 
-  FetchApiDetails(this.apiName, this.actionsConfig, {this.includePdfFooterDateTimeFromReportMetadata = false});
+  FetchApiDetails(
+      this.apiName,
+      this.actionsConfig, {
+        this.includePdfFooterDateTimeFromReportMetadata = false,
+        this.chainPayload, // Make it an optional named parameter
+      });
 }
 
 class UpdateParameter extends ReportEvent {
@@ -75,11 +89,10 @@ class FetchPickerOptions extends ReportEvent {
 
 class ResetReports extends ReportEvent {}
 
-// NEW EVENT: DeployReportToClient
 class DeployReportToClient extends ReportEvent {
   final Map<String, dynamic> reportMetadata;
   final List<Map<String, dynamic>> fieldConfigs;
-  final String clientApiName; // The API name associated with this report, used to get client DB credentials
+  final String clientApiName;
 
   DeployReportToClient({
     required this.reportMetadata,
@@ -89,7 +102,7 @@ class DeployReportToClient extends ReportEvent {
 }
 
 
-// --- State ---
+// --- State (No changes needed) ---
 class ReportState {
   final bool isLoading;
   final List<Map<String, dynamic>> reports;
@@ -103,15 +116,15 @@ class ReportState {
   final List<Map<String, dynamic>> selectedApiParameters;
   final Map<String, String> userParameterValues;
   final Map<String, List<Map<String, String>>> pickerOptions;
-  final Map<String, List<String>> apiDrivenFieldOptions; // NEW: Field_name -> List of FieldName values
-  final String? serverIP; // Client's ServerIP for picker options, *not* your main system's
-  final String? userName; // Client's UserName for picker options
-  final String? password; // Client's Password for picker options
-  final String? databaseName; // Client's DatabaseName for picker options
+  final Map<String, List<String>> apiDrivenFieldOptions;
+  final String? serverIP;
+  final String? userName;
+  final String? password;
+  final String? databaseName;
   final List<Map<String, dynamic>> actionsConfig;
   final String? error;
-  final String? successMessage; // New field for success messages
-  final bool includePdfFooterDateTime; // NEW: Add includePdfFooterDateTime to state
+  final String? successMessage;
+  final bool includePdfFooterDateTime;
 
   ReportState({
     this.isLoading = false,
@@ -126,15 +139,15 @@ class ReportState {
     this.selectedApiParameters = const [],
     this.userParameterValues = const {},
     this.pickerOptions = const {},
-    this.apiDrivenFieldOptions = const {}, // NEW: Initialize
+    this.apiDrivenFieldOptions = const {},
     this.serverIP,
     this.userName,
     this.password,
     this.databaseName,
     this.actionsConfig = const [],
     this.error,
-    this.successMessage, // Initialize success message
-    this.includePdfFooterDateTime = false, // NEW: Initialize to false
+    this.successMessage,
+    this.includePdfFooterDateTime = false,
   });
 
   ReportState copyWith({
@@ -150,15 +163,15 @@ class ReportState {
     List<Map<String, dynamic>>? selectedApiParameters,
     Map<String, String>? userParameterValues,
     Map<String, List<Map<String, String>>>? pickerOptions,
-    Map<String, List<String>>? apiDrivenFieldOptions, // NEW: Add to copyWith
+    Map<String, List<String>>? apiDrivenFieldOptions,
     String? serverIP,
     String? userName,
     String? password,
     String? databaseName,
     List<Map<String, dynamic>>? actionsConfig,
     String? error,
-    String? successMessage, // Allow copying success message
-    bool? includePdfFooterDateTime, // NEW: Allow copying this field
+    String? successMessage,
+    bool? includePdfFooterDateTime,
   }) {
     return ReportState(
       isLoading: isLoading ?? this.isLoading,
@@ -173,15 +186,15 @@ class ReportState {
       selectedApiParameters: selectedApiParameters ?? this.selectedApiParameters,
       userParameterValues: userParameterValues ?? this.userParameterValues,
       pickerOptions: pickerOptions ?? this.pickerOptions,
-      apiDrivenFieldOptions: apiDrivenFieldOptions ?? this.apiDrivenFieldOptions, // NEW: Assign
+      apiDrivenFieldOptions: apiDrivenFieldOptions ?? this.apiDrivenFieldOptions,
       serverIP: serverIP ?? this.serverIP,
       userName: userName ?? this.userName,
       password: password ?? this.password,
       databaseName: databaseName ?? this.databaseName,
       actionsConfig: actionsConfig ?? this.actionsConfig,
       error: error,
-      successMessage: successMessage, // Copy success message
-      includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime, // NEW: Assign copied value
+      successMessage: successMessage,
+      includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime,
     );
   }
 }
@@ -191,6 +204,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
   final ReportAPIService apiService;
 
   ReportBlocGenerate(this.apiService) : super(ReportState()) {
+    on<StartPreselectedReportChain>(_onStartPreselectedReportChain);
     on<LoadReports>(_onLoadReports);
     on<FetchApiDetails>(_onFetchApiDetails);
     on<UpdateParameter>(_onUpdateParameter);
@@ -198,7 +212,32 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     on<FetchDocumentData>(_onFetchDocumentData);
     on<FetchPickerOptions>(_onFetchPickerOptions);
     on<ResetReports>(_onResetReports);
-    on<DeployReportToClient>(_onDeployReportToClient); // NEW: Handle deployment event
+    on<DeployReportToClient>(_onDeployReportToClient);
+  }
+
+  // This new handler starts the sequence.
+  void _onStartPreselectedReportChain(StartPreselectedReportChain event, Emitter<ReportState> emit) {
+    add(ResetReports());
+
+    final String apiName = event.reportDefinition['API_name'].toString();
+    List<Map<String, dynamic>> actionsConfig = [];
+    final dynamic rawActions = event.reportDefinition['actions_config'];
+    if (rawActions is String && rawActions.isNotEmpty) {
+      try {
+        actionsConfig = List<Map<String, dynamic>>.from(jsonDecode(rawActions));
+      } catch (e) { /* ignore */ }
+    } else if (rawActions is List) {
+      actionsConfig = List<Map<String, dynamic>>.from(rawActions);
+    }
+    final bool includePdfFooter = event.reportDefinition['pdf_footer_datetime'] == true;
+
+    // Dispatch the first event and pass the original event as a payload.
+    add(FetchApiDetails(
+      apiName,
+      actionsConfig,
+      includePdfFooterDateTimeFromReportMetadata: includePdfFooter,
+      chainPayload: event, // Pass the payload
+    ));
   }
 
   Future<void> _onLoadReports(LoadReports event, Emitter<ReportState> emit) async {
@@ -213,49 +252,19 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     }
   }
 
-// FetchApiDetails is primarily for the *current* report's parameter inputs AND its own actions config
   Future<void> _onFetchApiDetails(FetchApiDetails event, Emitter<ReportState> emit) async {
-// IMPORTANT: Set includePdfFooterDateTime from the event's data immediately.
-// This value originates from the demo_table metadata when the report is selected in ReportUI.
-    emit(state.copyWith(
-      isLoading: true,
-      error: null,
-      successMessage: null, // Clear any previous success message
-      selectedApiParameters: [],
-      userParameterValues: {},
-      pickerOptions: {},
-      apiDrivenFieldOptions: {}, // NEW: Clear api driven options too
-      selectedApiUrl: null,
-      serverIP: null,
-      userName: null,
-      password: null,
-      databaseName: null,
-// fieldConfigs is intentionally NOT cleared here; it's managed by FetchFieldConfigs
-      documentData: null,
-      reportData: [], // Clear report data as new API details mean new data
-      includePdfFooterDateTime: event.includePdfFooterDateTimeFromReportMetadata, // Set it here!
-    ));
+    emit(state.copyWith(isLoading: true, error: null));
     try {
-// This call still fetches API URL, DB credentials, and default API parameters
-// from DatabaseServerMaster, which are separate from pdf_footer_datetime.
       final apiDetails = await apiService.getApiDetails(event.apiName);
 
       List<Map<String, dynamic>> fetchedParameters = List<Map<String, dynamic>>.from(apiDetails['parameters'] ?? []);
-
       final Map<String, String> initialUserParameterValues = {};
-// initialPickerOptions will be built by FetchPickerOptions if needed, not here.
-
       final String? serverIP = apiDetails['serverIP']?.toString();
       final String? userName = apiDetails['userName']?.toString();
       final String? password = apiDetails['password']?.toString();
       final String? databaseName = apiDetails['databaseName']?.toString();
-
-// Determine the final actions config for the state:
-// Prefer actions from the API response for this specific API.
       List<Map<String, dynamic>> finalActionsConfig = List<Map<String, dynamic>>.from(apiDetails['actions_config'] ?? []);
 
-// Fallback: If API did not provide actions, but the event did (e.g., from main UI's metadata), use event's actions.
-// This ensures that the main report's actions, which might be sourced from its initial metadata fetch, are preserved.
       if (finalActionsConfig.isEmpty && event.actionsConfig.isNotEmpty) {
         finalActionsConfig = event.actionsConfig;
       }
@@ -264,7 +273,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         if (param['name'] != null) {
           String paramName = param['name'].toString();
           String paramValue = param['value']?.toString() ?? '';
-
           if ((param['type']?.toString().toLowerCase() == 'date') && paramValue.isNotEmpty) {
             try {
               final DateTime parsedDate = DateTime.parse(paramValue);
@@ -277,56 +285,68 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         }
       }
 
+      // If we have a payload, override default params with initial params from the dashboard.
+      if (event.chainPayload != null) {
+        initialUserParameterValues.addAll(event.chainPayload!.initialParameters);
+      }
+
       emit(state.copyWith(
         isLoading: false,
         selectedApiUrl: apiDetails['url'],
         selectedApiParameters: fetchedParameters,
         userParameterValues: initialUserParameterValues,
-// pickerOptions: initialPickerOptions, // Removed, will be populated on demand
         serverIP: serverIP,
         userName: userName,
         password: password,
         databaseName: databaseName,
-        actionsConfig: finalActionsConfig, // Set the actionsConfig in BLoC state
-// includePdfFooterDateTime is already correctly set from the event in the initial emit.
-// No need to set it again here, as it's sourced from demo_table and explicitly passed.
+        actionsConfig: finalActionsConfig,
         error: null,
+        // Also set these from the report definition when chaining
+        selectedApiName: event.chainPayload?.reportDefinition['API_name']?.toString() ?? event.apiName,
+        selectedRecNo: event.chainPayload?.reportDefinition['RecNo']?.toString(),
+        selectedReportLabel: event.chainPayload?.reportDefinition['Report_label']?.toString(),
+        includePdfFooterDateTime: event.includePdfFooterDateTimeFromReportMetadata,
       ));
-      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}. Actions Config loaded: ${finalActionsConfig.isNotEmpty ? finalActionsConfig.length : 'empty'} items. Include PDF Footer Date/Time (from event): ${event.includePdfFooterDateTimeFromReportMetadata}');
+      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}.');
+
+      // --- THE CHAINING LOGIC ---
+      // If a payload exists, it means we are in the pre-selected flow.
+      // Now that API details are loaded, we can dispatch the next event.
+      if (event.chainPayload != null) {
+        final chainEvent = event.chainPayload!;
+        add(FetchFieldConfigs(
+          chainEvent.reportDefinition['RecNo'].toString(),
+          chainEvent.reportDefinition['API_name'].toString(),
+          chainEvent.reportDefinition['Report_label'].toString(),
+          dynamicApiParams: state.userParameterValues, // Use the fresh state
+        ));
+      }
+
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to fetch API details: $e'));
       debugPrint('Bloc: FetchApiDetails error: $e');
     }
   }
 
-  void _onUpdateParameter(UpdateParameter event, Emitter<ReportState> emit) {
-    final updatedUserParams = Map<String, String>.from(state.userParameterValues);
-    updatedUserParams[event.paramName] = event.value;
-    emit(state.copyWith(userParameterValues: updatedUserParams, successMessage: null, error: null)); // Clear messages on param update
-    debugPrint('Bloc: Updated parameter ${event.paramName} to: ${event.value}');
-  }
-
-// In ReportBloc.dart
-
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
-    emit(state.copyWith(isLoading: true, error: null, successMessage: null, reportData: [], documentData: null));
+    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
 
     debugPrint('Bloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
     debugPrint('Bloc: FetchFieldConfigs: Dynamic parameters provided for API call: ${event.dynamicApiParams}');
 
     try {
-      final fieldConfigs = await apiService.fetchDemoTable2(event.recNo);
+      final results = await Future.wait([
+        apiService.fetchDemoTable2(event.recNo),
+        apiService.fetchApiDataWithParams(
+          event.apiName,
+          event.dynamicApiParams ?? state.userParameterValues,
+          actionApiUrlTemplate: event.actionApiUrlTemplate,
+        ),
+      ]);
 
-      // ******************* CHANGE STARTS HERE *******************
-      // REMOVE THE ENTIRE LOOP THAT FETCHED API-DRIVEN OPTIONS.
-      // THE UI WILL NOW HANDLE THIS ON DEMAND.
-      // ******************* CHANGE ENDS HERE *******************
+      final fieldConfigs = results[0] as List<Map<String, dynamic>>;
+      final apiResponse = results[1] as Map<String, dynamic>;
 
-      final apiResponse = await apiService.fetchApiDataWithParams(
-        event.apiName,
-        event.dynamicApiParams ?? state.userParameterValues,
-        actionApiUrlTemplate: event.actionApiUrlTemplate,
-      );
       List<Map<String, dynamic>> reportData = [];
       String? errorMessage;
 
@@ -334,11 +354,11 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         reportData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
         debugPrint('Bloc: Fetched ${reportData.length} rows for grid report.');
       } else {
-        errorMessage = apiResponse['error'] ?? 'Unexpected error occurred. Please try again.';
+        errorMessage = apiResponse['error'] ?? 'Unexpected error occurred.';
         debugPrint('Bloc: API response status not 200 for grid report: $errorMessage');
       }
 
-      final newState = state.copyWith(
+      emit(state.copyWith(
         isLoading: false,
         fieldConfigs: fieldConfigs,
         reportData: reportData,
@@ -346,32 +366,37 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         selectedApiName: event.apiName,
         selectedReportLabel: event.reportLabel,
         error: errorMessage,
-        // The apiDrivenFieldOptions map is no longer needed in the BLoC state.
         apiDrivenFieldOptions: {},
-      );
-      emit(newState);
-      debugPrint('Bloc: FetchFieldConfigs success. Emitted state with ${newState.fieldConfigs.length} field configs.');
+      ));
+      debugPrint('Bloc: FetchFieldConfigs success. Emitted state with ${fieldConfigs.length} field configs.');
     } catch (e) {
-      // ... (error handling remains the same)
+      emit(state.copyWith(isLoading: false, error: 'Failed to fetch field configs: $e'));
+      debugPrint('Bloc: FetchFieldConfigs error: $e');
     }
   }
 
+
+
+  void _onUpdateParameter(UpdateParameter event, Emitter<ReportState> emit) {
+    final updatedUserParams = Map<String, String>.from(state.userParameterValues);
+    updatedUserParams[event.paramName] = event.value;
+    emit(state.copyWith(userParameterValues: updatedUserParams, successMessage: null, error: null));
+    debugPrint('Bloc: Updated parameter ${event.paramName} to: ${event.value}');
+  }
+
+
   Future<void> _onFetchDocumentData(FetchDocumentData event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null, documentData: null));
-
     debugPrint('Bloc: FetchDocumentData: Starting for API=${event.apiName}, URL=${event.actionApiUrlTemplate}');
     debugPrint('Bloc: FetchDocumentData: Dynamic parameters for API call: ${event.dynamicApiParams}');
-
     try {
       final apiResponse = await apiService.fetchApiDataWithParams(
         event.apiName,
         event.dynamicApiParams,
         actionApiUrlTemplate: event.actionApiUrlTemplate,
       );
-
       Map<String, dynamic>? fetchedDocumentData;
       String? errorMessage;
-
       if (apiResponse['status'] == 200) {
         final List<Map<String, dynamic>> rawData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
         if (rawData.isNotEmpty) {
@@ -385,7 +410,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         errorMessage = apiResponse['error'] ?? 'Unexpected error occurred while fetching document data.';
         debugPrint('Bloc: API response status not 200 for document data: $errorMessage');
       }
-
       emit(state.copyWith(
         isLoading: false,
         documentData: fetchedDocumentData,
@@ -410,7 +434,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       debugPrint('Bloc: Picker options for ${event.paramName} already loaded. Skipping re-fetch.');
       return;
     }
-
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
     try {
       debugPrint('Bloc: Fetching picker values for param: ${event.paramName}, masterTable: ${event.masterTable}, masterField: ${event.masterField}, displayField: ${event.displayField}');
@@ -423,17 +446,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         masterField: event.masterField,
         displayField: event.displayField,
       );
-
       final List<Map<String, String>> mappedOptions = fetchedData.map((item) {
         return {
           'value': item[event.masterField]?.toString() ?? '',
           'label': item[event.displayField]?.toString() ?? '',
         };
       }).toList();
-
       final updatedPickerOptions = Map<String, List<Map<String, String>>>.from(state.pickerOptions);
       updatedPickerOptions[event.paramName] = mappedOptions;
-
       emit(state.copyWith(isLoading: false, pickerOptions: updatedPickerOptions, error: null));
       debugPrint('Bloc: FetchPickerOptions success for ${event.paramName}.');
     } catch (e) {
@@ -448,48 +468,39 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       isLoading: false,
       error: null,
       successMessage: null,
-      fieldConfigs: [], // Clear field configs
-      reportData: [], // Clear report data
-      documentData: null, // Clear document data
+      fieldConfigs: [],
+      reportData: [],
+      documentData: null,
       selectedRecNo: null,
       selectedApiName: null,
       selectedReportLabel: null,
       selectedApiUrl: null,
-      selectedApiParameters: [], // Clear selected parameters
-      userParameterValues: {}, // Clear user parameter values
-      pickerOptions: {}, // Clear picker options
-      apiDrivenFieldOptions: {}, // NEW: Reset this too
-      serverIP: null, // Clear client credentials
+      selectedApiParameters: [],
+      userParameterValues: {},
+      pickerOptions: {},
+      apiDrivenFieldOptions: {},
+      serverIP: null,
       userName: null,
       password: null,
       databaseName: null,
-      actionsConfig: [], // Clear actions config
-      includePdfFooterDateTime: false, // NEW: Reset this flag too
+      actionsConfig: [],
+      includePdfFooterDateTime: false,
     ));
     debugPrint('Bloc: ResetReports: State reset (parameters, selected API, data cleared), but reports list preserved.');
   }
 
-// NEW: Handler for DeployReportToClient event
   Future<void> _onDeployReportToClient(DeployReportToClient event, Emitter<ReportState> emit) async {
-    emit(state.copyWith(isLoading: true, error: null, successMessage: null)); // Indicate loading, clear previous messages
+    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
     debugPrint('Bloc: DeployReportToClient event received for report RecNo: ${event.reportMetadata['RecNo']}');
-
     try {
-// 1. Get client database connection details from cache
-// The `clientApiName` in the event is the API_name of the report,
-// which corresponds to an entry in your main system's DatabaseServerMaster.
       final apiDetails = await apiService.getApiDetails(event.clientApiName);
-
       final String? clientServerIP = apiDetails['serverIP']?.toString();
       final String? clientUserName = apiDetails['userName']?.toString();
       final String? clientPassword = apiDetails['password']?.toString();
       final String? clientDatabaseName = apiDetails['databaseName']?.toString();
-
       if (clientServerIP == null || clientUserName == null || clientPassword == null || clientDatabaseName == null) {
         throw Exception('Client database credentials not found for API: ${event.clientApiName}');
       }
-
-// 2. Call the new API service method to deploy
       final response = await apiService.deployReportToClient(
         reportMetadata: event.reportMetadata,
         fieldConfigs: event.fieldConfigs,
@@ -498,8 +509,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         clientPassword: clientPassword,
         clientDatabaseName: clientDatabaseName,
       );
-
-// 3. Handle the response from the deployment PHP script
       if (response['status'] == 'success') {
         emit(state.copyWith(
           isLoading: false,
@@ -523,4 +532,5 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       ));
       debugPrint('Bloc: DeployReportToClient error: $e');
     }
-  }}
+  }
+}

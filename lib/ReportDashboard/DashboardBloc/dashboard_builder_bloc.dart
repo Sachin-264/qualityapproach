@@ -6,8 +6,15 @@ import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart'; // Import uuid
 import '../../ReportDynamic/ReportAPIService.dart';
 import '../DashboardModel/dashboard_model.dart';
+
+// NOTE: The DashboardReportGroup class should be in your dashboard_model.dart file.
+// It is included here for completeness if you haven't moved it yet.
+/*
+class DashboardReportGroup extends Equatable { ... }
+*/
 
 // --- Events ---
 abstract class DashboardBuilderEvent extends Equatable {
@@ -40,27 +47,65 @@ class UpdateDashboardInfo extends DashboardBuilderEvent {
   List<Object?> get props => [dashboardName, dashboardDescription, templateId, bannerUrl, accentColor];
 }
 
-class AddReportToDashboardEvent extends DashboardBuilderEvent {
-  final Map<String, dynamic> reportDefinition;
-  const AddReportToDashboardEvent(this.reportDefinition);
+// --- NEW GROUP EVENTS ---
+class AddReportGroupEvent extends DashboardBuilderEvent {
+  final String groupName;
+  const AddReportGroupEvent(this.groupName);
   @override
-  List<Object?> get props => [reportDefinition];
+  List<Object?> get props => [groupName];
+}
+
+class UpdateReportGroupEvent extends DashboardBuilderEvent {
+  final String groupId;
+  final String newName;
+  const UpdateReportGroupEvent({required this.groupId, required this.newName});
+  @override
+  List<Object?> get props => [groupId, newName];
+}
+
+class RemoveReportGroupEvent extends DashboardBuilderEvent {
+  final String groupId;
+  const RemoveReportGroupEvent(this.groupId);
+  @override
+  List<Object?> get props => [groupId];
+}
+
+class ReorderGroupsEvent extends DashboardBuilderEvent {
+  final int oldIndex;
+  final int newIndex;
+  const ReorderGroupsEvent(this.oldIndex, this.newIndex);
+  @override
+  List<Object?> get props => [oldIndex, newIndex];
+}
+// --- END NEW GROUP EVENTS ---
+
+
+// --- MODIFIED REPORT EVENTS ---
+class AddReportToDashboardEvent extends DashboardBuilderEvent {
+  final String groupId; // <-- ADDED
+  final Map<String, dynamic> reportDefinition;
+  const AddReportToDashboardEvent({required this.groupId, required this.reportDefinition});
+  @override
+  List<Object?> get props => [groupId, reportDefinition];
 }
 
 class RemoveReportFromDashboardEvent extends DashboardBuilderEvent {
+  final String groupId; // <-- ADDED
   final int reportRecNo;
-  const RemoveReportFromDashboardEvent(this.reportRecNo);
+  const RemoveReportFromDashboardEvent({required this.groupId, required this.reportRecNo});
   @override
-  List<Object?> get props => [reportRecNo];
+  List<Object?> get props => [groupId, reportRecNo];
 }
 
 class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
+  final String groupId; // <-- ADDED
   final int reportRecNo;
   final String? displayTitle;
   final String? displaySubtitle;
   final IconData? displayIcon;
   final Color? displayColor;
   const UpdateReportCardConfigEvent({
+    required this.groupId, // <-- ADDED
     required this.reportRecNo,
     this.displayTitle,
     this.displaySubtitle,
@@ -68,23 +113,25 @@ class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
     this.displayColor,
   });
   @override
-  List<Object?> get props => [reportRecNo, displayTitle, displaySubtitle, displayIcon, displayColor];
+  List<Object?> get props => [groupId, reportRecNo, displayTitle, displaySubtitle, displayIcon, displayColor];
 }
 
 class ReorderReportsEvent extends DashboardBuilderEvent {
+  final String groupId; // <-- ADDED
   final int oldIndex;
   final int newIndex;
-  const ReorderReportsEvent(this.oldIndex, this.newIndex);
+  const ReorderReportsEvent({required this.groupId, required this.oldIndex, required this.newIndex});
   @override
-  List<Object?> get props => [oldIndex, newIndex];
+  List<Object?> get props => [groupId, oldIndex, newIndex];
 }
+// --- END MODIFIED REPORT EVENTS ---
+
 
 class SaveDashboardEvent extends DashboardBuilderEvent {
   const SaveDashboardEvent();
 }
 
 class DeleteDashboardEvent extends DashboardBuilderEvent {
-  // *** FIX: dashboardId is a String ***
   final String dashboardId;
   const DeleteDashboardEvent(this.dashboardId);
   @override
@@ -123,13 +170,15 @@ class DashboardBuilderLoaded extends DashboardBuilderState {
     List<Dashboard>? existingDashboards,
     String? message,
     String? error,
+    bool clearMessage = false,
+    bool clearError = false,
   }) {
     return DashboardBuilderLoaded(
       currentDashboard: currentDashboard ?? this.currentDashboard,
       availableReports: availableReports ?? this.availableReports,
       existingDashboards: existingDashboards ?? this.existingDashboards,
-      message: message,
-      error: error,
+      message: clearMessage ? null : message ?? this.message,
+      error: clearError ? null : error ?? this.error,
     );
   }
 
@@ -154,16 +203,30 @@ class DashboardBuilderErrorState extends DashboardBuilderState {
 // --- Bloc ---
 class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderState> {
   final ReportAPIService apiService;
+  final Uuid _uuid = const Uuid();
 
   DashboardBuilderBloc(this.apiService) : super(const DashboardBuilderLoading()) {
     on<LoadDashboardBuilderData>(_onLoadDashboardBuilderData);
     on<UpdateDashboardInfo>(_onUpdateDashboardInfo);
+    on<AddReportGroupEvent>(_onAddReportGroup);
+    on<UpdateReportGroupEvent>(_onUpdateReportGroup);
+    on<RemoveReportGroupEvent>(_onRemoveReportGroup);
+    on<ReorderGroupsEvent>(_onReorderGroups);
     on<AddReportToDashboardEvent>(_onAddReportToDashboard);
     on<RemoveReportFromDashboardEvent>(_onRemoveReportFromDashboard);
     on<UpdateReportCardConfigEvent>(_onUpdateReportCardConfig);
     on<ReorderReportsEvent>(_onReorderReports);
     on<SaveDashboardEvent>(_onSaveDashboard);
     on<DeleteDashboardEvent>(_onDeleteDashboard);
+  }
+
+  // --- Helper to get the current loaded state and dashboard ---
+  (DashboardBuilderLoaded?, Dashboard?) _getCurrentStateAndDashboard() {
+    final s = state;
+    if (s is DashboardBuilderLoaded) {
+      return (s, s.currentDashboard);
+    }
+    return (null, null);
   }
 
   Future<void> _onLoadDashboardBuilderData(
@@ -175,26 +238,24 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       final allReports = await apiService.fetchDemoTable();
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
-      Dashboard? initialDashboard;
-      if (event.dashboardToEdit != null) {
-        initialDashboard = event.dashboardToEdit;
-      } else {
-        initialDashboard = Dashboard(
-          dashboardId: '', // Use empty string for new dashboard ID
-          dashboardName: '',
-          dashboardDescription: '',
-          templateConfig: DashboardTemplateConfig(
-            id: 'classicClean',
-            name: 'Classic Clean',
-            bannerUrl: null,
-            accentColor: Colors.blue,
-          ),
-          reportsOnDashboard: [],
-          globalFiltersConfig: {},
-          createdAt: DateTime.now(),
-          updatedAt: DateTime.now(),
-        );
-      }
+
+      Dashboard initialDashboard = event.dashboardToEdit ?? Dashboard(
+        dashboardId: '', // Use empty string for new dashboard ID
+        dashboardName: '',
+        dashboardDescription: '',
+        templateConfig: DashboardTemplateConfig(
+          id: 'classicClean',
+          name: 'Classic Clean',
+          bannerUrl: null,
+          accentColor: Colors.blue,
+        ),
+        // reportGroups is now an empty list
+        reportGroups: [],
+        globalFiltersConfig: {},
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+
       emit(DashboardBuilderLoaded(
         currentDashboard: initialDashboard,
         availableReports: allReports,
@@ -210,212 +271,264 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       UpdateDashboardInfo event,
       Emitter<DashboardBuilderState> emit,
       ) {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final currentDashboard = currentState.currentDashboard;
-      if (currentDashboard != null) {
-        String templateName = currentDashboard.templateConfig.name;
-        if (event.templateId != null) {
-          templateName = _getTemplateNameById(event.templateId!);
-        }
-        final updatedTemplateConfig = DashboardTemplateConfig(
-          id: event.templateId ?? currentDashboard.templateConfig.id,
-          name: templateName,
-          bannerUrl: event.bannerUrl ?? currentDashboard.templateConfig.bannerUrl,
-          accentColor: event.accentColor ?? currentDashboard.templateConfig.accentColor,
-        );
-        final updatedDashboard = Dashboard(
-          dashboardId: currentDashboard.dashboardId,
-          dashboardName: event.dashboardName ?? currentDashboard.dashboardName,
-          dashboardDescription: event.dashboardDescription ?? currentDashboard.dashboardDescription,
-          templateConfig: updatedTemplateConfig,
-          reportsOnDashboard: currentDashboard.reportsOnDashboard,
-          globalFiltersConfig: currentDashboard.globalFiltersConfig,
-          createdAt: currentDashboard.createdAt,
-          updatedAt: DateTime.now(),
-        );
-        emit(currentState.copyWith(currentDashboard: updatedDashboard));
-      }
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    String templateName = currentDashboard.templateConfig.name;
+    if (event.templateId != null) {
+      templateName = _getTemplateNameById(event.templateId!);
     }
+
+    final updatedDashboard = currentDashboard.copyWith(
+      dashboardName: event.dashboardName ?? currentDashboard.dashboardName,
+      dashboardDescription: event.dashboardDescription ?? currentDashboard.dashboardDescription,
+      templateConfig: currentDashboard.templateConfig.copyWith(
+        id: event.templateId,
+        name: templateName,
+        bannerUrl: event.bannerUrl,
+        accentColor: event.accentColor,
+      ),
+      updatedAt: DateTime.now(),
+    );
+
+    emit(currentState.copyWith(currentDashboard: updatedDashboard));
   }
+
+  // --- NEW GROUP HANDLERS ---
+  void _onAddReportGroup(AddReportGroupEvent event, Emitter<DashboardBuilderState> emit) {
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final newGroup = DashboardReportGroup(
+      groupId: _uuid.v4(),
+      groupName: event.groupName,
+      reports: [],
+    );
+
+    final updatedGroups = List<DashboardReportGroup>.from(currentDashboard.reportGroups)..add(newGroup);
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+      message: 'Group added.',
+      clearError: true,
+    ));
+  }
+
+  void _onUpdateReportGroup(UpdateReportGroupEvent event, Emitter<DashboardBuilderState> emit) {
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final updatedGroups = currentDashboard.reportGroups.map((group) {
+      if (group.groupId == event.groupId) {
+        return group.copyWith(groupName: event.newName);
+      }
+      return group;
+    }).toList();
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+    ));
+  }
+
+  void _onRemoveReportGroup(RemoveReportGroupEvent event, Emitter<DashboardBuilderState> emit) {
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final updatedGroups = List<DashboardReportGroup>.from(currentDashboard.reportGroups)
+      ..removeWhere((group) => group.groupId == event.groupId);
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+      message: 'Group removed.',
+      clearError: true,
+    ));
+  }
+
+  void _onReorderGroups(ReorderGroupsEvent event, Emitter<DashboardBuilderState> emit) {
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final List<DashboardReportGroup> updatedGroups = List.from(currentDashboard.reportGroups);
+    int newIndex = event.newIndex;
+    if (newIndex > event.oldIndex) {
+      newIndex--;
+    }
+    final DashboardReportGroup item = updatedGroups.removeAt(event.oldIndex);
+    updatedGroups.insert(newIndex, item);
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+    ));
+  }
+  // --- END NEW GROUP HANDLERS ---
+
 
   void _onAddReportToDashboard(
       AddReportToDashboardEvent event,
       Emitter<DashboardBuilderState> emit,
       ) {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final currentDashboard = currentState.currentDashboard;
-      if (currentDashboard != null) {
-        final int? recNo = _safeParseInt(event.reportDefinition['RecNo']);
-        if (recNo != null && !currentDashboard.reportsOnDashboard.any((card) => card.reportRecNo == recNo)) {
-          final newReportCard = DashboardReportCardConfig(
-            reportRecNo: recNo,
-            displayTitle: event.reportDefinition['Report_label'] ?? event.reportDefinition['Report_name'] ?? 'Report $recNo',
-            displaySubtitle: event.reportDefinition['API_name'] ?? '',
-            displayIcon: Icons.description,
-            displayColor: currentDashboard.templateConfig.accentColor ?? Colors.blue,
-          );
-          final updatedReports = List<DashboardReportCardConfig>.from(currentDashboard.reportsOnDashboard)..add(newReportCard);
-          final updatedDashboard = Dashboard(
-            dashboardId: currentDashboard.dashboardId,
-            dashboardName: currentDashboard.dashboardName,
-            dashboardDescription: currentDashboard.dashboardDescription,
-            templateConfig: currentDashboard.templateConfig,
-            reportsOnDashboard: updatedReports,
-            globalFiltersConfig: currentDashboard.globalFiltersConfig,
-            createdAt: currentDashboard.createdAt,
-            updatedAt: DateTime.now(),
-          );
-          emit(currentState.copyWith(currentDashboard: updatedDashboard, message: 'Report added.'));
-        } else if (recNo != null) {
-          emit(currentState.copyWith(error: 'Report already added to dashboard.'));
-        }
-      }
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final int? recNo = _safeParseInt(event.reportDefinition['RecNo']);
+    if (recNo == null) return;
+
+    // Check if report already exists anywhere on the dashboard
+    final bool alreadyExists = currentDashboard.reportGroups
+        .any((group) => group.reports.any((report) => report.reportRecNo == recNo));
+
+    if (alreadyExists) {
+      emit(currentState.copyWith(error: 'Report already added to dashboard.', clearMessage: true));
+      return;
     }
+
+    final newReportCard = DashboardReportCardConfig(
+      reportRecNo: recNo,
+      displayTitle: event.reportDefinition['Report_label'] ?? event.reportDefinition['Report_name'] ?? 'Report $recNo',
+      displaySubtitle: event.reportDefinition['API_name'] ?? '',
+      displayIcon: Icons.description,
+      displayColor: currentDashboard.templateConfig.accentColor ?? Colors.blue,
+    );
+
+    final updatedGroups = currentDashboard.reportGroups.map((group) {
+      if (group.groupId == event.groupId) {
+        final updatedReports = List<DashboardReportCardConfig>.from(group.reports)..add(newReportCard);
+        return group.copyWith(reports: updatedReports);
+      }
+      return group;
+    }).toList();
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+      message: 'Report added.',
+      clearError: true,
+    ));
   }
 
   void _onRemoveReportFromDashboard(
       RemoveReportFromDashboardEvent event,
       Emitter<DashboardBuilderState> emit,
       ) {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final currentDashboard = currentState.currentDashboard;
-      if (currentDashboard != null) {
-        final updatedReports = List<DashboardReportCardConfig>.from(currentDashboard.reportsOnDashboard)..removeWhere((card) => card.reportRecNo == event.reportRecNo);
-        final updatedDashboard = Dashboard(
-          dashboardId: currentDashboard.dashboardId,
-          dashboardName: currentDashboard.dashboardName,
-          dashboardDescription: currentDashboard.dashboardDescription,
-          templateConfig: currentDashboard.templateConfig,
-          reportsOnDashboard: updatedReports,
-          globalFiltersConfig: currentDashboard.globalFiltersConfig,
-          createdAt: currentDashboard.createdAt,
-          updatedAt: DateTime.now(),
-        );
-        emit(currentState.copyWith(currentDashboard: updatedDashboard, message: 'Report removed.'));
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final updatedGroups = currentDashboard.reportGroups.map((group) {
+      if (group.groupId == event.groupId) {
+        final updatedReports = List<DashboardReportCardConfig>.from(group.reports)
+          ..removeWhere((card) => card.reportRecNo == event.reportRecNo);
+        return group.copyWith(reports: updatedReports);
       }
-    }
+      return group;
+    }).toList();
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+      message: 'Report removed.',
+      clearError: true,
+    ));
   }
 
   void _onUpdateReportCardConfig(
       UpdateReportCardConfigEvent event,
       Emitter<DashboardBuilderState> emit,
       ) {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final currentDashboard = currentState.currentDashboard;
-      if (currentDashboard != null) {
-        final updatedReports = currentDashboard.reportsOnDashboard.map((card) {
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final updatedGroups = currentDashboard.reportGroups.map((group) {
+      if (group.groupId == event.groupId) {
+        final updatedReports = group.reports.map((card) {
           if (card.reportRecNo == event.reportRecNo) {
-            return DashboardReportCardConfig(
-              reportRecNo: card.reportRecNo,
-              displayTitle: event.displayTitle ?? card.displayTitle,
-              displaySubtitle: event.displaySubtitle ?? card.displaySubtitle,
-              displayIcon: event.displayIcon ?? card.displayIcon,
-              displayColor: event.displayColor ?? card.displayColor,
+            return card.copyWith(
+              displayTitle: event.displayTitle,
+              displaySubtitle: event.displaySubtitle,
+              displayIcon: event.displayIcon,
+              displayColor: event.displayColor,
             );
           }
           return card;
         }).toList();
-        final updatedDashboard = Dashboard(
-          dashboardId: currentDashboard.dashboardId,
-          dashboardName: currentDashboard.dashboardName,
-          dashboardDescription: currentDashboard.dashboardDescription,
-          templateConfig: currentDashboard.templateConfig,
-          reportsOnDashboard: updatedReports,
-          globalFiltersConfig: currentDashboard.globalFiltersConfig,
-          createdAt: currentDashboard.createdAt,
-          updatedAt: DateTime.now(),
-        );
-        emit(currentState.copyWith(currentDashboard: updatedDashboard));
+        return group.copyWith(reports: updatedReports);
       }
-    }
+      return group;
+    }).toList();
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+      clearError: true,
+      clearMessage: true,
+    ));
   }
 
   void _onReorderReports(
       ReorderReportsEvent event,
       Emitter<DashboardBuilderState> emit,
       ) {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final currentDashboard = currentState.currentDashboard;
-      if (currentDashboard != null) {
-        final List<DashboardReportCardConfig> updatedReports = List.from(currentDashboard.reportsOnDashboard);
+    final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
+    if (currentState == null || currentDashboard == null) return;
+
+    final updatedGroups = currentDashboard.reportGroups.map((group) {
+      if (group.groupId == event.groupId) {
+        final List<DashboardReportCardConfig> updatedReports = List.from(group.reports);
         int newIndex = event.newIndex;
         if (newIndex > event.oldIndex) {
           newIndex--;
         }
         final DashboardReportCardConfig item = updatedReports.removeAt(event.oldIndex);
         updatedReports.insert(newIndex, item);
-        final updatedDashboard = Dashboard(
-          dashboardId: currentDashboard.dashboardId,
-          dashboardName: currentDashboard.dashboardName,
-          dashboardDescription: currentDashboard.dashboardDescription,
-          templateConfig: currentDashboard.templateConfig,
-          reportsOnDashboard: updatedReports,
-          globalFiltersConfig: currentDashboard.globalFiltersConfig,
-          createdAt: currentDashboard.createdAt,
-          updatedAt: DateTime.now(),
-        );
-        emit(currentState.copyWith(currentDashboard: updatedDashboard, message: 'Reports reordered.'));
+        return group.copyWith(reports: updatedReports);
       }
-    }
+      return group;
+    }).toList();
+
+    emit(currentState.copyWith(
+      currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
+    ));
   }
 
   Future<void> _onSaveDashboard(
       SaveDashboardEvent event,
       Emitter<DashboardBuilderState> emit,
       ) async {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      final dashboardToSave = currentState.currentDashboard;
-      if (dashboardToSave == null) {
-        emit(currentState.copyWith(error: 'No dashboard to save.'));
-        return;
+    final (currentState, dashboardToSave) = _getCurrentStateAndDashboard();
+    if (currentState == null || dashboardToSave == null) {
+      if (currentState != null) emit(currentState.copyWith(error: 'No dashboard to save.'));
+      return;
+    }
+
+    if (dashboardToSave.dashboardName.isEmpty) {
+      emit(currentState.copyWith(error: 'Dashboard name cannot be empty.'));
+      return;
+    }
+    emit(DashboardBuilderSaving(currentState));
+    try {
+      final layoutConfigPayload = {'report_groups': dashboardToSave.reportGroups.map((g) => g.toJson()).toList()};
+
+      if (dashboardToSave.dashboardId.isEmpty) {
+        final String newId = await apiService.saveDashboard(
+          dashboardName: dashboardToSave.dashboardName,
+          dashboardDescription: dashboardToSave.dashboardDescription,
+          templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
+          layoutConfig: layoutConfigPayload,
+          globalFiltersConfig: dashboardToSave.globalFiltersConfig,
+        );
+        final savedDashboard = dashboardToSave.copyWith(
+          dashboardId: newId,
+          updatedAt: DateTime.now(),
+        );
+        emit(currentState.copyWith(currentDashboard: savedDashboard, message: 'Dashboard saved successfully!'));
+      } else {
+        await apiService.editDashboard(
+          dashboardId: dashboardToSave.dashboardId,
+          dashboardName: dashboardToSave.dashboardName,
+          dashboardDescription: dashboardToSave.dashboardDescription,
+          templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
+          layoutConfig: layoutConfigPayload,
+          globalFiltersConfig: dashboardToSave.globalFiltersConfig,
+        );
+        emit(currentState.copyWith(message: 'Dashboard updated successfully!'));
       }
-      if (dashboardToSave.dashboardName.isEmpty) {
-        emit(currentState.copyWith(error: 'Dashboard name cannot be empty.'));
-        return;
-      }
-      emit(DashboardBuilderSaving(currentState));
-      try {
-        if (dashboardToSave.dashboardId.isEmpty) {
-          // *** FIX: Expect a String ID back ***
-          final String newId = await apiService.saveDashboard(
-            dashboardName: dashboardToSave.dashboardName,
-            dashboardDescription: dashboardToSave.dashboardDescription,
-            templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
-            layoutConfig: {'reports_on_dashboard': dashboardToSave.reportsOnDashboard.map((c) => c.toJson()).toList()},
-            globalFiltersConfig: dashboardToSave.globalFiltersConfig,
-          );
-          final savedDashboard = Dashboard(
-            dashboardId: newId,
-            dashboardName: dashboardToSave.dashboardName,
-            dashboardDescription: dashboardToSave.dashboardDescription,
-            templateConfig: dashboardToSave.templateConfig,
-            reportsOnDashboard: dashboardToSave.reportsOnDashboard,
-            globalFiltersConfig: dashboardToSave.globalFiltersConfig,
-            createdAt: dashboardToSave.createdAt,
-            updatedAt: DateTime.now(),
-          );
-          emit(currentState.copyWith(currentDashboard: savedDashboard, message: 'Dashboard saved successfully!'));
-        } else {
-          // *** FIX: Pass the String ID ***
-          await apiService.editDashboard(
-            dashboardId: dashboardToSave.dashboardId,
-            dashboardName: dashboardToSave.dashboardName,
-            dashboardDescription: dashboardToSave.dashboardDescription,
-            templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
-            layoutConfig: {'reports_on_dashboard': dashboardToSave.reportsOnDashboard.map((c) => c.toJson()).toList()},
-            globalFiltersConfig: dashboardToSave.globalFiltersConfig,
-          );
-          emit(currentState.copyWith(message: 'Dashboard updated successfully!'));
-        }
-      } catch (e) {
-        emit(currentState.copyWith(error: 'Failed to save dashboard: $e'));
-      }
+    } catch (e) {
+      emit(currentState.copyWith(error: 'Failed to save dashboard: $e'));
     }
   }
 
@@ -423,17 +536,16 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       DeleteDashboardEvent event,
       Emitter<DashboardBuilderState> emit,
       ) async {
-    if (state is DashboardBuilderLoaded) {
-      final currentState = state as DashboardBuilderLoaded;
-      try {
-        // *** FIX: Pass the String ID ***
-        await apiService.deleteDashboard(dashboardId: event.dashboardId);
-        final updatedDashboardsData = await apiService.getDashboards();
-        final updatedDashboards = updatedDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
-        emit(currentState.copyWith(existingDashboards: updatedDashboards, message: 'Dashboard deleted.'));
-      } catch (e) {
-        emit(currentState.copyWith(error: 'Failed to delete dashboard: $e'));
-      }
+    final (currentState, _) = _getCurrentStateAndDashboard();
+    if (currentState == null) return;
+
+    try {
+      await apiService.deleteDashboard(dashboardId: event.dashboardId);
+      final updatedDashboardsData = await apiService.getDashboards();
+      final updatedDashboards = updatedDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
+      emit(currentState.copyWith(existingDashboards: updatedDashboards, message: 'Dashboard deleted.'));
+    } catch (e) {
+      emit(currentState.copyWith(error: 'Failed to delete dashboard: $e'));
     }
   }
 

@@ -1,3 +1,5 @@
+// lib/ReportAdmin/EditAPI/EditDetailAdmin.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -145,6 +147,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     bool isSmall = false,
     bool isDateField = false,
     VoidCallback? onTap,
+    VoidCallback? onAutoDateTap, // New parameter for auto-date icon tap
     IconData? suffixIcon,
     VoidCallback? onSuffixIconTap,
     bool readOnly = false,
@@ -164,7 +167,21 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
         ),
         prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: isSmall ? 20 : 22) : null,
         suffixIcon: isDateField
-            ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20)
+            ? Row(
+          mainAxisSize: MainAxisSize.min, // Essential for proper layout
+          children: [
+            IconButton(
+              icon: Icon(Icons.auto_awesome, color: Colors.orangeAccent, size: isSmall ? 18 : 20),
+              onPressed: onAutoDateTap,
+              tooltip: 'Select Predefined Date',
+            ),
+            IconButton(
+              icon: Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20),
+              onPressed: onTap,
+              tooltip: 'Pick Date from Calendar',
+            ),
+          ],
+        )
             : (suffixIcon != null
             ? IconButton(
           icon: Icon(suffixIcon, color: Colors.blueAccent, size: isSmall ? 18 : 20),
@@ -293,6 +310,113 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
     return isDate;
   }
 
+  // --- START: NEW DATE HELPER METHODS ---
+
+  DateTime _getFinancialYearStart([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    // Indian Financial year starts on April 1st.
+    // If current month is Jan, Feb, or Mar (1, 2, 3), the FY started last year.
+    final year = now.month < 4 ? now.year - 1 : now.year;
+    return DateTime(year, 4, 1);
+  }
+
+  DateTime _getFinancialYearEnd([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    // Indian Financial year ends on March 31st.
+    // If current month is Jan, Feb, or Mar (1, 2, 3), the FY ends this year.
+    final year = now.month < 4 ? now.year : now.year + 1;
+    return DateTime(year, 3, 31);
+  }
+
+  DateTime _getStartOfMonth([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    return DateTime(now.year, now.month, 1);
+  }
+
+  DateTime _getEndOfMonth([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    // Go to the next month and get day 0, which is the last day of the current month.
+    return DateTime(now.year, now.month + 1, 0);
+  }
+
+  DateTime _getStartOfWeek([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    // weekday is 1 for Monday and 7 for Sunday.
+    return now.subtract(Duration(days: now.weekday - 1));
+  }
+
+  DateTime _getEndOfWeek([DateTime? fromDate]) {
+    final now = fromDate ?? DateTime.now();
+    return now.add(Duration(days: DateTime.daysPerWeek - now.weekday));
+  }
+
+  void _updateDateParameter(
+      DateTime? pickedDate, TextEditingController controller, int index, DateFormat? existingFormat) {
+    if (pickedDate != null && context.mounted) {
+      debugPrint('Date picked/selected: $pickedDate for index $index');
+      // Use the existing format if available, otherwise default to dd-MMM-yyyy
+      final DateFormat outputFormat = existingFormat ?? DateFormat('dd-MMM-yyyy');
+      final formattedDate = outputFormat.format(pickedDate);
+      debugPrint('  Formatted date: $formattedDate');
+      controller.text = formattedDate;
+      // Update the BLoC state
+      context.read<EditDetailAdminBloc>().add(UpdateParameterUIValue(index, formattedDate));
+    } else {
+      debugPrint('Date picker/selector dismissed or no date selected for index $index.');
+    }
+  }
+
+  Future<DateTime?> _showAutoDateSelectionDialog(BuildContext context) async {
+    return await showDialog<DateTime>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        // Helper to build list tiles
+        Widget buildOption(String title, DateTime date) {
+          return ListTile(
+            leading: const Icon(Icons.touch_app, color: Colors.blueAccent),
+            title: Text(title, style: GoogleFonts.poppins()),
+            onTap: () {
+              Navigator.of(dialogContext).pop(date);
+            },
+          );
+        }
+
+        final now = DateTime.now();
+
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          title: Text('Select a Predefined Date', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                buildOption('Current Date', now),
+                const Divider(),
+                buildOption('Start of This Week', _getStartOfWeek(now)),
+                buildOption('End of This Week', _getEndOfWeek(now)),
+                const Divider(),
+                buildOption('Start of This Month', _getStartOfMonth(now)),
+                buildOption('End of This Month', _getEndOfMonth(now)),
+                const Divider(),
+                buildOption('Starting of Financial Year', _getFinancialYearStart(now)),
+                buildOption('Ending of Financial Year', _getFinancialYearEnd(now)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(null),
+              child: Text('Cancel', style: GoogleFonts.poppins(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- END: NEW DATE HELPER METHODS ---
+
   Future<void> _selectDate(BuildContext context, TextEditingController controller, int index) async {
     debugPrint('Selecting date for index $index, current value: ${controller.text}');
     DateTime? initialDate;
@@ -339,17 +463,7 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
       },
     );
 
-    if (picked != null && context.mounted) {
-      debugPrint('Date picked: $picked');
-      final DateFormat outputFormat = inferredFormat ?? DateFormat('dd-MMM-yyyy');
-      final formattedDate = outputFormat.format(picked);
-      debugPrint('  Formatted date: $formattedDate');
-      controller.text = formattedDate;
-// When a date is picked, both value and display_value_cache can be the formatted date
-      context.read<EditDetailAdminBloc>().add(UpdateParameterUIValue(index, formattedDate));
-    } else {
-      debugPrint('Date picker dismissed or no date selected.');
-    }
+    _updateDateParameter(picked, controller, index, inferredFormat);
   }
 
   Future<String?> _showFieldLabelDialog(BuildContext context, String paramName, String? currentLabel) async {
@@ -502,9 +616,16 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                             : (param['name']?.toString() ?? 'Unnamed Parameter'),
                         isSmall: true,
                         isDateField: isDate,
+                        readOnly: true, // Make date fields read-only to force using pickers
                         onTap: isDate ? () => _selectDate(context, paramController, index) : null,
+                        onAutoDateTap: isDate
+                            ? () async {
+                          final pickedDate = await _showAutoDateSelectionDialog(context);
+                          final inferredFormat = _inferDateFormat(paramController.text);
+                          _updateDateParameter(pickedDate, paramController, index, inferredFormat);
+                        }
+                            : null,
                         suffixIcon: isDate ? null : suffixIcon,
-                        readOnly: isDate,
                         onSuffixIconTap: isDate
                             ? null
                             : () async {
@@ -769,28 +890,6 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
                           const SizedBox(height: 20),
                           const Divider(color: Colors.grey, thickness: 1),
                           const SizedBox(height: 10),
-/*
-                    CheckboxListTile(
-                      title: Text(
-                        'Show on Dashboard',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
-                      ),
-                      value: state.isDashboard, // Use state from Bloc
-                      onChanged: (bool? newValue) {
-                        if (newValue != null) {
-                          debugPrint('Dashboard checkbox changed to: $newValue');
-                          context.read<EditDetailAdminBloc>().add(UpdateDashboardStatus(newValue));
-                        }
-                      },
-                      activeColor: Colors.blueAccent,
-                      controlAffinity: ListTileControlAffinity.leading, // Checkbox on the left
-                      contentPadding: EdgeInsets.zero, // Remove default padding
-                    ),
-                    */
                           const SizedBox(height: 10),
                           Text(
                             'Parameters',
@@ -865,11 +964,6 @@ class _EditDetailAdminContentState extends State<_EditDetailAdminContent> {
       ),
     );
   }
-
-
-// ... (The rest of the file: _buildHelpSection and the entire _ParameterConfigModal class remain unchanged) ...
-// ... (omitting the unchanged code for brevity, but it should be included in your final file) ...
-// The rest of the _EditDetailAdminContentState class is below
 
   Widget _buildHelpSection() {
     return Column(

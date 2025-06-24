@@ -1,12 +1,14 @@
 // lib/ReportDashboard/DashboardScreen/dashboardTemplates/classic_clean_template.dart
 
+import 'dart:ui'; // Needed for ImageFilter (blur effect) - No longer used in AppBar but kept for reference
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:math' as math; // For random data simulation
+// We are using the sticky header package
+import 'package:flutter_sticky_header/flutter_sticky_header.dart';
 
 import '../../DashboardModel/dashboard_model.dart';
 
-// --- Main Template Widget (Stateful for Animations & Search) ---
+// --- Main Template Widget (Stateful for Search) ---
 class ClassicCleanTemplate extends StatefulWidget {
   final Dashboard dashboard;
   final Function(DashboardReportCardConfig) onReportCardTap;
@@ -21,62 +23,39 @@ class ClassicCleanTemplate extends StatefulWidget {
   State<ClassicCleanTemplate> createState() => _ClassicCleanTemplateState();
 }
 
-class _ClassicCleanTemplateState extends State<ClassicCleanTemplate>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  bool _isSearchActive = false;
+class _ClassicCleanTemplateState extends State<ClassicCleanTemplate> {
   late final TextEditingController _searchController;
-  late final FocusNode _searchFocusNode;
-  late List<DashboardReportCardConfig> _allReports;
-  late List<DashboardReportCardConfig> _filteredReports;
-  int _activeProjectsCount = 0;
-  int _newThisWeekCount = 0;
+  late List<DashboardReportGroup> _filteredGroups;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1000),
-    )..forward();
-
     _searchController = TextEditingController();
-    _searchFocusNode = FocusNode();
-    _allReports = widget.dashboard.reportsOnDashboard;
-    _filteredReports = _allReports;
-
-    _calculateDynamicKPIs();
-
+    _filteredGroups = widget.dashboard.reportGroups;
     _searchController.addListener(_filterReports);
-    _searchFocusNode.addListener(() {
-      if (!_searchFocusNode.hasFocus && _searchController.text.isEmpty) {
-        setState(() => _isSearchActive = false);
-      }
-    });
-  }
-
-  void _calculateDynamicKPIs() {
-    _activeProjectsCount = _allReports.where((r) => r.displayIcon == Icons.business_center).length;
-    _newThisWeekCount = _allReports.where((r) => r.displayIcon == Icons.new_releases).length;
-    if (_activeProjectsCount == 0) _activeProjectsCount = (_allReports.length / 4).ceil() + math.Random().nextInt(2);
-    if (_newThisWeekCount == 0) _newThisWeekCount = (_allReports.length / 6).ceil();
   }
 
   void _filterReports() {
-    final query = _searchController.text.toLowerCase();
+    final query = _searchController.text.toLowerCase().trim();
     setState(() {
-      _filteredReports = _allReports.where((report) {
-        return report.displayTitle.toLowerCase().contains(query) ||
-            (report.displaySubtitle?.toLowerCase().contains(query) ?? false);
-      }).toList();
+      if (query.isEmpty) {
+        _filteredGroups = widget.dashboard.reportGroups;
+      } else {
+        _filteredGroups = widget.dashboard.reportGroups.map((group) {
+          final filteredReports = group.reports.where((report) {
+            return report.displayTitle.toLowerCase().contains(query) ||
+                (report.displaySubtitle?.toLowerCase().contains(query) ?? false);
+          }).toList();
+          return group.copyWith(reports: filteredReports);
+        }).where((group) => group.reports.isNotEmpty).toList();
+      }
     });
   }
 
   @override
   void dispose() {
-    _animationController.dispose();
+    _searchController.removeListener(_filterReports);
     _searchController.dispose();
-    _searchFocusNode.dispose();
     super.dispose();
   }
 
@@ -86,165 +65,126 @@ class _ClassicCleanTemplateState extends State<ClassicCleanTemplate>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF4F7FC),
-      body: Column(
-        children: [
-          _WaveHeader(dashboard: widget.dashboard, accentColor: accentColor),
-          Expanded(
-            child: GestureDetector(
-              onTap: () => FocusScope.of(context).unfocus(),
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  const SizedBox(height: 24),
-                  _buildAnimatedKPIs(accentColor),
-                  const SizedBox(height: 24),
-                  _buildAnimatedSearchHeader(),
-                  const SizedBox(height: 16),
-                  _buildAnimatedReportGrid(),
-                  const SizedBox(height: 24),
-                ],
+      // The new, highly polished AppBar.
+      appBar: _ClassicAppBar(
+        dashboard: widget.dashboard,
+        accentColor: accentColor,
+        searchController: _searchController,
+      ),
+      // The body with the sticky header layout.
+      body: CustomScrollView(
+        slivers: [
+          if (_filteredGroups.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(32.0),
+                  child: Text(
+                    "No reports match your search.",
+                    style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedKPIs(Color accentColor) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Row(
-        children: [
-          Expanded(child: _AnimatedListItem(index: 0, controller: _animationController, child: _StatCard(icon: Icons.bar_chart_rounded, value: "${_filteredReports.length}", label: "Visible Reports", color: accentColor))),
-          const SizedBox(width: 12),
-          Expanded(child: _AnimatedListItem(index: 1, controller: _animationController, child: _StatCard(icon: Icons.business_center, value: "$_activeProjectsCount", label: "Active Projects", color: Colors.green))),
-          const SizedBox(width: 12),
-          Expanded(child: _AnimatedListItem(index: 2, controller: _animationController, child: _StatCard(icon: Icons.new_releases_outlined, value: "$_newThisWeekCount", label: "New this Week", color: Colors.orange))),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedSearchHeader() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-      child: Row(
-        children: [
-          Expanded(child: Text("Your Reports", style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: const Color(0xFF333333)), overflow: TextOverflow.ellipsis, maxLines: 1)),
-          const SizedBox(width: 16),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 400),
-            curve: Curves.easeInOutCubic,
-            width: _isSearchActive ? 220 : 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: _isSearchActive ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)] : [],
-            ),
-            child: Row(
-              children: [
-                Expanded(child: _isSearchActive ? Padding(padding: const EdgeInsets.only(left: 16.0), child: TextField(controller: _searchController, focusNode: _searchFocusNode, decoration: const InputDecoration.collapsed(hintText: "Search..."), style: GoogleFonts.poppins())) : const SizedBox.shrink()),
-                IconButton(
-                  splashRadius: 20,
-                  icon: Icon(_isSearchActive ? Icons.close : Icons.search, color: Colors.grey[600]),
-                  onPressed: () {
-                    setState(() {
-                      _isSearchActive = !_isSearchActive;
-                      if (_isSearchActive) _searchFocusNode.requestFocus(); else {_searchFocusNode.unfocus(); _searchController.clear();}
-                    });
-                  },
+          ..._filteredGroups.map((group) {
+            return SliverStickyHeader(
+              header: _GroupHeader(
+                title: group.groupName,
+                accentColor: accentColor,
+              ),
+              sliver: SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 24.0),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 12.0,
+                    mainAxisSpacing: 12.0,
+                    childAspectRatio: 1.0,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                      final cardConfig = group.reports[index];
+                      return _AuroraReportCard(
+                        cardConfig: cardConfig,
+                        accentColor: accentColor,
+                        onTap: () => widget.onReportCardTap(cardConfig),
+                      );
+                    },
+                    childCount: group.reports.length,
+                  ),
                 ),
-              ],
-            ),
-          ),
+              ),
+            );
+          }).toList(),
         ],
-      ),
-    );
-  }
-
-  Widget _buildAnimatedReportGrid() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-      child: GridView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
-          crossAxisSpacing: 12.0,
-          mainAxisSpacing: 12.0,
-          childAspectRatio: 1.0,
-        ),
-        itemCount: _filteredReports.length,
-        itemBuilder: (context, index) {
-          final cardConfig = _filteredReports[index];
-          return _AnimatedListItem(
-            index: index + 3,
-            controller: _animationController,
-            child: _AuroraReportCard(
-              cardConfig: cardConfig,
-              accentColor: widget.dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor,
-              onTap: () => widget.onReportCardTap(cardConfig),
-            ),
-          );
-        },
       ),
     );
   }
 }
 
-// --- Header Widget ---
-class _WaveHeader extends StatelessWidget {
+// --- NEW: A custom clipper to create the beautiful curve for the AppBar ---
+class _AppBarClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(0, size.height - 50); // Start point of the curve
+    path.quadraticBezierTo(
+      size.width / 2, // Control point for the curve
+      size.height,    // Apex of the curve
+      size.width,     // End point of the curve
+      size.height - 50,
+    );
+    path.lineTo(size.width, 0); // Line to the top-right corner
+    path.close(); // Close the path
+    return path;
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+}
+
+
+// --- WIDGET 1: The new, sophisticated AppBar ---
+class _ClassicAppBar extends StatelessWidget implements PreferredSizeWidget {
   final Dashboard dashboard;
   final Color accentColor;
+  final TextEditingController searchController;
 
-  const _WaveHeader({required this.dashboard, required this.accentColor});
+  const _ClassicAppBar({
+    required this.dashboard,
+    required this.accentColor,
+    required this.searchController,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Container(
-          height: 170,
-          decoration: BoxDecoration(
-            color: accentColor,
-            gradient: LinearGradient(
-              colors: [accentColor, accentColor.withOpacity(0.7)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: const BorderRadius.vertical(bottom: Radius.circular(30)),
+    // Use ClipPath to create the custom curved shape
+    return ClipPath(
+      clipper: _AppBarClipper(),
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [accentColor.darken(0.05), accentColor.darken(0.2)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
         ),
-        ClipPath(
-          clipper: _WaveClipper(),
-          child: Container(
-            height: 170,
-            color: Colors.white.withOpacity(0.05),
-          ),
-        ),
-        ClipPath(
-          clipper: _WaveClipper(offset: 20, waveHeight: 40),
-          child: Container(
-            height: 170,
-            color: Colors.white.withOpacity(0.05),
-          ),
-        ),
-        SafeArea(
-          bottom: false,
+        child: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.only(top: 30, left: 24, right: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 24.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const SizedBox(height: 16),
                 Text(
                   dashboard.dashboardName,
                   style: GoogleFonts.poppins(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      shadows: [const Shadow(color: Colors.black26, blurRadius: 2, offset: Offset(0, 1))]
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                    shadows: [const Shadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
                   ),
                 ),
                 if (dashboard.dashboardDescription != null && dashboard.dashboardDescription!.isNotEmpty)
@@ -252,45 +192,98 @@ class _WaveHeader extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 4.0),
                     child: Text(
                       dashboard.dashboardDescription!,
-                      style: GoogleFonts.poppins(fontSize: 15, color: Colors.white.withOpacity(0.9)),
-                      maxLines: 2,
+                      style: GoogleFonts.poppins(fontSize: 16, color: Colors.white.withOpacity(0.9)),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                const Spacer(),
+                // --- The new, clean Search Bar ---
+                Container(
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(30.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.15),
+                        blurRadius: 15,
+                        offset: const Offset(0, 5),
+                      )
+                    ],
+                  ),
+                  child: Center(
+                    child: TextField(
+                      controller: searchController,
+                      style: GoogleFonts.poppins(
+                        color: const Color(0xFF2d3748),
+                        fontWeight: FontWeight.w500,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: "Search reports...",
+                        hintStyle: GoogleFonts.poppins(color: Colors.grey[500]),
+                        prefixIcon: Icon(Icons.search, color: Colors.grey[600], size: 22),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+                      ),
+                    ),
+                  ),
+                ),
+                // This SizedBox ensures the search bar is pushed up from the bottom curve
+                const SizedBox(height: 60),
               ],
             ),
           ),
         ),
-      ],
+      ),
+    );
+  }
+
+  @override
+  Size get preferredSize => const Size.fromHeight(220.0);
+}
+
+// --- WIDGET 2: The polished sticky header for groups (Unchanged) ---
+class _GroupHeader extends StatelessWidget {
+  final String title;
+  final Color accentColor;
+
+  const _GroupHeader({
+    Key? key,
+    required this.title,
+    required this.accentColor,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      elevation: 2.0,
+      shadowColor: Colors.black.withOpacity(0.15),
+      child: Container(
+        height: 50.0,
+        color: Colors.white,
+        child: Row(
+          children: [
+            Container(width: 5, color: accentColor),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF2d3748),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
 
-// --- CustomClipper for wave effect ---
-class _WaveClipper extends CustomClipper<Path> {
-  final double waveHeight;
-  final double offset;
-  _WaveClipper({this.waveHeight = 60.0, this.offset = 0});
-  @override
-  Path getClip(Size size) { /* ... Same as before ... */
-    var path = Path();
-    path.lineTo(0, size.height - waveHeight);
-    var firstControlPoint = Offset(size.width / 4 + offset, size.height);
-    var firstEndPoint = Offset(size.width / 2.25, size.height - 30.0);
-    path.quadraticBezierTo(firstControlPoint.dx, firstControlPoint.dy, firstEndPoint.dx, firstEndPoint.dy);
-    var secondControlPoint = Offset(size.width - (size.width / 3.25), size.height - 65);
-    var secondEndPoint = Offset(size.width, size.height - 40);
-    path.quadraticBezierTo(secondControlPoint.dx, secondControlPoint.dy, secondEndPoint.dx, secondEndPoint.dy);
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
-  }
-  @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
-}
-
-
-// --- REFINED AURORA CARD: White background with subtle gradient accent ---
+// --- WIDGET 3: The report card (Unchanged) ---
 class _AuroraReportCard extends StatelessWidget {
   final DashboardReportCardConfig cardConfig;
   final Color accentColor;
@@ -307,84 +300,55 @@ class _AuroraReportCard extends StatelessWidget {
     final Color itemColor = cardConfig.displayColor ?? accentColor;
 
     return Card(
-      elevation: 4.0,
-      shadowColor: Colors.black.withOpacity(0.08), // Softer shadow
+      elevation: 3.0,
+      shadowColor: Colors.black.withOpacity(0.06),
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: InkWell(
         onTap: onTap,
-        splashColor: itemColor.withOpacity(0.1), // Subtle splash
+        borderRadius: BorderRadius.circular(12.0),
+        splashColor: itemColor.withOpacity(0.1),
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.white, // Clean white background
-            borderRadius: BorderRadius.circular(16.0),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12.0),
+            border: Border(left: BorderSide(color: itemColor.withOpacity(0.8), width: 5)),
           ),
-          child: Row( // Use Row to place the accent bar
-            children: [
-              // --- Gradient Accent Bar on the Left ---
-              Container(
-                width: 6,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [itemColor.withOpacity(0.8), itemColor],
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                  ),
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16.0),
-                    bottomLeft: Radius.circular(16.0),
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  cardConfig.displayIcon ?? Icons.analytics_outlined,
+                  size: 32,
+                  color: itemColor,
                 ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(10.0), // Internal padding
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // --- Icon with subtle background ---
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: itemColor.withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          cardConfig.displayIcon ?? Icons.analytics_outlined,
-                          size: 20,
-                          color: itemColor,
-                        ),
-                      ),
-                      const SizedBox(height: 8), // Spacing after icon
-                      // --- Large, Bold Black Title ---
-                      Text(
-                        cardConfig.displayTitle,
-                        style: GoogleFonts.poppins(
-                          fontSize: 16, // Remains large
-                          fontWeight: FontWeight.w700,
-                          color: Colors.black87, // High contrast black
-                          height: 1.2,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      // --- Subtitle ---
-                      if (cardConfig.displaySubtitle != null && cardConfig.displaySubtitle!.isNotEmpty)
-                        Text(
-                          cardConfig.displaySubtitle ?? '',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            color: Colors.grey[600],
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                    ],
+                const Spacer(),
+                Text(
+                  cardConfig.displayTitle,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1a202c),
+                    height: 1.3,
                   ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+                if (cardConfig.displaySubtitle != null && cardConfig.displaySubtitle!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      cardConfig.displaySubtitle!,
+                      style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -392,41 +356,12 @@ class _AuroraReportCard extends StatelessWidget {
   }
 }
 
-// --- StatCard remains unchanged ---
-class _StatCard extends StatelessWidget {
-  final IconData icon; final String value; final String label; final Color color;
-  const _StatCard({required this.icon, required this.value, required this.label, required this.color});
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 24),
-          const SizedBox(height: 8),
-          Text(value, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
-          Text(label, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]), overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
-  }
-}
-
-// --- AnimatedListItem remains unchanged ---
-class _AnimatedListItem extends StatelessWidget {
-  final int index; final Widget child; final AnimationController controller;
-  const _AnimatedListItem({required this.index, required this.child, required this.controller});
-  @override
-  Widget build(BuildContext context) {
-    final interval = Interval((index * 100) / 1000, (300 + index * 100) / 1000, curve: Curves.easeOut);
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final animation = interval.transform(controller.value);
-        return Opacity(opacity: animation, child: Transform.translate(offset: Offset(0, (1 - animation) * 30), child: child));
-      },
-    );
+// Helper Extension for Color
+extension on Color {
+  Color darken([double amount = .1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
   }
 }

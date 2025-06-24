@@ -75,7 +75,8 @@ class ExportWidget extends StatefulWidget {
   final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
   final Map<String, List<Map<String, String>>>? pickerOptions;
   final String companyName;
-  final bool includePdfFooterDateTime; // Added includePdfFooterDateTime
+  final bool includePdfFooterDateTime;
+  final List<Widget> topLevelActions; // NEW: To accept additional buttons
 
   const ExportWidget({
     required this.columns,
@@ -88,7 +89,8 @@ class ExportWidget extends StatefulWidget {
     this.apiParameters,
     this.pickerOptions,
     required this.companyName,
-    this.includePdfFooterDateTime = false, // Make required
+    this.includePdfFooterDateTime = false,
+    this.topLevelActions = const [], // NEW: Initialize with default empty list
     super.key,
   });
 
@@ -148,8 +150,11 @@ class _ExportWidgetState extends State<ExportWidget> {
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      // UPDATED: Changed Row to Wrap for better responsiveness on smaller screens
+      child: Wrap(
+        spacing: 12.0, // Horizontal space between buttons
+        runSpacing: 8.0, // Vertical space if buttons wrap
+        alignment: WrapAlignment.center,
         children: [
           ElevatedButton(
             onPressed: canExport
@@ -169,7 +174,6 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
-          const SizedBox(width: 20),
           ElevatedButton(
             onPressed: canExport
                 ? () async {
@@ -188,7 +192,6 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
-          const SizedBox(width: 20),
           ElevatedButton(
             onPressed: canExport
                 ? () async {
@@ -207,7 +210,6 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
-          const SizedBox(width: 20),
           ElevatedButton(
             onPressed: canExport
                 ? () async {
@@ -226,10 +228,14 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
+          // NEW: Render any additional top-level action widgets passed in
+          ...widget.topLevelActions,
         ],
       ),
     );
   }
+
+  // ... (rest of the file is unchanged) ...
 
   // Checks if any of the columns are marked as 'image' in fieldConfigs
   bool _hasImageColumns() {

@@ -1,4 +1,4 @@
-// lib/ReportDynamic/ReportMainUI.dart
+// lib/ReportDynamic/ReportGenerator/ReportMainUI.dart
 
 import 'dart:async';
 import 'dart:convert';
@@ -63,7 +63,7 @@ class ReportMainUI extends StatelessWidget {
     required this.includePdfFooterDateTime,
   });
 
-  // Helper functions... (keep them as they are)
+  // Helper functions... (no changes here)
   static String formatIndianNumber(double number, int decimalPoints) {
     String pattern = '##,##,##0';
     if (decimalPoints > 0) {
@@ -188,6 +188,7 @@ class ReportMainUI extends StatelessWidget {
             }
           }
 
+
           final String payloadJson = jsonEncode(payload);
           debugPrint('--- PAYLOAD BEING SENT ---');
           debugPrint('URL: $updatedUrl');
@@ -230,10 +231,84 @@ class ReportMainUI extends StatelessWidget {
         },
         child: BlocBuilder<ReportBlocGenerate, ReportState>(
           builder: (context, state) {
-            if (state.isLoading) return const Center(child: SubtleLoader());
-            if (state.error != null) return Center(child: Text('Error: ${state.error}', style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16), textAlign: TextAlign.center));
-            if (state.fieldConfigs.isEmpty)
-            if (state.reportData.isEmpty) return Center(child: Text('Fetching Wait ', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
+            // ##########################################################################
+            // #                       ENHANCED LOGGING STARTS HERE                     #
+            // ##########################################################################
+            debugPrint('\n--- [ReportMainUI] Rebuilding ---');
+            debugPrint('State isLoading: ${state.isLoading}');
+            debugPrint('State error: ${state.error}');
+            debugPrint('State fieldConfigs count: ${state.fieldConfigs.length}');
+            debugPrint('State reportData count: ${state.reportData.length}');
+            // ##########################################################################
+
+            if (state.isLoading) {
+              debugPrint('[ReportMainUI] Decision: Showing SubtleLoader because isLoading is true.');
+              return const Center(child: SubtleLoader());
+            }
+
+            if (state.error != null) {
+              debugPrint('[ReportMainUI] Decision: Showing Error Text because error is not null.');
+              return Center(child: Text('Error: ${state.error}', style: GoogleFonts.poppins(color: Colors.redAccent, fontSize: 16), textAlign: TextAlign.center));
+            }
+
+            if (state.fieldConfigs.isEmpty && state.reportData.isEmpty) {
+              debugPrint('[ReportMainUI] Decision: Showing "empty or loading" text because both fieldConfigs and reportData are empty.');
+              return Center(child: Text('Report is empty or still loading...', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center));
+            }
+
+            debugPrint('[ReportMainUI] Decision: Proceeding to build the grid.');
+            // ##########################################################################
+            // #                        ENHANCED LOGGING ENDS HERE                      #
+            // ##########################################################################
+
+            // Separate actions into row-level and top-level (graph) actions
+            final allActions = state.actionsConfig;
+            final rowActions = allActions.where((action) => action['type'] != 'graph').toList();
+            final topLevelGraphActions = allActions.where((action) => action['type'] == 'graph').toList();
+
+            // NEW: Build the graph button widgets to be passed to ExportWidget
+            final List<Widget> topLevelGraphButtons = topLevelGraphActions.map((action) {
+              final String actionName = action['name']?.toString() ?? 'View Graph';
+              final String graphType = action['graphType']?.toString() ?? '';
+              final String xAxisField = action['xAxisField']?.toString() ?? '';
+              final String yAxisField = action['yAxisField']?.toString() ?? '';
+              return ElevatedButton.icon(
+                icon: const Icon(Icons.bar_chart, size: 18),
+                label: Text(actionName, style: GoogleFonts.poppins(fontSize: 12, color: Colors.white, fontWeight: FontWeight.w600)),
+                onPressed: () {
+                  debugPrint('\n\n\n================================================================');
+                  debugPrint('===== ACTION BUTTON CLICKED (Top Level Graph) =====');
+                  debugPrint('================================================================');
+                  debugPrint('[ACTION_DISPATCH] Type: Graph (Top Level)');
+                  debugPrint('[ACTION_DISPATCH]   -> Title: "$actionName"');
+                  debugPrint('[ACTION_DISPATCH]   -> Graph Type: "$graphType", X-Axis: "$xAxisField", Y-Axis: "$yAxisField"');
+
+                  if (xAxisField.isEmpty || yAxisField.isEmpty) {
+                    debugPrint('  ❌ [ERROR] Graph action is missing X or Y axis field configuration.');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Graph action "$actionName" is not configured correctly (X/Y axis missing).'), backgroundColor: Colors.orange),
+                    );
+                    return;
+                  }
+                  debugPrint('[ACTION_DISPATCH]   -> Using full report data (${state.reportData.length} rows)');
+                  debugPrint('================================================================\n\n');
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => GraphView(
+                    graphTitle: actionName,
+                    graphType: graphType,
+                    xAxisField: xAxisField,
+                    yAxisField: yAxisField,
+                    reportData: state.reportData, // Use the full report data
+                  )));
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  elevation: 2,
+                ),
+              );
+            }).toList();
+
 
             final sortedFieldConfigs = List<Map<String, dynamic>>.from(state.fieldConfigs)
               ..sort((a, b) => int.parse(a['Sequence_no']?.toString() ?? '0').compareTo(int.parse(b['Sequence_no']?.toString() ?? '0')));
@@ -246,21 +321,10 @@ class ReportMainUI extends StatelessWidget {
             bool hasGrandTotals = false;
             for (var config in sortedFieldConfigs) {
               final fieldName = config['Field_name']?.toString() ?? 'N/A';
-
-              // #######################################################
-              // #                  START OF FIX (Grand Total)           #
-              // #######################################################
-              // A column is considered numeric if its data_type is numeric, if it's in a hardcoded list of common
-              // numeric field names, OR if it's marked for aggregation (Total or SubTotal), as non-numeric
-              // fields would not be aggregated. This fixes totals for fields like 'Excise', 'Cess', etc.
               final bool isMarkedForAggregation = config['Total']?.toString() == '1' || config['SubTotal']?.toString() == '1';
               final bool isNumeric = ['number', 'decimal'].contains(config['data_type']?.toString().toLowerCase()) ||
                   ['Qty', 'Rate', 'GrandTotal', 'Value', 'Amount'].contains(fieldName) ||
                   isMarkedForAggregation;
-              // #######################################################
-              // #                  END OF FIX (Grand Total)             #
-              // #######################################################
-
               numericColumnMap[fieldName] = isNumeric;
               imageColumnMap[fieldName] = config['image']?.toString() == '1';
               indianFormatColumnMap[fieldName] = config['indian_format']?.toString() == '1';
@@ -403,14 +467,15 @@ class ReportMainUI extends StatelessWidget {
               ),
             );
 
-            final bool showActionsColumnFromState = state.actionsConfig.isNotEmpty;
-            if (showActionsColumnFromState) {
+            // Check if there are any row-specific actions left to display the column.
+            final bool showRowActionsColumn = rowActions.isNotEmpty;
+            if (showRowActionsColumn) {
               columns.add(
                 PlutoColumn(
                   title: 'Actions',
                   field: '__actions__',
                   type: PlutoColumnType.text(),
-                  width: state.actionsConfig.length * 100.0,
+                  width: rowActions.length * 100.0, // Width based on remaining actions
                   minWidth: 120,
                   enableEditingMode: false,
                   enableFilterMenuItem: false,
@@ -426,7 +491,8 @@ class ReportMainUI extends StatelessWidget {
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: state.actionsConfig.map((action) {
+                        // Iterate over rowActions, not all actions
+                        children: rowActions.map((action) {
                           final String actionName = action['name']?.toString() ?? 'Action';
                           final String actionType = action['type']?.toString() ?? 'unknown';
 
@@ -436,19 +502,12 @@ class ReportMainUI extends StatelessWidget {
                           final String actionReportLabel = action['reportLabel']?.toString() ?? 'Action Report';
                           final String actionApiNameResolved = action['apiName_resolved']?.toString() ?? '';
 
-                          final String graphType = action['graphType']?.toString() ?? '';
-                          final String xAxisField = action['xAxisField']?.toString() ?? '';
-                          final String yAxisField = action['yAxisField']?.toString() ?? '';
-
                           return Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 6.0, vertical: 4.0),
                             child: ElevatedButton(
                               onPressed: () {
-                                // #######################################################
-                                // #       START OF ENHANCED LOGGING & PARAM LOGIC       #
-                                // #######################################################
                                 debugPrint('\n\n\n================================================================');
-                                debugPrint('===== ACTION BUTTON CLICKED (ReportMainUI) =====');
+                                debugPrint('===== ACTION BUTTON CLICKED (ReportMainUI Row) =====');
                                 debugPrint('================================================================');
                                 debugPrint('[ACTION_CONFIG] Action Name: "$actionName"');
                                 debugPrint('[ACTION_CONFIG] Action Type: "$actionType"');
@@ -466,13 +525,10 @@ class ReportMainUI extends StatelessWidget {
                                   if (paramName.isNotEmpty && sourceFieldName.isNotEmpty) {
                                     if (originalRowData.containsKey(sourceFieldName)) {
                                       String valueFromRow = originalRowData[sourceFieldName]?.toString() ?? '';
-
-                                      // Convert numbers like 123.0 to just "123"
                                       final double? numericValue = double.tryParse(valueFromRow);
                                       if (numericValue != null && numericValue == numericValue.truncate()) {
                                         valueFromRow = numericValue.toInt().toString();
                                       }
-
                                       debugPrint('  ✅ [SUCCESS] Mapped param "$paramName" <- from row field "$sourceFieldName" (Value: "$valueFromRow")');
                                       dynamicApiParams[paramName] = valueFromRow;
                                     } else {
@@ -484,10 +540,6 @@ class ReportMainUI extends StatelessWidget {
                                 }
                                 debugPrint('---');
                                 debugPrint('[ACTION_DISPATCH] Final Dynamic Params: ${jsonEncode(dynamicApiParams)}');
-                                // #######################################################
-                                // #       END OF ENHANCED LOGGING & PARAM LOGIC         #
-                                // #######################################################
-
                                 if (actionType == 'table') {
                                   debugPrint('[ACTION_DISPATCH] Type: Table');
                                   debugPrint('[ACTION_DISPATCH]   -> Report Label: "$actionReportLabel"');
@@ -510,27 +562,7 @@ class ReportMainUI extends StatelessWidget {
                                   debugPrint('[ACTION_DISPATCH]   -> Template: $templateName, Color: $colorName');
                                   debugPrint('================================================================\n\n');
                                   Navigator.push(context, MaterialPageRoute(builder: (_) => PrintPreviewPage(actionApiUrlTemplate: actionApiUrlTemplate, dynamicApiParams: dynamicApiParams, reportLabel: actionReportLabel, selectedTemplate: selectedTemplate, selectedColor: selectedColor)));
-                                } else if (actionType == 'graph') {
-                                  debugPrint('[ACTION_DISPATCH] Type: Graph');
-                                  debugPrint('[ACTION_DISPATCH]   -> Title: "$actionName"');
-                                  debugPrint('[ACTION_DISPATCH]   -> Graph Type: "$graphType", X-Axis: "$xAxisField", Y-Axis: "$yAxisField"');
-                                  if (xAxisField.isEmpty || yAxisField.isEmpty) {
-                                    debugPrint('  ❌ [ERROR] Graph action is missing X or Y axis field configuration.');
-                                    debugPrint('================================================================\n\n');
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Graph action "$actionName" is not configured correctly (X/Y axis missing).'), backgroundColor: Colors.orange),
-                                    );
-                                    return;
-                                  }
-                                  debugPrint('================================================================\n\n');
-                                  Navigator.push(context, MaterialPageRoute(builder: (_) => GraphView(
-                                    graphTitle: actionName,
-                                    graphType: graphType,
-                                    xAxisField: xAxisField,
-                                    yAxisField: yAxisField,
-                                    reportData: state.reportData,
-                                  )));
-                                } else {
+                                } else { // NOTE: Graph case is removed from here
                                   debugPrint('[ACTION_DISPATCH] Type: Unknown ("$actionType")');
                                   debugPrint('================================================================\n\n');
                                 }
@@ -546,7 +578,6 @@ class ReportMainUI extends StatelessWidget {
                 ),
               );
             }
-            // ... (keep rest of the build method)
             final List<PlutoRow> finalRows = [];
             List<Map<String, dynamic>> currentReportData = List.from(state.reportData);
             if (breakpointColumnName != null) {
@@ -557,7 +588,7 @@ class ReportMainUI extends StatelessWidget {
                 final data = currentReportData[i];
                 final rowBreakpointValue = data[breakpointColumnName]?.toString() ?? '';
                 if (currentBreakpointValue != null && rowBreakpointValue != currentBreakpointValue) {
-                  finalRows.add(_createSubtotalRow(groupName: currentBreakpointValue, subtotals: currentGroupSubtotals, sortedFieldConfigs: sortedFieldConfigs, breakpointColumnName: breakpointColumnName, hasActionsColumn: showActionsColumnFromState, actionsConfigForSubtotalRow: state.actionsConfig, numericColumnMap: numericColumnMap, subtotalColumnDecimals: subtotalColumnDecimals, indianFormatColumnMap: indianFormatColumnMap));
+                  finalRows.add(_createSubtotalRow(groupName: currentBreakpointValue, subtotals: currentGroupSubtotals, sortedFieldConfigs: sortedFieldConfigs, breakpointColumnName: breakpointColumnName, hasActionsColumn: showRowActionsColumn, actionsConfigForSubtotalRow: rowActions, numericColumnMap: numericColumnMap, subtotalColumnDecimals: subtotalColumnDecimals, indianFormatColumnMap: indianFormatColumnMap));
                   currentGroupSubtotals = { for (var colName in subtotalColumnNames) colName: 0.0 };
                 }
                 currentBreakpointValue = rowBreakpointValue;
@@ -567,7 +598,7 @@ class ReportMainUI extends StatelessWidget {
                   final rawValue = data[fieldName];
                   rowCells[fieldName] = PlutoCell(value: numericColumnMap[fieldName] == true ? (double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0) : (rawValue?.toString() ?? ''));
                 }
-                if (showActionsColumnFromState) rowCells['__actions__'] = PlutoCell(value: '');
+                if (showRowActionsColumn) rowCells['__actions__'] = PlutoCell(value: '');
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
                 rowCells['__raw_data__'] = PlutoCell(value: data);
                 finalRows.add(PlutoRow(cells: rowCells));
@@ -578,7 +609,7 @@ class ReportMainUI extends StatelessWidget {
                   }
                 }
                 if (i == currentReportData.length - 1) {
-                  finalRows.add(_createSubtotalRow(groupName: currentBreakpointValue, subtotals: currentGroupSubtotals, sortedFieldConfigs: sortedFieldConfigs, breakpointColumnName: breakpointColumnName, hasActionsColumn: showActionsColumnFromState, actionsConfigForSubtotalRow: state.actionsConfig, numericColumnMap: numericColumnMap, subtotalColumnDecimals: subtotalColumnDecimals, indianFormatColumnMap: indianFormatColumnMap));
+                  finalRows.add(_createSubtotalRow(groupName: currentBreakpointValue, subtotals: currentGroupSubtotals, sortedFieldConfigs: sortedFieldConfigs, breakpointColumnName: breakpointColumnName, hasActionsColumn: showRowActionsColumn, actionsConfigForSubtotalRow: rowActions, numericColumnMap: numericColumnMap, subtotalColumnDecimals: subtotalColumnDecimals, indianFormatColumnMap: indianFormatColumnMap));
                 }
               }
             } else {
@@ -589,7 +620,7 @@ class ReportMainUI extends StatelessWidget {
                   final rawValue = data[fieldName];
                   rowCells[fieldName] = PlutoCell(value: numericColumnMap[fieldName] == true ? (double.tryParse(rawValue?.toString().trim() ?? '') ?? 0.0) : (rawValue?.toString() ?? ''));
                 }
-                if (showActionsColumnFromState) rowCells['__actions__'] = PlutoCell(value: '');
+                if (showRowActionsColumn) rowCells['__actions__'] = PlutoCell(value: '');
                 rowCells['__isSubtotal__'] = PlutoCell(value: false);
                 rowCells['__raw_data__'] = PlutoCell(value: data);
                 return PlutoRow(cells: rowCells);
@@ -599,7 +630,24 @@ class ReportMainUI extends StatelessWidget {
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
-                  ExportWidget(columns: columns, plutoRows: finalRows, fileName: reportLabel, fieldConfigs: sortedFieldConfigs, reportLabel: reportLabel, parameterValues: userParameterValues, displayParameterValues: displayParameterValues, apiParameters: state.selectedApiParameters, pickerOptions: state.pickerOptions, companyName: companyName, includePdfFooterDateTime: includePdfFooterDateTime),
+                  // UPDATED: Pass the top-level graph buttons to the ExportWidget
+                  ExportWidget(
+                    columns: columns,
+                    plutoRows: finalRows,
+                    fileName: reportLabel,
+                    fieldConfigs: sortedFieldConfigs,
+                    reportLabel: reportLabel,
+                    parameterValues: userParameterValues,
+                    displayParameterValues: displayParameterValues,
+                    apiParameters: state.selectedApiParameters,
+                    pickerOptions: state.pickerOptions,
+                    companyName: companyName,
+                    includePdfFooterDateTime: includePdfFooterDateTime,
+                    topLevelActions: topLevelGraphButtons, // Pass the buttons here
+                  ),
+
+                  // REMOVED: The old widget for displaying graph buttons is no longer needed here
+
                   const SizedBox(height: 16),
                   Expanded(
                     child: CustomPlutoGrid(

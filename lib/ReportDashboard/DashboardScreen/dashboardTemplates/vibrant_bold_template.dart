@@ -2,10 +2,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:math' as math; // For dynamic rotation and random values
-
 import '../../DashboardModel/dashboard_model.dart';
-
 
 class VibrantBoldTemplate extends StatefulWidget {
   final Dashboard dashboard;
@@ -27,57 +24,47 @@ class _VibrantBoldTemplateState extends State<VibrantBoldTemplate>
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
 
-  // KPIs
-  int _totalReportsCount = 0;
-  int _activeProjectsCount = 0;
-  int _newThisWeekCount = 0;
+  // --- MODIFIED: State holds groups ---
+  late List<DashboardReportGroup> _allGroups;
+  late List<DashboardReportGroup> _filteredGroups;
 
   @override
   void initState() {
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400), // Adjusted duration
+      duration: const Duration(milliseconds: 1400),
     )..forward();
 
     _searchController = TextEditingController();
     _searchFocusNode = FocusNode();
 
-    _calculateDynamicKPIs(); // Initial calculation
+    _allGroups = widget.dashboard.reportGroups;
+    _filteredGroups = _allGroups;
 
     _searchController.addListener(_filterReports);
   }
 
-  void _calculateDynamicKPIs() {
-    _totalReportsCount = widget.dashboard.reportsOnDashboard.length;
-    _activeProjectsCount = widget.dashboard.reportsOnDashboard.where((r) => r.displayIcon == Icons.business_center).length;
-    _newThisWeekCount = widget.dashboard.reportsOnDashboard.where((r) => r.displayIcon == Icons.new_releases).length;
-
-    // Add some base values for simulation if no specific icons are present
-    if (_activeProjectsCount == 0 && _totalReportsCount > 0) _activeProjectsCount = (_totalReportsCount / 3).ceil() + math.Random().nextInt(2);
-    if (_newThisWeekCount == 0 && _totalReportsCount > 0) _newThisWeekCount = (_totalReportsCount / 5).ceil();
-  }
-
   void _filterReports() {
-    // This template does not have live filtering on the grid for simplicity
-    // Search functionality could trigger a dedicated search screen or a modal.
-    if (_searchController.text.isNotEmpty && _searchFocusNode.hasFocus) {
-      // For this template, just show a snakcbar to indicate search action
-      // In a real app, this would perform a search and update the list.
-      // setState(() { _filteredReports = _allReports.where(...).toList(); });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Searching for: \"${_searchController.text}\" (Simulated)"),
-          duration: const Duration(seconds: 1),
-        ),
-      );
-    }
+    final query = _searchController.text.toLowerCase().trim();
+    setState(() {
+      if (query.isEmpty) {
+        _filteredGroups = _allGroups;
+      } else {
+        _filteredGroups = _allGroups.map((group) {
+          final filteredReports = group.reports.where((report) {
+            return report.displayTitle.toLowerCase().contains(query) ||
+                (report.displaySubtitle?.toLowerCase().contains(query) ?? false);
+          }).toList();
+          return group.copyWith(reports: filteredReports);
+        }).where((group) => group.reports.isNotEmpty).toList();
+      }
+    });
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    _searchController.removeListener(_filterReports); // Important: remove listener
     _searchController.dispose();
     _searchFocusNode.dispose();
     super.dispose();
@@ -88,97 +75,84 @@ class _VibrantBoldTemplateState extends State<VibrantBoldTemplate>
     final Color accentColor = widget.dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5), // Light, cool background
+      backgroundColor: const Color(0xFFF0F2F5),
       body: Column(
         children: [
-          // --- FIXED HEADER (Structured Energy) ---
           _VibrantBoldHeader(
             dashboard: widget.dashboard,
             accentColor: accentColor,
             searchController: _searchController,
             searchFocusNode: _searchFocusNode,
           ),
-
-          // --- KPI Bar (Integrated, Horizontal) ---
-          _AnimatedListItem(
-            index: 0,
-            controller: _animationController,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 16.0),
-              child: Row(
-                children: [
-                  _VibrantKpiBadge(
-                      icon: Icons.dashboard_outlined,
-                      value: "$_totalReportsCount",
-                      label: "Reports",
-                      color: accentColor), // Use main accent for total reports
-                  const SizedBox(width: 12),
-                  _VibrantKpiBadge(
-                      icon: Icons.business_center,
-                      value: "$_activeProjectsCount",
-                      label: "Projects",
-                      color: Colors.blueAccent.darken(0.05)), // Slightly darker for contrast
-                  const SizedBox(width: 12),
-                  _VibrantKpiBadge(
-                      icon: Icons.trending_up,
-                      value: "$_newThisWeekCount",
-                      label: "New Data",
-                      color: Colors.green.darken(0.05)), // Slightly darker for contrast
-                ],
-              ),
-            ),
-          ),
-
-          // --- Main Content (Scrollable Grid) ---
           Expanded(
             child: GestureDetector(
-              onTap: () => FocusScope.of(context).unfocus(), // Dismiss keyboard
+              onTap: () => FocusScope.of(context).unfocus(),
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
                 children: [
-                  // --- "All Reports" Section Title ---
-                  _AnimatedListItem(
-                    index: 1,
-                    controller: _animationController,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(
-                        "All Reports",
-                        style: GoogleFonts.poppins(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF333333),
+                  // --- REMOVED KPI Section ---
+                  if (_filteredGroups.isEmpty)
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32.0),
+                        child: Text(
+                          _searchController.text.isNotEmpty ? "No reports match your search." : "This dashboard has no reports.",
+                          style: GoogleFonts.poppins(color: Colors.grey[600]),
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-
-                  // --- Report Grid (Dynamic Tiles) ---
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 4, // Denser grid for smaller cards
-                      crossAxisSpacing: 12.0,
-                      mainAxisSpacing: 12.0,
-                      childAspectRatio: 0.9, // Slightly taller than wide
-                    ),
-                    itemCount: widget.dashboard.reportsOnDashboard.length,
-                    itemBuilder: (context, index) {
-                      final cardConfig = widget.dashboard.reportsOnDashboard[index];
-                      return _AnimatedListItem(
-                        index: index + 2, // Stagger after title
-                        controller: _animationController,
-                        child: _VibrantBoldDataCard( // The new card
-                          cardConfig: cardConfig,
-                          accentColor: accentColor,
-                          onTap: () => widget.onReportCardTap(cardConfig),
+                  ..._filteredGroups.map((group) {
+                    final groupIndex = _filteredGroups.indexOf(group);
+                    return _AnimatedListItem(
+                      index: groupIndex,
+                      controller: _animationController,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 24.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Group Title
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 16.0),
+                              child: Text(
+                                group.groupName,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: const Color(0xFF333333),
+                                ),
+                              ),
+                            ),
+                            // Report Grid
+                            GridView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 4,
+                                crossAxisSpacing: 12.0,
+                                mainAxisSpacing: 12.0,
+                                childAspectRatio: 0.9,
+                              ),
+                              itemCount: group.reports.length,
+                              itemBuilder: (context, reportIndex) {
+                                final cardConfig = group.reports[reportIndex];
+                                return _AnimatedListItem(
+                                  index: reportIndex,
+                                  controller: _animationController,
+                                  child: _VibrantBoldDataCard(
+                                    cardConfig: cardConfig,
+                                    accentColor: accentColor,
+                                    onTap: () => widget.onReportCardTap(cardConfig),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 24), // Bottom padding
+                      ),
+                    );
+                  }).toList(),
                 ],
               ),
             ),
@@ -189,7 +163,7 @@ class _VibrantBoldTemplateState extends State<VibrantBoldTemplate>
   }
 }
 
-// --- Header for Vibrant & Bold Template (Structured Energy) ---
+// --- All other helper widgets (_VibrantBoldHeader, _VibrantBoldDataCard, etc.) remain unchanged ---
 class _VibrantBoldHeader extends StatelessWidget {
   final Dashboard dashboard;
   final Color accentColor;
@@ -205,23 +179,22 @@ class _VibrantBoldHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Create softer, more pronounced gradient colors for a "beautiful" effect
-    final Color startColor = accentColor.lighten(0.1); // Lighter tint of accent
-    final Color endColor = accentColor.darken(0.15); // Darker shade of accent
+    final Color startColor = accentColor.lighten(0.1);
+    final Color endColor = accentColor.darken(0.15);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 50, 24, 20),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [startColor, endColor],
-          begin: Alignment.topLeft, // Diagonal gradient for more dynamism
+          begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        boxShadow: [ // A defined shadow for structure
+        boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.15), // Slightly stronger shadow
-            blurRadius: 15, // More blur for softer look
-            offset: const Offset(0, 8), // More prominent offset
+            color: Colors.black.withOpacity(0.15),
+            blurRadius: 15,
+            offset: const Offset(0, 8),
           ),
         ],
       ),
@@ -235,7 +208,7 @@ class _VibrantBoldHeader extends StatelessWidget {
                 child: Text(
                   dashboard.dashboardName,
                   style: GoogleFonts.poppins(
-                    fontSize: 30, // Optimized size
+                    fontSize: 30,
                     fontWeight: FontWeight.w800,
                     color: Colors.white,
                     shadows: [const Shadow(blurRadius: 4, color: Colors.black38)],
@@ -244,7 +217,7 @@ class _VibrantBoldHeader extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              IconButton( // Clean notification icon
+              IconButton(
                 icon: const Icon(Icons.notifications_none, color: Colors.white, size: 28),
                 onPressed: () { /* Handle notifications */ },
                 splashRadius: 28,
@@ -262,17 +235,16 @@ class _VibrantBoldHeader extends StatelessWidget {
               ),
             ),
           const SizedBox(height: 20),
-          // Clean search bar within header
           TextField(
             controller: searchController,
             focusNode: searchFocusNode,
             style: GoogleFonts.poppins(fontSize: 15, color: Colors.black87),
             decoration: InputDecoration(
               hintText: "Search reports...",
-              hintStyle: GoogleFonts.poppins(color: Colors.grey[500]), // Slightly darker hint text
-              prefixIcon: Icon(Icons.search, color: accentColor.darken(0.1)), // Use accent color for icon, slightly darker
+              hintStyle: GoogleFonts.poppins(color: Colors.grey[500]),
+              prefixIcon: Icon(Icons.search, color: accentColor.darken(0.1)),
               filled: true,
-              fillColor: Colors.white.withOpacity(0.95), // More opaque white for contrast
+              fillColor: Colors.white.withOpacity(0.95),
               contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -280,11 +252,11 @@ class _VibrantBoldHeader extends StatelessWidget {
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.7), width: 1), // Slightly more visible border
+                borderSide: BorderSide(color: Colors.white.withOpacity(0.7), width: 1),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: accentColor.lighten(0.1), width: 2), // Stronger accent on focus
+                borderSide: BorderSide(color: accentColor.lighten(0.1), width: 2),
               ),
             ),
           ),
@@ -294,67 +266,6 @@ class _VibrantBoldHeader extends StatelessWidget {
   }
 }
 
-// --- NEW KPI Badge for Vibrant Bold ---
-class _VibrantKpiBadge extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
-
-  const _VibrantKpiBadge({
-    required this.icon,
-    required this.value,
-    required this.label,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: color, // Full color background
-          borderRadius: BorderRadius.circular(15), // Slightly rounded corners
-          boxShadow: [
-            BoxShadow(
-              color: color.withOpacity(0.4),
-              blurRadius: 10,
-              offset: const Offset(0, 5),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start, // Left-aligned content
-          children: [
-            Icon(icon, color: Colors.white, size: 28), // White icon
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: GoogleFonts.poppins(
-                fontSize: 24, // Bolder value
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-              ),
-            ),
-            Text(
-              label,
-              style: GoogleFonts.poppins(
-                fontSize: 13,
-                color: Colors.white.withOpacity(0.8),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-
-// --- NEW: Dynamic Tile Card for Vibrant Bold ---
 class _VibrantBoldDataCard extends StatelessWidget {
   final DashboardReportCardConfig cardConfig;
   final Color accentColor;
@@ -371,59 +282,56 @@ class _VibrantBoldDataCard extends StatelessWidget {
     final Color itemColor = cardConfig.displayColor ?? accentColor;
 
     return Card(
-      elevation: 6.0, // Good elevation for "bold" look
+      elevation: 6.0,
       shadowColor: itemColor.withOpacity(0.3),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0), // Clean, moderate rounding
+        borderRadius: BorderRadius.circular(12.0),
       ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         splashColor: Colors.white.withOpacity(0.3),
-        highlightColor: itemColor.withOpacity(0.2), // Subtle highlight
+        highlightColor: itemColor.withOpacity(0.2),
         child: Container(
           decoration: const BoxDecoration(
-            color: Colors.white, // Default white background for "text box" area
-            // Can add a subtle pattern here if desired
+            color: Colors.white,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- Top Section: Icon & Accent ---
               Container(
-                height: 80, // Fixed height for icon section, contributing to small card size
+                height: 80,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient( // Subtle gradient based on item color
+                  gradient: LinearGradient(
                     colors: [itemColor.lighten(0.05), itemColor.darken(0.05)],
-                    begin: Alignment.topLeft, // Consistent with header gradient direction
+                    begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                 ),
-                child: Center( // Center the icon
+                child: Center(
                   child: Icon(
                     cardConfig.displayIcon ?? Icons.analytics_outlined,
-                    size: 40, // Prominent icon
+                    size: 40,
                     color: Colors.white,
                   ),
                 ),
               ),
-              // --- Bottom Section: Title & Subtitle ("Text Box") ---
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(10.0), // Consistent padding for text area
+                  padding: const EdgeInsets.all(10.0),
                   child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center, // Center contents vertically
-                    crossAxisAlignment: CrossAxisAlignment.start, // Left-align text
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         cardConfig.displayTitle,
                         style: GoogleFonts.poppins(
-                          fontSize: 15, // Optimal size for 3-column grid
+                          fontSize: 15,
                           fontWeight: FontWeight.w700,
                           color: const Color(0xFF333333),
                         ),
-                        maxLines: 2, // Allow up to 2 lines for title
-                        overflow: TextOverflow.ellipsis, // Truncate if too long
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                       ),
                       if (cardConfig.displaySubtitle != null && cardConfig.displaySubtitle!.isNotEmpty)
                         Padding(
@@ -431,11 +339,11 @@ class _VibrantBoldDataCard extends StatelessWidget {
                           child: Text(
                             cardConfig.displaySubtitle!,
                             style: GoogleFonts.poppins(
-                              fontSize: 11, // Smaller for subtitle
+                              fontSize: 11,
                               color: Colors.grey[600],
                             ),
-                            maxLines: 1, // Max 1 line for subtitle
-                            overflow: TextOverflow.ellipsis, // Truncate if too long
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                     ],
@@ -450,7 +358,6 @@ class _VibrantBoldDataCard extends StatelessWidget {
   }
 }
 
-// Helper for staggered animations (reused)
 class _AnimatedListItem extends StatelessWidget {
   final int index;
   final Widget child;
@@ -464,10 +371,8 @@ class _AnimatedListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Stagger the animation start and duration slightly
-    final startDelay = index * 0.05; // Each item starts 5% later
-    final animationDuration = 0.6; // Animation takes 60% of total interval
-
+    final startDelay = index * 0.05;
+    final animationDuration = 0.6;
     final interval = Interval(
       startDelay,
       startDelay + animationDuration,
@@ -478,11 +383,10 @@ class _AnimatedListItem extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         final animationValue = interval.transform(controller.value);
-
         return Opacity(
           opacity: animationValue,
           child: Transform.translate(
-            offset: Offset(0, (1 - animationValue) * 40), // Slide up from 40px below
+            offset: Offset(0, (1 - animationValue) * 40),
             child: child,
           ),
         );
@@ -491,7 +395,6 @@ class _AnimatedListItem extends StatelessWidget {
   }
 }
 
-// Extension for Color manipulation (lighten/darken)
 extension on Color {
   Color darken([double amount = .1]) {
     assert(amount >= 0 && amount <= 1);

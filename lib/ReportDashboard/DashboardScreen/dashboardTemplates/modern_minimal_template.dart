@@ -2,11 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'dart:math' as math; // For dynamic data simulation
-
 import '../../DashboardModel/dashboard_model.dart';
 
-// --- Main Template Widget (Stateful for Animations & UI interactions) ---
+const double _sideNavWidth = 280.0;
+final Color _borderColor = Colors.grey.shade200;
+
 class ModernMinimalTemplate extends StatefulWidget {
   final Dashboard dashboard;
   final Function(DashboardReportCardConfig) onReportCardTap;
@@ -21,164 +21,40 @@ class ModernMinimalTemplate extends StatefulWidget {
   State<ModernMinimalTemplate> createState() => _ModernMinimalTemplateState();
 }
 
-class _ModernMinimalTemplateState extends State<ModernMinimalTemplate>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _animationController;
-  late List<DashboardReportCardConfig> _allReports;
-  late List<DashboardReportCardConfig> _filteredReports;
+class _ModernMinimalTemplateState extends State<ModernMinimalTemplate> {
+  // Use -1 to represent the "Dashboard Home" / All Reports view
+  int _selectedGroupIndex = -1;
 
-  late final TextEditingController _searchController;
-  late final FocusNode _searchFocusNode;
-
-  int _activeProjectsCount = 0;
-  int _newThisWeekCount = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 1200),
-    )..forward();
-
-    _allReports = widget.dashboard.reportsOnDashboard;
-    _filteredReports = _allReports;
-
-    _calculateDynamicKPIs();
-
-    _searchController = TextEditingController();
-    _searchFocusNode = FocusNode();
-    _searchController.addListener(_filterReports);
-    _searchFocusNode.addListener(() {
-      if (!_searchFocusNode.hasFocus && _searchController.text.isEmpty) {
-        _filterReports();
-      }
-    });
-  }
-
-  void _calculateDynamicKPIs() {
-    _activeProjectsCount = _allReports.where((r) => r.displayIcon == Icons.business_center).length;
-    _newThisWeekCount = _allReports.where((r) => r.displayIcon == Icons.new_releases).length;
-
-    if (_activeProjectsCount == 0 && _allReports.isNotEmpty) _activeProjectsCount = (_allReports.length / 4).ceil() + math.Random().nextInt(2);
-    if (_newThisWeekCount == 0 && _allReports.isNotEmpty) _newThisWeekCount = (_allReports.length / 6).ceil();
-    if (_allReports.isEmpty) { _activeProjectsCount = 0; _newThisWeekCount = 0; }
-  }
-
-  void _filterReports() {
-    final query = _searchController.text.toLowerCase().trim();
+  void _onGroupSelected(int index) {
     setState(() {
-      if (query.isEmpty) {
-        _filteredReports = _allReports;
-      } else {
-        _filteredReports = _allReports.where((report) {
-          return report.displayTitle.toLowerCase().contains(query) ||
-              (report.displaySubtitle?.toLowerCase().contains(query) ?? false);
-        }).toList();
-      }
+      _selectedGroupIndex = index;
     });
-  }
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final Color accentColor = widget.dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor;
-
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Column(
+      // The main layout is now a Row for side-by-side navigation and content
+      body: Row(
         children: [
-          // --- Fixed Header with integrated search ---
-          _ModernMinimalHeader(
-            dashboard: widget.dashboard,
-            accentColor: accentColor,
-            searchController: _searchController,
-            searchFocusNode: _searchFocusNode,
+          // --- 1. The Fixed Side Navigation Panel ---
+          _SideNavigationBar(
+            dashboardName: widget.dashboard.dashboardName,
+            groups: widget.dashboard.reportGroups,
+            selectedIndex: _selectedGroupIndex,
+            accentColor: widget.dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor,
+            onGroupSelected: _onGroupSelected,
           ),
 
-          // --- Scrollable Content Area ---
+          // --- 2. The Main Content Area ---
           Expanded(
-            child: GestureDetector(
-              onTap: () => FocusScope.of(context).unfocus(),
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  const SizedBox(height: 24),
-
-                  // --- KPI Section ---
-                  _AnimatedListItem(
-                    index: 0,
-                    controller: _animationController,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Row(
-                        children: [
-                          _StatCard(icon: Icons.bar_chart_rounded, value: "${_filteredReports.length}", label: "Reports", color: accentColor),
-                          const SizedBox(width: 12),
-                          _StatCard(icon: Icons.business_center, value: "$_activeProjectsCount", label: "Projects", color: Colors.green.shade600),
-                          const SizedBox(width: 12),
-                          _StatCard(icon: Icons.new_releases_outlined, value: "$_newThisWeekCount", label: "New", color: Colors.orange.shade600),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-
-                  // --- "Your Reports" Title ---
-                  _AnimatedListItem(
-                    index: 1,
-                    controller: _animationController,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                      child: Text(
-                        "Your Reports",
-                        style: GoogleFonts.poppins(
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                          color: const Color(0xFF333333),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // --- Report Grid ---
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 4,
-                        crossAxisSpacing: 12.0,
-                        mainAxisSpacing: 12.0,
-                        childAspectRatio: 1.0,
-                      ),
-                      itemCount: _filteredReports.length,
-                      itemBuilder: (context, index) {
-                        final cardConfig = _filteredReports[index];
-                        return _AnimatedListItem(
-                          index: index + 2, // Stagger after KPI and title
-                          controller: _animationController,
-                          child: _MinimalistVibrantCard( // The new card design
-                            cardConfig: cardConfig,
-                            accentColor: accentColor,
-                            onTap: () => widget.onReportCardTap(cardConfig),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                ],
-              ),
+            child: _ContentArea(
+              // Pass null for the "Home" view, or the selected group
+              selectedGroup: _selectedGroupIndex == -1 ? null : widget.dashboard.reportGroups[_selectedGroupIndex],
+              allGroups: widget.dashboard.reportGroups,
+              accentColor: widget.dashboard.templateConfig.accentColor ?? Theme.of(context).primaryColor,
+              onReportCardTap: widget.onReportCardTap,
             ),
           ),
         ],
@@ -187,94 +63,81 @@ class _ModernMinimalTemplateState extends State<ModernMinimalTemplate>
   }
 }
 
-// --- Header Widget with Integrated Search ---
-class _ModernMinimalHeader extends StatelessWidget {
-  final Dashboard dashboard;
+// --- WIDGET 1: The Side Navigation Panel ---
+class _SideNavigationBar extends StatelessWidget {
+  final String dashboardName;
+  final List<DashboardReportGroup> groups;
+  final int selectedIndex;
   final Color accentColor;
-  final TextEditingController searchController;
-  final FocusNode searchFocusNode;
+  final ValueChanged<int> onGroupSelected;
 
-  const _ModernMinimalHeader({
-    required this.dashboard,
+  const _SideNavigationBar({
+    required this.dashboardName,
+    required this.groups,
+    required this.selectedIndex,
     required this.accentColor,
-    required this.searchController,
-    required this.searchFocusNode,
+    required this.onGroupSelected,
   });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(24, 50, 24, 16), // Top padding for SafeArea
+      width: _sideNavWidth,
       decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [ // Subtle shadow to indicate fixed position
-          BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: const Color(0xFFF8F9FA), // A very light grey for the nav area
+        border: Border(right: BorderSide(color: _borderColor, width: 1.0)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  dashboard.dashboardName,
-                  style: GoogleFonts.poppins(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF222222),
+          // --- Header for the Nav Panel ---
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+            child: Row(
+              children: [
+                Icon(Icons.insights, color: accentColor, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    dashboardName,
+                    style: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.black87),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              IconButton(
-                icon: Icon(Icons.notifications_none, color: Colors.grey[600]), // Notification icon
-                onPressed: () { /* Handle notifications */ },
-                splashRadius: 24,
-              ),
-            ],
-          ),
-          if (dashboard.dashboardDescription != null && dashboard.dashboardDescription!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 4.0),
-              child: Text(
-                dashboard.dashboardDescription!,
-                style: GoogleFonts.poppins(fontSize: 14, color: Colors.grey[700]),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+              ],
             ),
-          const SizedBox(height: 16),
-          // Search input field
-          TextField(
-            controller: searchController,
-            focusNode: searchFocusNode,
-            style: GoogleFonts.poppins(fontSize: 15, color: Colors.black87),
-            decoration: InputDecoration(
-              hintText: "Search reports...",
-              hintStyle: GoogleFonts.poppins(color: Colors.grey[400]),
-              prefixIcon: Icon(Icons.search, color: Colors.grey[500]),
-              filled: true,
-              fillColor: Colors.grey[50],
-              contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide.none,
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade200, width: 1),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: accentColor.withOpacity(0.5), width: 1.5),
-              ),
+          ),
+          const Divider(indent: 24, endIndent: 24),
+
+          // --- Navigation Items ---
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.all(16.0),
+              children: [
+                // "Home" navigation item
+                _NavigationItem(
+                  icon: Icons.dashboard_customize_outlined,
+                  label: 'Dashboard Home',
+                  isSelected: selectedIndex == -1,
+                  accentColor: accentColor,
+                  onTap: () => onGroupSelected(-1),
+                ),
+                const SizedBox(height: 20),
+                Text('REPORT GROUPS', style: GoogleFonts.poppins(color: Colors.grey[500], fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                const SizedBox(height: 8),
+
+                // List of group navigation items
+                ...List.generate(groups.length, (index) {
+                  return _NavigationItem(
+                    // You can add icons to your group model later
+                    icon: Icons.folder_copy_outlined,
+                    label: groups[index].groupName,
+                    isSelected: selectedIndex == index,
+                    accentColor: accentColor,
+                    onTap: () => onGroupSelected(index),
+                  );
+                }),
+              ],
             ),
           ),
         ],
@@ -283,72 +146,130 @@ class _ModernMinimalHeader extends StatelessWidget {
   }
 }
 
-// --- Re-named Stat Card (to avoid conflict if used elsewhere) ---
-class _StatCard extends StatelessWidget {
-  final IconData icon;
-  final String value;
-  final String label;
-  final Color color;
 
-  const _StatCard({
+// --- WIDGET 2: A single tappable item in the side navigation ---
+class _NavigationItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final Color accentColor;
+  final VoidCallback onTap;
+
+  const _NavigationItem({
     required this.icon,
-    required this.value,
     required this.label,
-    required this.color,
+    required this.isSelected,
+    required this.accentColor,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.1), // Stronger tint based on color
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: color.withOpacity(0.3), width: 1),
-        ),
-        child: Column( // Changed to Column for vertical layout
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center, // Center all contents
-          children: [
-            Icon(icon, color: color, size: 24),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: GoogleFonts.poppins(
-                fontSize: 16, // Consistent size
-                fontWeight: FontWeight.bold,
-                color: color.darken(0.1), // Slightly darker for better contrast
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: accentColor.withOpacity(0.05),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? accentColor.withOpacity(0.1) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                icon,
+                size: 22,
+                color: isSelected ? accentColor : Colors.grey[700],
               ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            Text(
-              label,
-              style: GoogleFonts.poppins(
-                fontSize: 11,
-                color: color.darken(0.3),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 15,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                    color: isSelected ? accentColor.darken(0.1) : Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-// Helper Extension for Color (to darken for better text contrast)
-extension on Color {
-  Color darken([double amount = .1]) {
-    assert(amount >= 0 && amount <= 1);
-    final hsl = HSLColor.fromColor(this);
-    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
-    return hslDark.toColor();
+// --- WIDGET 3: The Main Content Area on the right ---
+class _ContentArea extends StatelessWidget {
+  final DashboardReportGroup? selectedGroup;
+  final List<DashboardReportGroup> allGroups;
+  final Color accentColor;
+  final Function(DashboardReportCardConfig) onReportCardTap;
+
+  const _ContentArea({
+    this.selectedGroup,
+    required this.allGroups,
+    required this.accentColor,
+    required this.onReportCardTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool isHomeView = selectedGroup == null;
+    final String title = isHomeView ? 'All Reports' : selectedGroup!.groupName;
+    final List<DashboardReportCardConfig> reportsToShow = isHomeView
+        ? allGroups.expand((g) => g.reports).toList()
+        : selectedGroup!.reports;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // --- Header for the content area ---
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
+          child: Text(
+            title,
+            style: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.bold, color: const Color(0xFF333333)),
+          ),
+        ),
+
+        // --- The Grid of Reports ---
+        Expanded(
+          child: reportsToShow.isEmpty
+              ? Center(child: Text("No reports to display.", style: GoogleFonts.poppins(color: Colors.grey[600])))
+              : GridView.builder(
+            key: ValueKey(selectedGroup?.groupId ?? 'home'),
+            padding: const EdgeInsets.all(24),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              crossAxisSpacing: 16.0,
+              mainAxisSpacing: 16.0,
+              childAspectRatio: 1.0,
+            ),
+            itemCount: reportsToShow.length,
+            itemBuilder: (context, index) {
+              final cardConfig = reportsToShow[index];
+              return _MinimalistVibrantCard(
+                cardConfig: cardConfig,
+                accentColor: accentColor,
+                onTap: () => onReportCardTap(cardConfig),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 }
 
 
-// --- NEW: Minimalist Vibrant Card ---
+// --- The Report Card widget (Unchanged, it already looks great) ---
 class _MinimalistVibrantCard extends StatelessWidget {
   final DashboardReportCardConfig cardConfig;
   final Color accentColor;
@@ -365,73 +286,66 @@ class _MinimalistVibrantCard extends StatelessWidget {
     final Color itemColor = cardConfig.displayColor ?? accentColor;
 
     return Card(
-      elevation: 0, // No elevation
+      elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12.0),
-        side: BorderSide(color: Colors.grey.shade100, width: 1.0),
+        side: BorderSide(color: Colors.grey.shade200, width: 1.0),
       ),
       color: Colors.white,
       child: InkWell(
         borderRadius: BorderRadius.circular(12.0),
         onTap: onTap,
         splashColor: itemColor.withOpacity(0.08),
-        hoverColor: itemColor.withOpacity(0.03), // Subtle hover effect
+        hoverColor: itemColor.withOpacity(0.03),
         child: Container(
-          // Inner container for subtle color wash
           decoration: BoxDecoration(
-            color: itemColor.withOpacity(0.03), // Very light colored background
+            color: itemColor.withOpacity(0.03),
             borderRadius: BorderRadius.circular(12.0),
           ),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween, // Space out top and bottom
-            crossAxisAlignment: CrossAxisAlignment.stretch, // Stretch for accent line
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- Main Content (Icon + Title/Subtitle) ---
               Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.all(10.0), // Padding inside the colored background
+                  padding: const EdgeInsets.all(10.0),
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Icon(
                         cardConfig.displayIcon ?? Icons.analytics_outlined,
-                        size: 32, // Larger icon to be prominent
+                        size: 32,
                         color: itemColor,
                       ),
                       const SizedBox(height: 8),
                       Text(
                         cardConfig.displayTitle,
-                        style: GoogleFonts.poppins(
-                          fontSize: 14, // Larger for readability
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black87,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
                         textAlign: TextAlign.center,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       if (cardConfig.displaySubtitle != null && cardConfig.displaySubtitle!.isNotEmpty)
-                        Text(
-                          cardConfig.displaySubtitle!,
-                          style: GoogleFonts.poppins(
-                            fontSize: 10,
-                            color: Colors.grey[600],
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2.0),
+                          child: Text(
+                            cardConfig.displaySubtitle!,
+                            style: GoogleFonts.poppins(fontSize: 11, color: Colors.grey[500]),
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                     ],
                   ),
                 ),
               ),
-              // --- Vibrant Accent Line at the Bottom ---
               Container(
                 height: 4,
                 decoration: BoxDecoration(
-                  color: itemColor, // Solid accent color line
+                  color: itemColor,
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(12.0),
                     bottomRight: Radius.circular(12.0),
@@ -446,31 +360,12 @@ class _MinimalistVibrantCard extends StatelessWidget {
   }
 }
 
-// --- AnimatedListItem (reused) ---
-class _AnimatedListItem extends StatelessWidget {
-  final int index;
-  final Widget child;
-  final AnimationController controller;
-  const _AnimatedListItem({required this.index, required this.child, required this.controller});
-  @override
-  Widget build(BuildContext context) {
-    final interval = Interval(
-      (index * 80) / 1200,
-      (250 + index * 80) / 1200,
-      curve: Curves.easeOut,
-    );
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) {
-        final animation = interval.transform(controller.value);
-        return Opacity(
-          opacity: animation,
-          child: Transform.translate(
-            offset: Offset(0, (1 - animation) * 20),
-            child: child,
-          ),
-        );
-      },
-    );
+// Helper Extension for Color
+extension on Color {
+  Color darken([double amount = .1]) {
+    assert(amount >= 0 && amount <= 1);
+    final hsl = HSLColor.fromColor(this);
+    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
+    return hslDark.toColor();
   }
 }
