@@ -6,15 +6,9 @@ import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart'; // Import uuid
+import 'package:uuid/uuid.dart';
 import '../../ReportDynamic/ReportAPIService.dart';
 import '../DashboardModel/dashboard_model.dart';
-
-// NOTE: The DashboardReportGroup class should be in your dashboard_model.dart file.
-// It is included here for completeness if you haven't moved it yet.
-/*
-class DashboardReportGroup extends Equatable { ... }
-*/
 
 // --- Events ---
 abstract class DashboardBuilderEvent extends Equatable {
@@ -34,33 +28,32 @@ class UpdateDashboardInfo extends DashboardBuilderEvent {
   final String? dashboardName;
   final String? dashboardDescription;
   final String? templateId;
-  final String? bannerUrl;
   final Color? accentColor;
   const UpdateDashboardInfo({
     this.dashboardName,
     this.dashboardDescription,
     this.templateId,
-    this.bannerUrl,
     this.accentColor,
   });
   @override
-  List<Object?> get props => [dashboardName, dashboardDescription, templateId, bannerUrl, accentColor];
+  List<Object?> get props => [dashboardName, dashboardDescription, templateId, accentColor];
 }
 
-// --- NEW GROUP EVENTS ---
 class AddReportGroupEvent extends DashboardBuilderEvent {
   final String groupName;
-  const AddReportGroupEvent(this.groupName);
+  final String? url;
+  const AddReportGroupEvent(this.groupName, {this.url});
   @override
-  List<Object?> get props => [groupName];
+  List<Object?> get props => [groupName, url];
 }
 
 class UpdateReportGroupEvent extends DashboardBuilderEvent {
   final String groupId;
   final String newName;
-  const UpdateReportGroupEvent({required this.groupId, required this.newName});
+  final String? newUrl;
+  const UpdateReportGroupEvent({required this.groupId, required this.newName, this.newUrl});
   @override
-  List<Object?> get props => [groupId, newName];
+  List<Object?> get props => [groupId, newName, newUrl];
 }
 
 class RemoveReportGroupEvent extends DashboardBuilderEvent {
@@ -77,12 +70,9 @@ class ReorderGroupsEvent extends DashboardBuilderEvent {
   @override
   List<Object?> get props => [oldIndex, newIndex];
 }
-// --- END NEW GROUP EVENTS ---
 
-
-// --- MODIFIED REPORT EVENTS ---
 class AddReportToDashboardEvent extends DashboardBuilderEvent {
-  final String groupId; // <-- ADDED
+  final String groupId;
   final Map<String, dynamic> reportDefinition;
   const AddReportToDashboardEvent({required this.groupId, required this.reportDefinition});
   @override
@@ -90,42 +80,41 @@ class AddReportToDashboardEvent extends DashboardBuilderEvent {
 }
 
 class RemoveReportFromDashboardEvent extends DashboardBuilderEvent {
-  final String groupId; // <-- ADDED
+  final String groupId;
   final int reportRecNo;
   const RemoveReportFromDashboardEvent({required this.groupId, required this.reportRecNo});
   @override
   List<Object?> get props => [groupId, reportRecNo];
 }
 
+// --- CORRECTED EVENT ---
 class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
-  final String groupId; // <-- ADDED
+  final String groupId;
   final int reportRecNo;
-  final String? displayTitle;
-  final String? displaySubtitle;
-  final IconData? displayIcon;
-  final Color? displayColor;
+  final String newTitle;
+  final String? newSubtitle;
+  final IconData newIcon;
+  final Color newColor;
   const UpdateReportCardConfigEvent({
-    required this.groupId, // <-- ADDED
+    required this.groupId,
     required this.reportRecNo,
-    this.displayTitle,
-    this.displaySubtitle,
-    this.displayIcon,
-    this.displayColor,
+    required this.newTitle,
+    this.newSubtitle,
+    required this.newIcon,
+    required this.newColor,
   });
   @override
-  List<Object?> get props => [groupId, reportRecNo, displayTitle, displaySubtitle, displayIcon, displayColor];
+  List<Object?> get props => [groupId, reportRecNo, newTitle, newSubtitle, newIcon, newColor];
 }
 
 class ReorderReportsEvent extends DashboardBuilderEvent {
-  final String groupId; // <-- ADDED
+  final String groupId;
   final int oldIndex;
   final int newIndex;
   const ReorderReportsEvent({required this.groupId, required this.oldIndex, required this.newIndex});
   @override
   List<Object?> get props => [groupId, oldIndex, newIndex];
 }
-// --- END MODIFIED REPORT EVENTS ---
-
 
 class SaveDashboardEvent extends DashboardBuilderEvent {
   const SaveDashboardEvent();
@@ -138,7 +127,7 @@ class DeleteDashboardEvent extends DashboardBuilderEvent {
   List<Object?> get props => [dashboardId];
 }
 
-// --- States (No changes) ---
+// --- States (Unchanged) ---
 abstract class DashboardBuilderState extends Equatable {
   const DashboardBuilderState();
   @override
@@ -220,7 +209,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     on<DeleteDashboardEvent>(_onDeleteDashboard);
   }
 
-  // --- Helper to get the current loaded state and dashboard ---
   (DashboardBuilderLoaded?, Dashboard?) _getCurrentStateAndDashboard() {
     final s = state;
     if (s is DashboardBuilderLoaded) {
@@ -240,16 +228,14 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
 
       Dashboard initialDashboard = event.dashboardToEdit ?? Dashboard(
-        dashboardId: '', // Use empty string for new dashboard ID
+        dashboardId: '',
         dashboardName: '',
         dashboardDescription: '',
         templateConfig: DashboardTemplateConfig(
           id: 'classicClean',
           name: 'Classic Clean',
-          bannerUrl: null,
           accentColor: Colors.blue,
         ),
-        // reportGroups is now an empty list
         reportGroups: [],
         globalFiltersConfig: {},
         createdAt: DateTime.now(),
@@ -285,7 +271,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       templateConfig: currentDashboard.templateConfig.copyWith(
         id: event.templateId,
         name: templateName,
-        bannerUrl: event.bannerUrl,
         accentColor: event.accentColor,
       ),
       updatedAt: DateTime.now(),
@@ -294,7 +279,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     emit(currentState.copyWith(currentDashboard: updatedDashboard));
   }
 
-  // --- NEW GROUP HANDLERS ---
   void _onAddReportGroup(AddReportGroupEvent event, Emitter<DashboardBuilderState> emit) {
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
@@ -302,6 +286,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     final newGroup = DashboardReportGroup(
       groupId: _uuid.v4(),
       groupName: event.groupName,
+      groupUrl: event.url,
       reports: [],
     );
 
@@ -319,7 +304,10 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
 
     final updatedGroups = currentDashboard.reportGroups.map((group) {
       if (group.groupId == event.groupId) {
-        return group.copyWith(groupName: event.newName);
+        return group.copyWith(
+          groupName: event.newName,
+          groupUrl: event.newUrl,
+        );
       }
       return group;
     }).toList();
@@ -359,7 +347,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
     ));
   }
-  // --- END NEW GROUP HANDLERS ---
 
 
   void _onAddReportToDashboard(
@@ -372,7 +359,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     final int? recNo = _safeParseInt(event.reportDefinition['RecNo']);
     if (recNo == null) return;
 
-    // Check if report already exists anywhere on the dashboard
     final bool alreadyExists = currentDashboard.reportGroups
         .any((group) => group.reports.any((report) => report.reportRecNo == recNo));
 
@@ -427,6 +413,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     ));
   }
 
+  // --- CORRECTED HANDLER ---
   void _onUpdateReportCardConfig(
       UpdateReportCardConfigEvent event,
       Emitter<DashboardBuilderState> emit,
@@ -439,10 +426,10 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
         final updatedReports = group.reports.map((card) {
           if (card.reportRecNo == event.reportRecNo) {
             return card.copyWith(
-              displayTitle: event.displayTitle,
-              displaySubtitle: event.displaySubtitle,
-              displayIcon: event.displayIcon,
-              displayColor: event.displayColor,
+              displayTitle: event.newTitle,
+              displaySubtitle: event.newSubtitle,
+              displayIcon: event.newIcon,
+              displayColor: event.newColor,
             );
           }
           return card;

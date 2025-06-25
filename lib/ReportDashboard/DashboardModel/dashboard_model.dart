@@ -1,3 +1,5 @@
+// lib/ReportDashboard/DashboardModel/dashboard_model.dart
+
 import 'dart:convert';
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
@@ -14,7 +16,7 @@ int? _safeParseInt(dynamic value) {
 }
 
 // Represents the display configuration for a single report card on the dashboard.
-// This class is unchanged, but now lives inside a DashboardReportGroup.
+// This class is unchanged.
 class DashboardReportCardConfig extends Equatable {
   final int reportRecNo;
   final String displayTitle;
@@ -78,26 +80,30 @@ class DashboardReportCardConfig extends Equatable {
   List<Object?> get props => [reportRecNo, displayTitle, displaySubtitle, displayIcon, displayColor];
 }
 
-// --- NEW CLASS: Represents a group of reports on the dashboard ---
+// --- MODIFIED CLASS: Represents a group of reports, now with an optional URL ---
 class DashboardReportGroup extends Equatable {
   final String groupId;
   final String groupName;
+  final String? groupUrl; // NEW: Optional URL for the group
   final List<DashboardReportCardConfig> reports;
 
   const DashboardReportGroup({
     required this.groupId,
     required this.groupName,
+    this.groupUrl, // NEW
     required this.reports,
   });
 
   DashboardReportGroup copyWith({
     String? groupId,
     String? groupName,
+    String? groupUrl, // NEW
     List<DashboardReportCardConfig>? reports,
   }) {
     return DashboardReportGroup(
       groupId: groupId ?? this.groupId,
       groupName: groupName ?? this.groupName,
+      groupUrl: groupUrl ?? this.groupUrl, // NEW
       reports: reports ?? this.reports,
     );
   }
@@ -110,6 +116,7 @@ class DashboardReportGroup extends Equatable {
       // Assign new ID if missing for safety with old data
       groupId: json['groupId'] ?? const Uuid().v4(),
       groupName: json['groupName'] ?? 'Unnamed Group',
+      groupUrl: json['groupUrl'] as String?, // NEW: Safely parse optional URL
       reports: reports,
     );
   }
@@ -118,12 +125,14 @@ class DashboardReportGroup extends Equatable {
     return {
       'groupId': groupId,
       'groupName': groupName,
+      'groupUrl': groupUrl, // NEW: Include URL in JSON
       'reports': reports.map((report) => report.toJson()).toList(),
     };
   }
 
   @override
-  List<Object?> get props => [groupId, groupName, reports];
+  // NEW: Add groupUrl to props for Equatable comparison
+  List<Object?> get props => [groupId, groupName, groupUrl, reports];
 }
 
 
@@ -131,6 +140,7 @@ class DashboardReportGroup extends Equatable {
 class DashboardTemplateConfig extends Equatable {
   final String id;
   final String name;
+  // Banner URL property is no longer used by the UI but kept for data model consistency
   final String? bannerUrl;
   final Color? accentColor;
 
@@ -144,6 +154,7 @@ class DashboardTemplateConfig extends Equatable {
   DashboardTemplateConfig copyWith({
     String? id,
     String? name,
+    // Provide an empty string or null to clear the banner
     String? bannerUrl,
     Color? accentColor,
   }) {
@@ -186,7 +197,7 @@ class Dashboard extends Equatable {
   final String dashboardName;
   final String? dashboardDescription;
   final DashboardTemplateConfig templateConfig;
-  final List<DashboardReportGroup> reportGroups; // MODIFIED: Using groups now
+  final List<DashboardReportGroup> reportGroups;
   final Map<String, dynamic> globalFiltersConfig;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -196,7 +207,7 @@ class Dashboard extends Equatable {
     required this.dashboardName,
     this.dashboardDescription,
     required this.templateConfig,
-    required this.reportGroups, // MODIFIED
+    required this.reportGroups,
     required this.globalFiltersConfig,
     required this.createdAt,
     required this.updatedAt,
@@ -231,7 +242,7 @@ class Dashboard extends Equatable {
         ? jsonDecode(json['LayoutConfig']) as Map<String, dynamic>
         : <String, dynamic>{};
 
-    // --- MODIFIED: Backward-compatible parsing logic ---
+    // --- Backward-compatible parsing logic (unchanged, but now handles groups with optional URLs) ---
     List<DashboardReportGroup> groups = [];
     // 1. Check for the new 'report_groups' structure first
     if (layoutConfigMap['report_groups'] != null && layoutConfigMap['report_groups'] is List) {
@@ -250,6 +261,7 @@ class Dashboard extends Equatable {
         groups.add(DashboardReportGroup(
           groupId: const Uuid().v4(), // Generate a new ID for this migrated group
           groupName: 'Reports', // Default name for the migrated group
+          groupUrl: null, // Old format won't have a group URL
           reports: oldReports,
         ));
       }
@@ -290,7 +302,7 @@ class Dashboard extends Equatable {
       'DashboardName': dashboardName,
       'DashboardDescription': dashboardDescription,
       'TemplateID': jsonEncode(templateConfig.toJson()),
-      // --- MODIFIED: Save the new group structure ---
+      // --- Save the new group structure (now with optional URL) ---
       'LayoutConfig': jsonEncode({
         'report_groups': reportGroups.map((g) => g.toJson()).toList(),
       }),
