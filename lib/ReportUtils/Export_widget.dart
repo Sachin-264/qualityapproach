@@ -126,6 +126,7 @@ class _ExportWidgetState extends State<ExportWidget> {
 
   @override
   Widget build(BuildContext context) {
+    // Access ExportLock.isExporting directly for the global lock
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
 
     return Padding(
@@ -221,11 +222,10 @@ class _ExportWidgetState extends State<ExportWidget> {
 
   Future<void> _executeExportTask(
       BuildContext context,
-      Future<void> Function() task,
+      Future<void> Function(Function(String) progressUpdater) task, // Pass progress updater to task
       String taskName, {
         bool showLoaderDialog = true,
         String initialMessage = 'Processing...',
-        Function(String)? onProgressUpdate, // Callback for progress messages
       }) async {
     if (widget.plutoRows.isEmpty) {
       if (context.mounted) {
@@ -250,8 +250,12 @@ class _ExportWidgetState extends State<ExportWidget> {
     ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? snackBarController;
     bool dialogShown = false;
 
-    // Use a ValueNotifier to update the message dynamically in the UI
     final ValueNotifier<String> currentMessage = ValueNotifier(initialMessage);
+
+    // This is the function the `task` will call to update the UI message
+    void updateProgress(String message) {
+      currentMessage.value = message;
+    }
 
     if (context.mounted) {
       if (!showLoaderDialog) {
@@ -284,8 +288,8 @@ class _ExportWidgetState extends State<ExportWidget> {
             showDialog(
               context: context,
               barrierDismissible: false,
-              builder: (context) => PopScope( // Use PopScope for better control on back button
-                canPop: false, // Prevent dialog dismissal by back button
+              builder: (context) => PopScope(
+                canPop: false,
                 child: Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -309,28 +313,9 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     }
 
-    // Set the progress update callback - this will update the ValueNotifier used by the UI
-    Function(String)? internalProgressUpdater = (msg) => currentMessage.value = msg;
-    if (onProgressUpdate != null) {
-      Function(String originalMsg) externalOnProgress = onProgressUpdate;
-      internalProgressUpdater = (msg) {
-        currentMessage.value = msg;
-        externalOnProgress(msg);
-      };
-    }
-
     try {
-      await task(); // Execute the main task
-      internalProgressUpdater('Task completed successfully!'); // Final success message
-
-      if (context.mounted) {
-        if (!showLoaderDialog && snackBarController != null) {
-          snackBarController.close();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('$taskName successful!')),
-          );
-        }
-      }
+      await task(updateProgress); // Pass the updater function to the task
+      updateProgress('Task completed successfully!'); // Final success message
     } catch (e) {
       if (!e.toString().contains('Email sending cancelled by user.')) {
         String errorMessage = 'Failed to $taskName: $e';
@@ -463,7 +448,8 @@ class _ExportWidgetState extends State<ExportWidget> {
           // debugPrint("Isolate: Image processed and cached for: $imageUrl");
           return dataUrl;
         } else {
-          debugPrint("Isolate: Failed to fetch image (Status ${response.statusCode}) from: $imageUrl. Response body: ${response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body}");
+          debugPrint(
+              "Isolate: Failed to fetch image (Status ${response.statusCode}) from: $imageUrl. Response body: ${response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body}");
           isolateBase64ImageCache[imageUrl] = null;
           return null;
         }
@@ -537,7 +523,8 @@ class _ExportWidgetState extends State<ExportWidget> {
     debugPrint("Local PDF generation for chunk: Serializable columns prepared. Count: ${serializableColumns.length}");
 
     final List<Map<String, dynamic>> allPlutoRowsJsonForCompute = [];
-    for (var row in rowsChunk) { // Iterate only over the provided chunk
+    for (var row in rowsChunk) {
+      // Iterate only over the provided chunk
       final Map<String, dynamic> flattenedRowData = {};
 
       for (var col in serializableColumns) {
@@ -572,7 +559,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(widget.columns, rowsChunk, widget.fieldConfigs);
     debugPrint("Local PDF generation for chunk: Calculated grand totals: $grandTotalData");
 
-
     doc.addPage(
       pw.MultiPage(
         pageFormat: pdf_lib.PdfPageFormat.a4.landscape,
@@ -580,7 +566,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         header: (context) => _buildPdfHeader(poppinsRegular, poppinsBold),
         footer: (context) => _buildPdfFooter(context, poppinsRegular),
         build: (context) => [
-          _buildPdfContentTable(serializableColumns, allProcessedSerializableRows, grandTotalData, poppinsRegular, poppinsBold),
+          _buildPdfContentTable(
+              serializableColumns, allProcessedSerializableRows, grandTotalData, poppinsRegular, poppinsBold),
         ],
       ),
     );
@@ -644,7 +631,11 @@ class _ExportWidgetState extends State<ExportWidget> {
       bool isSubtotal = row.containsKey('__isSubtotal__') && row['__isSubtotal__'] == true;
       if (!row.containsKey('cells') || row['cells'] is! Map<String, dynamic>) {
         debugPrint("PDF Table ERROR: Skipping malformed row, 'cells' is missing or not a Map: $row");
-        return columns.map((col) => pw.Container(alignment: pw.Alignment.center, child: pw.Text('Data Error', style: pw.TextStyle(font: regularFont, fontSize: 8)))).toList();
+        return columns
+            .map((col) => pw.Container(
+            alignment: pw.Alignment.center,
+            child: pw.Text('Data Error', style: pw.TextStyle(font: regularFont, fontSize: 8))))
+            .toList();
       }
       final Map<String, dynamic> rowCells = row['cells'] as Map<String, dynamic>;
 
@@ -674,7 +665,9 @@ class _ExportWidgetState extends State<ExportWidget> {
             );
           } catch (e) {
             debugPrint('PDF Table Cell ERROR: Error decoding image data for field $fieldName: $e');
-            return pw.Container(alignment: alignment, child: pw.Text('Invalid Image', style: pw.TextStyle(font: regularFont, fontSize: 8)));
+            return pw.Container(
+                alignment: alignment,
+                child: pw.Text('Invalid Image', style: pw.TextStyle(font: regularFont, fontSize: 8)));
           }
         }
 
@@ -733,12 +726,16 @@ class _ExportWidgetState extends State<ExportWidget> {
       'field': col.field,
       'title': col.title,
       'width': col.width,
-      'decimal_points': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['decimal_points'],
-      'indian_format': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['indian_format'],
-      'num_alignment': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['num_alignment'],
+      'decimal_points':
+      widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['decimal_points'],
+      'indian_format':
+      widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['indian_format'],
+      'num_alignment':
+      widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['num_alignment'],
       'Total': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['Total'],
       'SubTotal': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['SubTotal'],
-      'Breakpoint': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['Breakpoint'],
+      'Breakpoint':
+      widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['Breakpoint'],
       'data_type': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['data_type'],
       'image': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['image'],
       'time': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['time'],
@@ -747,7 +744,8 @@ class _ExportWidgetState extends State<ExportWidget> {
     debugPrint("API PDF generation for chunk: Serializable columns prepared. Count: ${serializableColumns.length}");
 
     final List<Map<String, dynamic>> plutoRowsJsonForApi = [];
-    for (var row in rowsChunk) { // Iterate only over the provided chunk
+    for (var row in rowsChunk) {
+      // Iterate only over the provided chunk
       final Map<String, dynamic> flattenedRowData = {};
       for (var col in serializableColumns) {
         final fieldName = col['field'] as String;
@@ -791,7 +789,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         debugPrint("API PDF generation for chunk: PDF generated successfully by API.");
         return response.bodyBytes;
       } else {
-        debugPrint("API PDF generation for chunk: Failed to generate PDF on server: ${response.statusCode} - ${response.body}");
+        debugPrint(
+            "API PDF generation for chunk: Failed to generate PDF on server: ${response.statusCode} - ${response.body}");
         throw Exception('Failed to generate PDF on server: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
@@ -802,53 +801,30 @@ class _ExportWidgetState extends State<ExportWidget> {
 
   // Modified _exportToPDF to generate multiple PDFs and zip them
   Future<void> _exportToPDF(BuildContext context) async {
-    await _executeExportTask(context, () async {
+    // Modify _executeExportTask to accept a progress updater callback
+    await _executeExportTask(context, (progressUpdater) async {
       debugPrint('PDF export: Initiating multi-part PDF generation.');
 
       final List<({String fileName, Uint8List bytes})> pdfParts = [];
       final totalRows = widget.plutoRows.length;
       final numParts = (totalRows / _pdfRowsPerFile).ceil();
+      final String originalFileName = widget.fileName; // Store original for zip naming
+
+      // If there's only one part, we don't need the "PartX" suffix
+      final bool isSinglePart = numParts <= 1;
 
       for (int i = 0; i < numParts; i++) {
         final int startRow = i * _pdfRowsPerFile;
         final int endRow = (startRow + _pdfRowsPerFile > totalRows) ? totalRows : startRow + _pdfRowsPerFile;
         final List<PlutoRow> currentRowsChunk = widget.plutoRows.sublist(startRow, endRow);
 
-        String partFileName = widget.fileName;
-        if (numParts > 1) { // Only append part number if there are multiple parts
-          partFileName = '${widget.fileName}_Part${i + 1}';
+        String partFileName = originalFileName;
+        if (!isSinglePart) {
+          // Only append part number if there are multiple parts
+          partFileName = '${originalFileName}_Part${i + 1}';
         }
 
-        // Update UI progress for current part
-        // Note: _executeExportTask manages the single UI loader/snackbar.
-        // We're updating its internal message via its 'onProgressUpdate' callback.
-        if (context.mounted) {
-          final message = 'Generating PDF part ${i + 1} of $numParts (${startRow + 1} - $endRow rows)...';
-          // This calls the internalProgressUpdater of the parent _executeExportTask
-          // by passing a dummy async function to its 'task' parameter, and then
-          // directly calling 'onProgressUpdate'. This is a bit of a hack to
-          // update the message from an inner loop without spawning new _executeExportTask.
-          // A better design might be to pass the ValueNotifier directly.
-          if (ModalRoute.of(context)?.isCurrent == true) { // Check if context is still valid
-            // Re-invoke _executeExportTask to update its message. This is still not ideal.
-            // The ideal way to update the existing _executeExportTask's message is via a direct callback.
-            // Let's assume _executeExportTask's onProgressUpdate is the way.
-            (context as Element).visitAncestorElements((element) {
-              if (element.widget is _ExportWidgetState && (element.state as _ExportWidgetState)._isExportingGlobally) {
-                // This is a direct hack to access the internal message notifier.
-                // In a real app, you'd pass a callback or a notifier more cleanly.
-                (element.state as _ExportWidgetState)._executeExportTask(
-                    element.context, () async {}, 'Export to PDF', // Dummy task
-                    showLoaderDialog: false, // Don't show new dialog
-                    initialMessage: message // Update message
-                );
-                return false; // Stop visiting ancestors
-              }
-              return true; // Continue visiting
-            });
-          }
-        }
-
+        progressUpdater('Generating PDF part ${i + 1} of $numParts (${startRow + 1} - $endRow rows)...');
 
         Uint8List pdfBytes;
         if (_hasImageColumns()) {
@@ -861,7 +837,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
 
       // If there's only one part, just save it directly (no need to zip)
-      if (pdfParts.length == 1) {
+      if (isSinglePart) {
         final firstPart = pdfParts.first;
         final result = await FileSaver.instance.saveFile(
           name: firstPart.fileName,
@@ -872,6 +848,7 @@ class _ExportWidgetState extends State<ExportWidget> {
         debugPrint('Single PDF export successful: ${firstPart.fileName} at $result');
       } else {
         // If multiple parts, create a ZIP file
+        progressUpdater('Zipping ${pdfParts.length} PDF files...');
         final archive = Archive();
         for (var part in pdfParts) {
           archive.addFile(ArchiveFile(part.fileName, part.bytes.length, part.bytes));
@@ -881,7 +858,7 @@ class _ExportWidgetState extends State<ExportWidget> {
           throw Exception('Failed to create ZIP archive. Resulting bytes were null.');
         }
 
-        final zipFileName = '${widget.fileName}_Parts.zip';
+        final zipFileName = '${originalFileName}_Parts.zip';
         final result = await FileSaver.instance.saveFile(
           name: zipFileName,
           bytes: Uint8List.fromList(zipBytes),
@@ -890,15 +867,14 @@ class _ExportWidgetState extends State<ExportWidget> {
         DownloadTracker.trackDownload(zipFileName, result, _exportId);
         debugPrint('Multi-part PDF export successful (zipped): $zipFileName at $result');
       }
-
     }, 'Export to PDF', showLoaderDialog: false, initialMessage: 'Preparing PDF exports...');
   }
-
 
   Future<void> _printDocument(BuildContext context) async {
     // For printing, we usually want one continuous document.
     // So, we'll revert to generating one large PDF for print, using the combined logic.
-    await _executeExportTask(context, () async {
+    await _executeExportTask(context, (progressUpdater) async {
+      progressUpdater('Generating document for print...');
       debugPrint('Print document: Initiating PDF byte generation for a single document.');
 
       // Consolidate all rows for the print operation
@@ -954,7 +930,6 @@ class _ExportWidgetState extends State<ExportWidget> {
           ),
         );
         pdfBytes = await doc.save();
-
       } else {
         debugPrint("Print: No image columns. Calling PDF generation API for print.");
         final Map<String, dynamic> requestBody = {
@@ -1018,7 +993,8 @@ class _ExportWidgetState extends State<ExportWidget> {
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              if (emailController.text.isNotEmpty && RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
+              if (emailController.text.isNotEmpty &&
+                  RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
                 Navigator.of(context).pop(true);
               } else {
                 if (context.mounted) {
@@ -1037,7 +1013,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       return;
     }
 
-    await _executeExportTask(context, () async {
+    await _executeExportTask(context, (progressUpdater) async {
       final serializableColumnsForExcel = widget.columns
           .where((col) => col.field != '__raw_data__')
           .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
@@ -1056,7 +1032,8 @@ class _ExportWidgetState extends State<ExportWidget> {
 
       final grandTotalDataExcel = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
 
-      debugPrint('Email: Generating Excel for attachment...');
+      progressUpdater('Generating Excel for attachment...');
+      debugPrint('Email: Generating Excel for attachment.');
       final excelBytes = await compute(_generateExcel, {
         'columns': serializableColumnsForExcel,
         'rows': serializableRowsForExcel,
@@ -1071,7 +1048,8 @@ class _ExportWidgetState extends State<ExportWidget> {
 
       // For email, we generally want to attach a single PDF for convenience.
       // So, this will also generate one large PDF, similar to print.
-      debugPrint('Email: Generating single PDF for attachment...');
+      progressUpdater('Generating single PDF for attachment...');
+      debugPrint('Email: Generating single PDF for attachment.');
 
       // Consolidate all rows for the PDF attachment
       final List<Map<String, dynamic>> serializableColumnsForPdf = widget.columns
@@ -1092,7 +1070,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         allPlutoRowsJsonForPdf.add(flattenedRowData);
       }
 
-      final Map<String, dynamic>? grandTotalDataPdf = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
+      final Map<String, dynamic>? grandTotalDataPdf =
+      _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
 
       Uint8List pdfBytes;
       if (_hasImageColumns()) {
@@ -1121,12 +1100,12 @@ class _ExportWidgetState extends State<ExportWidget> {
             header: (context) => _buildPdfHeader(poppinsRegular, poppinsBold),
             footer: (context) => _buildPdfFooter(context, poppinsRegular),
             build: (context) => [
-              _buildPdfContentTable(serializableColumnsForPdf, allProcessedSerializableRows, grandTotalDataPdf, poppinsRegular, poppinsBold),
+              _buildPdfContentTable(
+                  serializableColumnsForPdf, allProcessedSerializableRows, grandTotalDataPdf, poppinsRegular, poppinsBold),
             ],
           ),
         );
         pdfBytes = await doc.save();
-
       } else {
         debugPrint("Email: No image columns. Calling PDF generation API for email attachment.");
         final Map<String, dynamic> requestBody = {
@@ -1168,6 +1147,7 @@ class _ExportWidgetState extends State<ExportWidget> {
       request.files.add(http.MultipartFile.fromBytes('pdf', pdfBytes,
           filename: '${widget.fileName}.pdf', contentType: MediaType('application', 'pdf')));
 
+      progressUpdater('Sending email with attachments to ${emailController.text}...');
       debugPrint('Email: Sending email with attachments to ${emailController.text}...');
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -1179,6 +1159,51 @@ class _ExportWidgetState extends State<ExportWidget> {
         throw Exception('Server failed to send email. Status: ${response.statusCode}. Details: ${response.body}');
       }
     }, 'Send to Email Processing', initialMessage: 'Preparing email and attachments...');
+  }
+
+  // The _exportToExcel method is correctly defined here.
+  // Its internal logic now calls _executeExportTask with a progressUpdater.
+  Future<void> _exportToExcel(BuildContext context) async {
+    await _executeExportTask(context, (progressUpdater) async {
+      final serializableColumns = widget.columns
+          .where((col) => col.field != '__raw_data__')
+          .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
+          .toList();
+
+      final serializableRows = widget.plutoRows.map((row) {
+        final cellsMap = <String, dynamic>{};
+        for (var col in widget.columns) {
+          cellsMap[col.field] = row.cells[col.field]?.value;
+        }
+        if (row.cells.containsKey('__isSubtotal__')) {
+          cellsMap['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
+        }
+        return cellsMap;
+      }).toList();
+
+      final grandTotalData = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
+      progressUpdater('Generating Excel...'); // Use the updater
+      debugPrint('Excel export: Data prepared. Calling compute for Excel generation.');
+      final excelBytes = await compute(_generateExcel, {
+        'columns': serializableColumns,
+        'rows': serializableRows,
+        'exportId': _exportId,
+        'fieldConfigs': widget.fieldConfigs,
+        'reportLabel': widget.reportLabel,
+        'displayParameterValues': widget.displayParameterValues,
+        'companyNameForHeader': _companyNameForHeader,
+        'grandTotalData': grandTotalData,
+      });
+      debugPrint('Excel export: Excel bytes generated. Saving file.');
+      final fileName = '${widget.fileName}.xlsx';
+      final result = await FileSaver.instance.saveFile(
+        name: fileName,
+        bytes: excelBytes,
+        mimeType: MimeType.microsoftExcel,
+      );
+      DownloadTracker.trackDownload(fileName, result, _exportId);
+      debugPrint('Excel export successful: $fileName at $result');
+    }, 'Export to Excel', initialMessage: 'Generating Excel...');
   }
 
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
@@ -1325,7 +1350,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: totalRowIndex)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
           bold: true,
-          horizontalAlign: i == 0 ? HorizontalAlign.Left : (isNumeric ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right) : HorizontalAlign.Left),
+          horizontalAlign:
+          i == 0 ? HorizontalAlign.Left : (isNumeric ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right) : HorizontalAlign.Left),
         );
       }
     }
@@ -1341,4 +1367,4 @@ class _ExportWidgetState extends State<ExportWidget> {
     debugPrint('Excel Isolate: Excel generation complete.');
     return Uint8List.fromList(excel.encode() ?? []);
   }
-}
+} // Ensure this closes the _ExportWidgetState class properly
