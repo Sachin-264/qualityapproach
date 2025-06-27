@@ -74,9 +74,10 @@ class ReorderGroupsEvent extends DashboardBuilderEvent {
 class AddReportToDashboardEvent extends DashboardBuilderEvent {
   final String groupId;
   final Map<String, dynamic> reportDefinition;
-  const AddReportToDashboardEvent({required this.groupId, required this.reportDefinition});
+  final String? apiUrl;
+  const AddReportToDashboardEvent({required this.groupId, required this.reportDefinition, this.apiUrl});
   @override
-  List<Object?> get props => [groupId, reportDefinition];
+  List<Object?> get props => [groupId, reportDefinition, apiUrl];
 }
 
 class RemoveReportFromDashboardEvent extends DashboardBuilderEvent {
@@ -87,7 +88,7 @@ class RemoveReportFromDashboardEvent extends DashboardBuilderEvent {
   List<Object?> get props => [groupId, reportRecNo];
 }
 
-// --- CORRECTED EVENT ---
+// --- MODIFIED EVENT ---
 class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
   final String groupId;
   final int reportRecNo;
@@ -95,6 +96,12 @@ class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
   final String? newSubtitle;
   final IconData newIcon;
   final Color newColor;
+  final String? newApiUrl;
+  // --- NEW PROPERTIES ---
+  final bool newShowAsTile;
+  final bool newShowAsGraph;
+  final GraphType? newGraphType;
+
   const UpdateReportCardConfigEvent({
     required this.groupId,
     required this.reportRecNo,
@@ -102,9 +109,13 @@ class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
     this.newSubtitle,
     required this.newIcon,
     required this.newColor,
+    this.newApiUrl,
+    required this.newShowAsTile,
+    required this.newShowAsGraph,
+    this.newGraphType,
   });
   @override
-  List<Object?> get props => [groupId, reportRecNo, newTitle, newSubtitle, newIcon, newColor];
+  List<Object?> get props => [groupId, reportRecNo, newTitle, newSubtitle, newIcon, newColor, newApiUrl, newShowAsTile, newShowAsGraph, newGraphType];
 }
 
 class ReorderReportsEvent extends DashboardBuilderEvent {
@@ -348,7 +359,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     ));
   }
 
-
   void _onAddReportToDashboard(
       AddReportToDashboardEvent event,
       Emitter<DashboardBuilderState> emit,
@@ -373,6 +383,11 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       displaySubtitle: event.reportDefinition['API_name'] ?? '',
       displayIcon: Icons.description,
       displayColor: currentDashboard.templateConfig.accentColor ?? Colors.blue,
+      apiUrl: event.apiUrl,
+      // Default to showing as a tile only
+      showAsTile: true,
+      showAsGraph: false,
+      graphType: null,
     );
 
     final updatedGroups = currentDashboard.reportGroups.map((group) {
@@ -413,7 +428,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     ));
   }
 
-  // --- CORRECTED HANDLER ---
+  // --- MODIFIED HANDLER ---
   void _onUpdateReportCardConfig(
       UpdateReportCardConfigEvent event,
       Emitter<DashboardBuilderState> emit,
@@ -430,6 +445,10 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
               displaySubtitle: event.newSubtitle,
               displayIcon: event.newIcon,
               displayColor: event.newColor,
+              apiUrl: event.newApiUrl,
+              showAsTile: event.newShowAsTile,
+              showAsGraph: event.newShowAsGraph,
+              graphType: event.newGraphType,
             );
           }
           return card;

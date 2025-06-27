@@ -1,3 +1,5 @@
+// lib/ReportDashboard/DashboardScreen/dashboard_view_screen.dart
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -62,14 +64,10 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
 
       final dashboardsJson = await widget.apiService.getDashboards();
 
-      // --- THE FIX IS HERE ---
-      // Instead of converting our string ID to an int, we convert the
-      // ID from the JSON data to a string for a robust comparison.
       final dashboardJson = dashboardsJson.firstWhere(
             (dash) => dash['DashboardID']?.toString() == widget.dashboardId,
         orElse: () => throw Exception('Dashboard with ID ${widget.dashboardId} not found.'),
       );
-      // --- END OF FIX ---
 
       final dashboard = Dashboard.fromJson(dashboardJson);
 
@@ -92,11 +90,6 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
   }
 
   Map<String, dynamic>? _getReportDefinition(int recNo) {
-    debugPrint('[DashboardView] Searching for RecNo: $recNo in ${_allReportDefinitions.length} definitions.');
-    if (_allReportDefinitions.isNotEmpty) {
-      final firstReport = _allReportDefinitions.first;
-      debugPrint('[DashboardView] Example RecNo from raw data: ${firstReport['RecNo']} (Type: ${firstReport['RecNo']?.runtimeType})');
-    }
     try {
       return _allReportDefinitions.firstWhere(
             (report) => report['RecNo']?.toString() == recNo.toString(),
@@ -108,11 +101,8 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
   }
 
   void _navigateToReport(DashboardReportCardConfig cardConfig) {
-    debugPrint('\n--- [DashboardView] Tapped on card: "${cardConfig.displayTitle}" ---');
-    debugPrint('[DashboardView] Card is configured with RecNo: ${cardConfig.reportRecNo}');
     final reportDef = _getReportDefinition(cardConfig.reportRecNo);
     if (reportDef == null || reportDef.isEmpty) {
-      debugPrint('[DashboardView] Error: _getReportDefinition returned null. Stopping navigation.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not find the definition for report: ${cardConfig.displayTitle}'), backgroundColor: Colors.red),
@@ -120,7 +110,6 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
       }
       return;
     }
-    debugPrint('[DashboardView] Successfully found report definition: ${jsonEncode(reportDef)}');
     if (reportDef['API_name'] == null || reportDef['API_name'].toString().isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +118,6 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
       }
       return;
     }
-    debugPrint('[DashboardView] Navigating to PreSelectedReportLoader...');
     if (mounted) {
       Navigator.push(
         context,
@@ -184,7 +172,7 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
           );
         } else {
           final dashboard = snapshot.data!;
-          final bool hasNoReports = dashboard.reportGroups.isEmpty || dashboard.reportGroups.every((g) => g.reports.isEmpty);
+          final bool hasNoContent = dashboard.reportGroups.isEmpty || dashboard.reportGroups.every((g) => g.reports.isEmpty);
 
           return Scaffold(
             appBar: AppBarWidget(
@@ -203,11 +191,13 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
                 )
               ],
             ),
-            body: hasNoReports
+            body: hasNoContent
                 ? Center(child: Text('This dashboard has no reports configured.', style: GoogleFonts.poppins(color: Colors.grey[600], fontSize: 16), textAlign: TextAlign.center))
                 : _DashboardTemplateRenderer(
               dashboard: dashboard,
               onReportCardTap: _navigateToReport,
+              // --- CHANGE: Pass the apiService down ---
+              apiService: widget.apiService,
             ),
           );
         }
@@ -219,11 +209,14 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
 class _DashboardTemplateRenderer extends StatelessWidget {
   final Dashboard dashboard;
   final Function(DashboardReportCardConfig) onReportCardTap;
+  // --- CHANGE: Accept the apiService ---
+  final ReportAPIService apiService;
 
   const _DashboardTemplateRenderer({
     Key? key,
     required this.dashboard,
     required this.onReportCardTap,
+    required this.apiService,
   }) : super(key: key);
 
   @override
@@ -237,7 +230,12 @@ class _DashboardTemplateRenderer extends StatelessWidget {
       case DashboardTemplateEnum.classicClean:
         return ClassicCleanTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
       case DashboardTemplateEnum.modernMinimal:
-        return ModernMinimalTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
+      // --- CHANGE: Pass the apiService to the template ---
+        return ModernMinimalTemplate(
+          dashboard: dashboard,
+          onReportCardTap: onReportCardTap,
+          apiService: apiService,
+        );
       case DashboardTemplateEnum.vibrantBold:
         return VibrantBoldTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
     }

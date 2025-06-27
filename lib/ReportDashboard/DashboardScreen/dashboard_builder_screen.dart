@@ -13,6 +13,49 @@ import '../DashboardModel/dashboard_model.dart';
 import '../dashboardWidget/dashboard_colour_picker.dart';
 import '../dashboardWidget/dashboard_icon_picker.dart';
 
+// Helper to build the inviting "Add Report" placeholder for empty groups
+Widget _buildEmptyGroupPlaceholder(BuildContext context, VoidCallback onTap) {
+  final theme = Theme.of(context);
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.add_circle_outline_rounded,
+            size: 40,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Add Your First Report',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Tap here to select a report for this group.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+
 int? _safeParseInt(dynamic value) { if (value == null) return null; if (value is int) return value; if (value is String) return int.tryParse(value); if (value is num) return value.toInt(); return null; }
 
 enum DashboardTemplateOption { classicClean, modernMinimal, vibrantBold, }
@@ -92,56 +135,86 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
   void _showCardCustomizationDialog(DashboardReportCardConfig cardConfig, String groupId) async {
     final titleController = TextEditingController(text: cardConfig.displayTitle);
     final subtitleController = TextEditingController(text: cardConfig.displaySubtitle);
+    final apiUrlController = TextEditingController(text: cardConfig.apiUrl);
 
-    // --- FIX: Provide default values for nullable properties ---
     IconData selectedIcon = cardConfig.displayIcon ?? Icons.article;
     Color selectedColor = cardConfig.displayColor ?? Colors.grey;
+    GraphType? selectedGraphType = cardConfig.graphType ?? GraphType.bar;
+    bool showAsTile = cardConfig.showAsTile;
+    bool showAsGraph = cardConfig.showAsGraph;
 
     await showDialog<void>(
         context: context,
         builder: (context) {
           return StatefulBuilder(
             builder: (context, setDialogState) {
+              final bool isApplyButtonDisabled = !showAsTile && !showAsGraph;
+
               return AlertDialog(
                 title: const Text('Customize Report Card'),
                 content: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text('Display Options', style: TextStyle(fontWeight: FontWeight.bold)),
+                      CheckboxListTile(
+                        title: const Text('Show as Tile'),
+                        value: showAsTile,
+                        onChanged: (value) => setDialogState(() => showAsTile = value!),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      CheckboxListTile(
+                        title: const Text('Show as Graph'),
+                        value: showAsGraph,
+                        onChanged: (value) => setDialogState(() => showAsGraph = value!),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      const Divider(),
+                      if (showAsGraph) ...[
+                        DropdownButtonFormField<GraphType>(
+                          decoration: const InputDecoration(labelText: 'Graph Type'),
+                          value: selectedGraphType,
+                          items: GraphType.values.map((g) => DropdownMenuItem(value: g, child: Text(g.displayName))).toList(),
+                          onChanged: (value) { if (value != null) { setDialogState(() => selectedGraphType = value); } },
+                        ),
+                        const SizedBox(height: 16),
+                      ],
                       TextField(controller: titleController, decoration: const InputDecoration(labelText: 'Card Title')),
                       const SizedBox(height: 16),
                       TextField(controller: subtitleController, decoration: const InputDecoration(labelText: 'Card Subtitle (Optional)')),
                       const SizedBox(height: 16),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Card Icon'),
-                        trailing: Icon(selectedIcon, color: selectedColor, size: 28),
-                        onTap: () async {
-                          // --- FIX: Pass the required 'selectedIcon' parameter ---
-                          final newIcon = await showDialog<IconData>(context: context, builder: (ctx) => IconPickerDialog(selectedIcon: selectedIcon));
-                          if (newIcon != null) {
-                            setDialogState(() => selectedIcon = newIcon);
-                          }
-                        },
-                      ),
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Card Icon Color'),
-                        trailing: CircleAvatar(backgroundColor: selectedColor, radius: 14),
-                        onTap: () async {
-                          final newColor = await showDialog<Color>(context: context, builder: (ctx) => ColorPickerDialog(initialColor: selectedColor));
-                          if (newColor != null) {
-                            setDialogState(() => selectedColor = newColor);
-                          }
-                        },
-                      ),
+                      TextField(controller: apiUrlController, decoration: const InputDecoration(labelText: 'API URL (Optional)', hintText: 'https://...')),
+                      const SizedBox(height: 16),
+                      if (showAsTile) ...[
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Tile Icon'),
+                          trailing: Icon(selectedIcon, color: selectedColor, size: 28),
+                          onTap: () async {
+                            final newIcon = await showDialog<IconData>(context: context, builder: (ctx) => IconPickerDialog(selectedIcon: selectedIcon));
+                            if (newIcon != null) { setDialogState(() => selectedIcon = newIcon); }
+                          },
+                        ),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Tile Icon Color'),
+                          trailing: CircleAvatar(backgroundColor: selectedColor, radius: 14),
+                          onTap: () async {
+                            final newColor = await showDialog<Color>(context: context, builder: (ctx) => ColorPickerDialog(initialColor: selectedColor));
+                            if (newColor != null) { setDialogState(() => selectedColor = newColor); }
+                          },
+                        ),
+                      ]
                     ],
                   ),
                 ),
                 actions: [
                   TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
                   ElevatedButton(
-                    onPressed: () {
+                    onPressed: isApplyButtonDisabled ? null : () {
                       context.read<DashboardBuilderBloc>().add(UpdateReportCardConfigEvent(
                         groupId: groupId,
                         reportRecNo: cardConfig.reportRecNo,
@@ -149,6 +222,10 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                         newSubtitle: subtitleController.text,
                         newIcon: selectedIcon,
                         newColor: selectedColor,
+                        newApiUrl: apiUrlController.text,
+                        newShowAsTile: showAsTile,
+                        newShowAsGraph: showAsGraph,
+                        newGraphType: showAsGraph ? selectedGraphType : null,
                       ));
                       Navigator.of(context).pop();
                     },
@@ -206,6 +283,43 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
     }
   }
 
+  void _showAddReportDialog(BuildContext parentContext, String groupId, Map<String, dynamic> reportDefinition) async {
+    final apiUrlController = TextEditingController();
+    final reportName = reportDefinition['Report_label'] ?? reportDefinition['Report_name'] ?? 'Selected Report';
+
+    await showDialog<void>(
+      context: parentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Add "$reportName"'),
+        content: TextField(
+          controller: apiUrlController,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'API URL (Optional)',
+            hintText: 'Enter data source URL...',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              parentContext.read<DashboardBuilderBloc>().add(
+                AddReportToDashboardEvent(
+                  groupId: groupId,
+                  reportDefinition: reportDefinition,
+                  apiUrl: apiUrlController.text.isNotEmpty ? apiUrlController.text : null,
+                ),
+              );
+              Navigator.of(dialogContext).pop();
+              Navigator.of(parentContext).pop();
+            },
+            child: const Text('Add Report'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAddReportSheet(BuildContext context, DashboardBuilderLoaded state, String groupId) {
     final currentDashboard = state.currentDashboard!;
     final allAddedRecNos = currentDashboard.reportGroups
@@ -215,43 +329,66 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
 
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => Column(
-        children: [
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text('Select a Report to Add', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-          ),
-          Expanded(
-            child: ListView.builder(
-              itemCount: state.availableReports.length,
-              itemBuilder: (ctx, index) {
-                final report = state.availableReports[index];
-                final int? recNo = _safeParseInt(report['RecNo']);
-                if (recNo == null) return const SizedBox.shrink();
-
-                final bool isSelected = allAddedRecNos.contains(recNo);
-                return ListTile(
-                  title: Text(report['Report_label'] ?? report['Report_name'] ?? 'Report $recNo'),
-                  trailing: isSelected
-                      ? const Icon(Icons.check_circle, color: Colors.green)
-                      : const Icon(Icons.add_circle_outline),
-                  onTap: () {
-                    if (!isSelected) {
-                      context.read<DashboardBuilderBloc>().add(AddReportToDashboardEvent(groupId: groupId, reportDefinition: report));
-                      Navigator.pop(ctx);
-                    }
-                  },
-                );
-              },
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        maxChildSize: 0.9,
+        builder: (_, scrollController) => Column(
+          children: [
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: Text('Select a Report to Add', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             ),
-          ),
-        ],
+            Expanded(
+              child: ListView.builder(
+                controller: scrollController,
+                itemCount: state.availableReports.length,
+                itemBuilder: (listCtx, index) {
+                  final report = state.availableReports[index];
+                  final int? recNo = _safeParseInt(report['RecNo']);
+                  if (recNo == null) return const SizedBox.shrink();
+
+                  final bool isSelected = allAddedRecNos.contains(recNo);
+                  return ListTile(
+                    title: Text(report['Report_label'] ?? report['Report_name'] ?? 'Report $recNo'),
+                    trailing: isSelected
+                        ? const Icon(Icons.check_circle, color: Colors.green)
+                        : const Icon(Icons.add_circle_outline),
+                    onTap: () {
+                      if (!isSelected) {
+                        _showAddReportDialog(context, groupId, report);
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  Icon _getReportLeadingIcon(DashboardReportCardConfig config) {
+    if (config.showAsGraph) {
+      switch (config.graphType) {
+        case GraphType.pie: return const Icon(Icons.pie_chart_outline, color: Colors.purple);
+        case GraphType.line: return const Icon(Icons.show_chart, color: Colors.green);
+        case GraphType.bar: return const Icon(Icons.bar_chart_outlined, color: Colors.orange);
+        default: return const Icon(Icons.insights_outlined, color: Colors.grey);
+      }
+    }
+    if (config.showAsTile) {
+      return Icon(config.displayIcon, color: config.displayColor);
+    }
+    return const Icon(Icons.block, color: Colors.grey);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
       appBar: AppBarWidget(
         title: widget.dashboardToEdit == null ? 'Create New Dashboard' : 'Edit Dashboard',
@@ -262,17 +399,11 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
           if (state is DashboardBuilderLoaded) {
             final dashboard = state.currentDashboard;
             if (dashboard != null) {
-              if (_nameController.text != dashboard.dashboardName) {
-                _nameController.text = dashboard.dashboardName;
-              }
-              if (_descriptionController.text != (dashboard.dashboardDescription ?? '')) {
-                _descriptionController.text = dashboard.dashboardDescription ?? '';
-              }
+              if (_nameController.text != dashboard.dashboardName) { _nameController.text = dashboard.dashboardName; }
+              if (_descriptionController.text != (dashboard.dashboardDescription ?? '')) { _descriptionController.text = dashboard.dashboardDescription ?? ''; }
               setState(() {
                 _currentAccentColor = dashboard.templateConfig.accentColor;
-                _selectedTemplateOption = DashboardTemplateOption.values.firstWhereOrNull(
-                      (e) => e.id == dashboard.templateConfig.id,
-                ) ?? DashboardTemplateOption.classicClean;
+                _selectedTemplateOption = DashboardTemplateOption.values.firstWhereOrNull((e) => e.id == dashboard.templateConfig.id) ?? DashboardTemplateOption.classicClean;
               });
             }
             if (state.message != null) _showSnackBar(state.message!);
@@ -305,105 +436,168 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                           const SizedBox(height: 16),
                           DropdownButtonFormField<DashboardTemplateOption>(decoration: InputDecoration(labelText: 'Select Template', border: OutlineInputBorder(borderRadius: BorderRadius.circular(8))), value: _selectedTemplateOption, items: DashboardTemplateOption.values.map((o) => DropdownMenuItem(value: o, child: Text(o.name))).toList(), onChanged: (o){if(o!=null){setState((){_selectedTemplateOption=o; _currentAccentColor=o.defaultAccentColor;}); context.read<DashboardBuilderBloc>().add(UpdateDashboardInfo(templateId:o.id, accentColor:o.defaultAccentColor));}}),
                           const SizedBox(height: 16),
-                          ListTile(contentPadding: EdgeInsets.zero, title: Text('Accent Color', style: GoogleFonts.poppins()), trailing: CircleAvatar(backgroundColor: _currentAccentColor ?? Theme.of(context).primaryColor, radius: 15), onTap: () async { final c = await showDialog<Color>(context: context, builder: (ctx) => ColorPickerDialog(initialColor: _currentAccentColor ?? Theme.of(context).primaryColor)); if (c != null) { setState(() => _currentAccentColor = c); context.read<DashboardBuilderBloc>().add(UpdateDashboardInfo(accentColor: c)); } }),
-                          const Divider(height: 32),
-                          Text('Report Groups', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 10),
-                          if (currentDashboard.reportGroups.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 24.0),
-                              child: Center(child: Text("No report groups yet. Add one to begin.", style: TextStyle(color: Colors.grey[600]))),
+                          ListTile(contentPadding: EdgeInsets.zero, title: Text('Accent Color', style: GoogleFonts.poppins()), trailing: CircleAvatar(backgroundColor: _currentAccentColor ?? theme.primaryColor, radius: 15), onTap: () async { final c = await showDialog<Color>(context: context, builder: (ctx) => ColorPickerDialog(initialColor: _currentAccentColor ?? theme.primaryColor)); if (c != null) { setState(() => _currentAccentColor = c); context.read<DashboardBuilderBloc>().add(UpdateDashboardInfo(accentColor: c)); } }),
+
+                          // --- UI REDESIGN: Section Header for Report Groups ---
+                          Padding(
+                            padding: const EdgeInsets.only(top: 24.0, bottom: 8.0),
+                            child: Column(
+                              children: [
+                                Text('Report Groups', style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 4),
+                                Divider(color: theme.colorScheme.outline.withOpacity(0.5)),
+                              ],
                             ),
+                          ),
+
+                          if (currentDashboard.reportGroups.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 24.0), child: Center(child: Text("No report groups yet. Add one to begin.", style: TextStyle(color: Colors.grey[600])))),
+
                           ReorderableListView.builder(
+                            // --- BUG FIX: Disable default handles ---
+                            buildDefaultDragHandles: false,
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
                             itemCount: currentDashboard.reportGroups.length,
                             onReorder: (oldIndex, newIndex) => context.read<DashboardBuilderBloc>().add(ReorderGroupsEvent(oldIndex, newIndex)),
                             itemBuilder: (context, groupIndex) {
                               final group = currentDashboard.reportGroups[groupIndex];
-                              return Card(
+                              return Padding(
                                 key: ValueKey(group.groupId),
-                                margin: const EdgeInsets.symmetric(vertical: 8),
-                                elevation: 2,
+                                padding: const EdgeInsets.symmetric(vertical: 8.0),
                                 child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    ListTile(
-                                      title: Text(group.groupName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                      subtitle: (group.groupUrl?.isNotEmpty ?? false) ? Text(group.groupUrl!, style: TextStyle(color: Colors.blueGrey.shade700, fontStyle: FontStyle.italic), overflow: TextOverflow.ellipsis) : null,
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(icon: const Icon(Icons.add_box_outlined), tooltip: 'Add Report to this Group', onPressed: () => _showAddReportSheet(context, state, group.groupId)),
-                                          PopupMenuButton<String>(
-                                            tooltip: 'Group Options',
-                                            onSelected: (value) {
-                                              if (value == 'edit') {
-                                                _showGroupDialog(groupToEdit: group);
-                                              } else if (value == 'delete') {
-                                                context.read<DashboardBuilderBloc>().add(RemoveReportGroupEvent(group.groupId));
-                                              }
-                                            },
-                                            itemBuilder: (context) => [
-                                              const PopupMenuItem(value: 'edit', child: Text('Edit Group')),
-                                              const PopupMenuItem(value: 'delete', child: Text('Delete Group', style: TextStyle(color: Colors.red))),
-                                            ],
+                                    // --- UI REDESIGN: Direct Action Header ---
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            group.groupName,
+                                            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
                                           ),
-                                          ReorderableDragStartListener(
-                                            index: groupIndex,
-                                            child: const Padding(padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0), child: Icon(Icons.drag_handle)),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Edit Group',
+                                          icon: const Icon(Icons.edit_outlined),
+                                          iconSize: 20,
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: () => _showGroupDialog(groupToEdit: group),
+                                        ),
+                                        IconButton(
+                                          tooltip: 'Delete Group',
+                                          icon: Icon(Icons.delete_outline_rounded, color: theme.colorScheme.error),
+                                          iconSize: 20,
+                                          visualDensity: VisualDensity.compact,
+                                          onPressed: () => context.read<DashboardBuilderBloc>().add(RemoveReportGroupEvent(group.groupId)),
+                                        ),
+                                        ReorderableDragStartListener(
+                                          index: groupIndex,
+                                          child: const Padding(
+                                            padding: EdgeInsets.all(8.0),
+                                            child: Icon(Icons.drag_indicator_rounded),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+
+                                    Card(
+                                      elevation: 0,
+                                      color: theme.colorScheme.surfaceVariant.withOpacity(0.3),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        side: BorderSide(color: theme.colorScheme.outlineVariant.withOpacity(0.5)),
+                                      ),
+                                      child: group.reports.isEmpty
+                                          ? _buildEmptyGroupPlaceholder(context, () => _showAddReportSheet(context, state, group.groupId))
+                                          : Column(
+                                        children: [
+                                          ReorderableListView.builder(
+                                            // --- BUG FIX: Disable default handles here too ---
+                                            buildDefaultDragHandles: false,
+                                            shrinkWrap: true,
+                                            physics: const NeverScrollableScrollPhysics(),
+                                            itemCount: group.reports.length,
+                                            onReorder: (oldIndex, newIndex) => context.read<DashboardBuilderBloc>().add(ReorderReportsEvent(groupId: group.groupId, oldIndex: oldIndex, newIndex: newIndex)),
+                                            itemBuilder: (context, reportIndex) {
+                                              final reportConfig = group.reports[reportIndex];
+                                              return ListTile(
+                                                key: ValueKey(reportConfig.reportRecNo),
+                                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                                leading: _getReportLeadingIcon(reportConfig),
+                                                title: Text(reportConfig.displayTitle, overflow: TextOverflow.ellipsis),
+                                                subtitle: Text('ID: ${reportConfig.reportRecNo}'),
+                                                trailing: Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    IconButton(icon: const Icon(Icons.palette_outlined), tooltip: 'Customize', onPressed: () => _showCardCustomizationDialog(reportConfig, group.groupId)),
+                                                    IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent), tooltip: 'Remove', onPressed: () => context.read<DashboardBuilderBloc>().add(RemoveReportFromDashboardEvent(groupId: group.groupId, reportRecNo: reportConfig.reportRecNo))),
+                                                    ReorderableDragStartListener(
+                                                      index: reportIndex,
+                                                      child: const Padding(
+                                                        padding: EdgeInsets.symmetric(horizontal: 8.0),
+                                                        child: Icon(Icons.drag_handle_rounded),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            },
+                                          ),
+                                          const Divider(height: 1),
+                                          TextButton.icon(
+                                            style: TextButton.styleFrom(
+                                              foregroundColor: theme.primaryColor,
+                                              padding: const EdgeInsets.symmetric(vertical: 12),
+                                            ),
+                                            onPressed: () => _showAddReportSheet(context, state, group.groupId),
+                                            icon: const Icon(Icons.add, size: 20),
+                                            label: const Text('Add Another Report'),
                                           ),
                                         ],
                                       ),
                                     ),
-                                    if (group.reports.isNotEmpty)
-                                      ReorderableListView.builder(
-                                        shrinkWrap: true,
-                                        physics: const NeverScrollableScrollPhysics(),
-                                        itemCount: group.reports.length,
-                                        onReorder: (oldIndex, newIndex) => context.read<DashboardBuilderBloc>().add(ReorderReportsEvent(groupId: group.groupId, oldIndex: oldIndex, newIndex: newIndex)),
-                                        itemBuilder: (context, reportIndex) {
-                                          final reportConfig = group.reports[reportIndex];
-                                          return ListTile(
-                                            key: ValueKey(reportConfig.reportRecNo),
-                                            visualDensity: VisualDensity.compact,
-                                            leading: Icon(reportConfig.displayIcon, color: reportConfig.displayColor),
-                                            title: Text(reportConfig.displayTitle, overflow: TextOverflow.ellipsis),
-                                            subtitle: Text('ID: ${reportConfig.reportRecNo} - ${reportConfig.displaySubtitle ?? ''}', overflow: TextOverflow.ellipsis),
-                                            trailing: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                IconButton(icon: const Icon(Icons.palette_outlined), tooltip: 'Customize Card', onPressed: () => _showCardCustomizationDialog(reportConfig, group.groupId)),
-                                                IconButton(icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent), tooltip: 'Remove Report', onPressed: () => context.read<DashboardBuilderBloc>().add(RemoveReportFromDashboardEvent(groupId: group.groupId, reportRecNo: reportConfig.reportRecNo))),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    if (group.reports.isEmpty)
-                                      ListTile(
-                                        dense: true,
-                                        title: Center(
-                                          child: Text("No reports in this group", style: TextStyle(fontStyle: FontStyle.italic, color: Colors.grey.shade600)),
-                                        ),
-                                      ),
                                   ],
                                 ),
                               );
                             },
                           ),
-                          const SizedBox(height: 16),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: ElevatedButton.icon(onPressed: () => _showGroupDialog(), icon: const Icon(Icons.add_circle_outline), label: Text('Add New Group', style: GoogleFonts.poppins())),
-                          ),
+
                           const SizedBox(height: 24),
-                          ElevatedButton(onPressed: (){if(_formKey.currentState!.validate()){context.read<DashboardBuilderBloc>().add(const SaveDashboardEvent());}}, style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), backgroundColor: Theme.of(context).primaryColor), child: Text(widget.dashboardToEdit == null ? 'Create Dashboard' : 'Update Dashboard', style: GoogleFonts.poppins(fontSize: 18, color: Colors.white))),
+                          Align(
+                            alignment: Alignment.center,
+                            child: ElevatedButton.icon(
+                              onPressed: () => _showGroupDialog(),
+                              icon: const Icon(Icons.add_circle_outline),
+                              label: Text('Add New Group', style: GoogleFonts.poppins()),
+                              style: ElevatedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          ElevatedButton(
+                            onPressed: (){ if(_formKey.currentState!.validate()){ context.read<DashboardBuilderBloc>().add(const SaveDashboardEvent()); } },
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              backgroundColor: theme.primaryColor,
+                              foregroundColor: theme.colorScheme.onPrimary,
+                            ),
+                            child: Text(
+                              widget.dashboardToEdit == null ? 'Create Dashboard' : 'Update Dashboard',
+                              style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
-                if (state is DashboardBuilderSaving) ...[const Opacity(opacity: 0.8, child: ModalBarrier(dismissible: false, color: Colors.black)), const Center(child: SubtleLoader())],
+                if (state is DashboardBuilderSaving) ...[
+                  const Opacity(opacity: 0.8, child: ModalBarrier(dismissible: false, color: Colors.black)),
+                  const Center(child: SubtleLoader())
+                ],
               ],
             );
           }

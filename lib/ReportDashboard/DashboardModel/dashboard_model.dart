@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 
-// Helper function for safe parsing of dynamic values to int
+// Helper function for safe parsing
 int? _safeParseInt(dynamic value) {
   if (value == null) return null;
   if (value is int) return value;
@@ -15,14 +15,43 @@ int? _safeParseInt(dynamic value) {
   return null;
 }
 
-// Represents the display configuration for a single report card on the dashboard.
-// This class is unchanged.
+// REMOVED CardDisplayType enum
+
+enum GraphType {
+  pie,
+  line,
+  bar;
+
+  String get displayName {
+    switch (this) {
+      case GraphType.pie: return 'Pie Chart';
+      case GraphType.line: return 'Line Chart';
+      case GraphType.bar: return 'Bar Chart';
+    }
+  }
+
+  static GraphType? fromString(String? value) {
+    if (value == null) return null;
+    return GraphType.values.firstWhere(
+          (e) => e.name == value,
+      orElse: () => GraphType.bar,
+    );
+  }
+}
+
+
+// --- MODIFIED CLASS: Replaced displayType with two booleans ---
 class DashboardReportCardConfig extends Equatable {
   final int reportRecNo;
   final String displayTitle;
   final String? displaySubtitle;
   final IconData? displayIcon;
   final Color? displayColor;
+  final String? apiUrl;
+  // --- NEW PROPERTIES ---
+  final bool showAsTile;
+  final bool showAsGraph;
+  final GraphType? graphType;
 
   const DashboardReportCardConfig({
     required this.reportRecNo,
@@ -30,6 +59,10 @@ class DashboardReportCardConfig extends Equatable {
     this.displaySubtitle,
     this.displayIcon,
     this.displayColor,
+    this.apiUrl,
+    this.showAsTile = true, // Default to true
+    this.showAsGraph = false, // Default to false
+    this.graphType,
   });
 
   DashboardReportCardConfig copyWith({
@@ -38,6 +71,10 @@ class DashboardReportCardConfig extends Equatable {
     String? displaySubtitle,
     IconData? displayIcon,
     Color? displayColor,
+    String? apiUrl,
+    bool? showAsTile,
+    bool? showAsGraph,
+    GraphType? graphType,
   }) {
     return DashboardReportCardConfig(
       reportRecNo: reportRecNo ?? this.reportRecNo,
@@ -45,6 +82,10 @@ class DashboardReportCardConfig extends Equatable {
       displaySubtitle: displaySubtitle ?? this.displaySubtitle,
       displayIcon: displayIcon ?? this.displayIcon,
       displayColor: displayColor ?? this.displayColor,
+      apiUrl: apiUrl ?? this.apiUrl,
+      showAsTile: showAsTile ?? this.showAsTile,
+      showAsGraph: showAsGraph ?? this.showAsGraph,
+      graphType: graphType ?? this.graphType,
     );
   }
 
@@ -57,12 +98,29 @@ class DashboardReportCardConfig extends Equatable {
     IconData? parsedIcon = iconCodePoint != null ? IconData(iconCodePoint, fontFamily: 'MaterialIcons') : null;
     final int? colorValue = _safeParseInt(json['displayColor']);
     Color? parsedColor = colorValue != null ? Color(colorValue) : null;
+
+    // --- Backward compatibility logic ---
+    bool showTile, showGraph;
+    if (json.containsKey('showAsTile') || json.containsKey('showAsGraph')) {
+      showTile = json['showAsTile'] ?? false;
+      showGraph = json['showAsGraph'] ?? false;
+    } else {
+      // Fallback to old 'displayType' field
+      final oldDisplayType = json['displayType'];
+      showGraph = oldDisplayType == 'graph';
+      showTile = oldDisplayType == 'tile' || oldDisplayType == null;
+    }
+
     return DashboardReportCardConfig(
       reportRecNo: recNo,
       displayTitle: json['displayTitle'] as String,
       displaySubtitle: json['displaySubtitle'] as String?,
       displayIcon: parsedIcon,
       displayColor: parsedColor,
+      apiUrl: json['apiUrl'] as String?,
+      showAsTile: showTile,
+      showAsGraph: showGraph,
+      graphType: GraphType.fromString(json['graphType']),
     );
   }
 
@@ -73,37 +131,52 @@ class DashboardReportCardConfig extends Equatable {
       'displaySubtitle': displaySubtitle,
       'displayIcon': displayIcon?.codePoint,
       'displayColor': displayColor?.value,
+      'apiUrl': apiUrl,
+      'showAsTile': showAsTile,
+      'showAsGraph': showAsGraph,
+      'graphType': graphType?.name,
     };
   }
 
   @override
-  List<Object?> get props => [reportRecNo, displayTitle, displaySubtitle, displayIcon, displayColor];
+  List<Object?> get props => [
+    reportRecNo,
+    displayTitle,
+    displaySubtitle,
+    displayIcon,
+    displayColor,
+    apiUrl,
+    showAsTile,
+    showAsGraph,
+    graphType,
+  ];
 }
 
-// --- MODIFIED CLASS: Represents a group of reports, now with an optional URL ---
+
+// --- This class is unchanged ---
 class DashboardReportGroup extends Equatable {
   final String groupId;
   final String groupName;
-  final String? groupUrl; // NEW: Optional URL for the group
+  final String? groupUrl;
   final List<DashboardReportCardConfig> reports;
 
   const DashboardReportGroup({
     required this.groupId,
     required this.groupName,
-    this.groupUrl, // NEW
+    this.groupUrl,
     required this.reports,
   });
 
   DashboardReportGroup copyWith({
     String? groupId,
     String? groupName,
-    String? groupUrl, // NEW
+    String? groupUrl,
     List<DashboardReportCardConfig>? reports,
   }) {
     return DashboardReportGroup(
       groupId: groupId ?? this.groupId,
       groupName: groupName ?? this.groupName,
-      groupUrl: groupUrl ?? this.groupUrl, // NEW
+      groupUrl: groupUrl ?? this.groupUrl,
       reports: reports ?? this.reports,
     );
   }
@@ -113,10 +186,9 @@ class DashboardReportGroup extends Equatable {
     List<DashboardReportCardConfig> reports =
     reportsList.map((i) => DashboardReportCardConfig.fromJson(i)).toList();
     return DashboardReportGroup(
-      // Assign new ID if missing for safety with old data
       groupId: json['groupId'] ?? const Uuid().v4(),
       groupName: json['groupName'] ?? 'Unnamed Group',
-      groupUrl: json['groupUrl'] as String?, // NEW: Safely parse optional URL
+      groupUrl: json['groupUrl'] as String?,
       reports: reports,
     );
   }
@@ -125,13 +197,12 @@ class DashboardReportGroup extends Equatable {
     return {
       'groupId': groupId,
       'groupName': groupName,
-      'groupUrl': groupUrl, // NEW: Include URL in JSON
+      'groupUrl': groupUrl,
       'reports': reports.map((report) => report.toJson()).toList(),
     };
   }
 
   @override
-  // NEW: Add groupUrl to props for Equatable comparison
   List<Object?> get props => [groupId, groupName, groupUrl, reports];
 }
 
@@ -140,7 +211,6 @@ class DashboardReportGroup extends Equatable {
 class DashboardTemplateConfig extends Equatable {
   final String id;
   final String name;
-  // Banner URL property is no longer used by the UI but kept for data model consistency
   final String? bannerUrl;
   final Color? accentColor;
 
@@ -154,7 +224,6 @@ class DashboardTemplateConfig extends Equatable {
   DashboardTemplateConfig copyWith({
     String? id,
     String? name,
-    // Provide an empty string or null to clear the banner
     String? bannerUrl,
     Color? accentColor,
   }) {
@@ -191,7 +260,7 @@ class DashboardTemplateConfig extends Equatable {
 }
 
 
-// --- MODIFIED CLASS: Model mirroring your Dashboards DB table with support for groups ---
+// --- This class is unchanged structurally, but relies on updated models ---
 class Dashboard extends Equatable {
   final String dashboardId;
   final String dashboardName;
@@ -242,26 +311,22 @@ class Dashboard extends Equatable {
         ? jsonDecode(json['LayoutConfig']) as Map<String, dynamic>
         : <String, dynamic>{};
 
-    // --- Backward-compatible parsing logic (unchanged, but now handles groups with optional URLs) ---
     List<DashboardReportGroup> groups = [];
-    // 1. Check for the new 'report_groups' structure first
     if (layoutConfigMap['report_groups'] != null && layoutConfigMap['report_groups'] is List) {
       var groupsList = layoutConfigMap['report_groups'] as List;
       groups = groupsList.map((g) => DashboardReportGroup.fromJson(g)).toList();
     }
-    // 2. If not found, check for the old 'reports_on_dashboard' structure and migrate it
     else if (layoutConfigMap['reports_on_dashboard'] != null && layoutConfigMap['reports_on_dashboard'] is List) {
       debugPrint("Migrating old dashboard format for dashboard ID: $dashboardId");
       final reportsJson = layoutConfigMap['reports_on_dashboard'] as List;
       final List<DashboardReportCardConfig> oldReports = reportsJson
           .map((rJson) => DashboardReportCardConfig.fromJson(rJson))
           .toList();
-      // If there are any old reports, put them in a single, default group
       if (oldReports.isNotEmpty) {
         groups.add(DashboardReportGroup(
-          groupId: const Uuid().v4(), // Generate a new ID for this migrated group
-          groupName: 'Reports', // Default name for the migrated group
-          groupUrl: null, // Old format won't have a group URL
+          groupId: const Uuid().v4(),
+          groupName: 'Reports',
+          groupUrl: null,
           reports: oldReports,
         ));
       }
@@ -287,7 +352,7 @@ class Dashboard extends Equatable {
       dashboardName: json['DashboardName'] as String,
       dashboardDescription: json['DashboardDescription'] as String?,
       templateConfig: templateConf,
-      reportGroups: groups, // Use the parsed or migrated groups
+      reportGroups: groups,
       globalFiltersConfig: json['GlobalFiltersConfig'] is String && json['GlobalFiltersConfig'].isNotEmpty
           ? jsonDecode(json['GlobalFiltersConfig']) as Map<String, dynamic>
           : (json['GlobalFiltersConfig'] as Map<String, dynamic>?) ?? {},
@@ -302,7 +367,6 @@ class Dashboard extends Equatable {
       'DashboardName': dashboardName,
       'DashboardDescription': dashboardDescription,
       'TemplateID': jsonEncode(templateConfig.toJson()),
-      // --- Save the new group structure (now with optional URL) ---
       'LayoutConfig': jsonEncode({
         'report_groups': reportGroups.map((g) => g.toJson()).toList(),
       }),

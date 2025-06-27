@@ -1,4 +1,4 @@
-// lib/ReportUtils/ReportAPIService.dart
+// lib/ReportDynamic/ReportAPIService.dart
 
 import 'dart:async';
 import 'dart:convert';
@@ -30,8 +30,6 @@ class ReportAPIService {
       'edit_demo_tables': '$_baseUrl?mode=edit_demo_tables',
       'delete_demo_tables': '$_baseUrl?mode=delete_demo_tables',
       'deploy_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
-
-      // NEW DASHBOARD ENDPOINTS
       'post_dashboard': '$_baseUrl?mode=post_dashboard',
       'edit_dashboard': '$_baseUrl?mode=edit_dashboard',
       'delete_dashboard': '$_baseUrl?mode=delete_dashboard',
@@ -43,13 +41,10 @@ class ReportAPIService {
       'get_demo_table': '$_baseUrl?mode=get_demo_table',
       'get_demo_table2': '$_baseUrl?mode=get_demo_table2',
       'fetch_databases': _databaseFetchUrl,
-
-      // NEW DASHBOARD ENDPOINTS
       'get_dashboards': '$_baseUrl?mode=get_dashboards',
     };
   }
 
-  // --- Centralized Logging Helper ---
   void _logRequest({
     required String httpMethod,
     required String url,
@@ -64,22 +59,19 @@ class ReportAPIService {
     debugPrint('URL: $url');
     if (payload != null) {
       try {
-        // Pretty-print JSON for better readability
         const encoder = JsonEncoder.withIndent('  ');
         final prettyPayload = encoder.convert(payload);
         debugPrint('Payload:\n$prettyPayload');
       } catch (e) {
-        // Fallback for non-JSON or malformed payloads
         debugPrint('Payload: ${payload.toString()}');
       }
     }
     debugPrint('---------------------------------');
   }
 
-  // NEW METHOD: To clear the API details cache
   void clearApiDetailsCache() {
     _apiDetails = {};
-    _apiDetailsLoadingCompleter = null; // Also clear any pending completer
+    _apiDetailsLoadingCompleter = null;
     debugPrint('ReportAPIService: API details cache cleared.');
   }
 
@@ -308,7 +300,6 @@ class ReportAPIService {
           final uniqueApis = <String>{};
           for (var item in jsonData['data']) {
             if (item is Map<String, dynamic> && item['APIName'] != null) {
-              // Ensure 'IsDashboard' is parsed as a boolean, default to false
               final bool isDashboard = (item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true);
 
               if (!uniqueApis.contains(item['APIName'])) {
@@ -321,7 +312,7 @@ class ReportAPIService {
                   'password': item['Password'],
                   'databaseName': item['DatabaseName'],
                   'id': item['id'],
-                  'IsDashboard': isDashboard, // Store dashboard status as a boolean
+                  'IsDashboard': isDashboard,
                   'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
                 };
               }
@@ -605,7 +596,6 @@ class ReportAPIService {
       'APIServerURl': apiServerURL.trim(),
       'APIName': apiName.trim(),
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
-      // Default to false for new database server entries if not explicitly set
       'IsDashboard': 0,
     };
     try {
@@ -723,7 +713,7 @@ class ReportAPIService {
       'APIServerURl': apiServerURL.trim(),
       'APIName': apiName.trim(),
       'Parameter': parameters.isNotEmpty ? jsonEncode(parameters) : '',
-      'IsDashboard': isDashboard ? 1 : 0, // Send dashboard status as 0 or 1
+      'IsDashboard': isDashboard ? 1 : 0,
     };
     try {
       final uri = Uri.parse(url);
@@ -739,8 +729,7 @@ class ReportAPIService {
       final jsonData = jsonDecode(response.body);
       if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
 
-      // CRUCIAL ADDITION HERE: Clear cache after successful save
-      clearApiDetailsCache(); // Invalidate the cache so getAvailableApis fetches fresh data
+      clearApiDetailsCache();
       debugPrint('ReportAPIService: Successfully edited database server, cache cleared.');
 
     } catch (e) {
@@ -971,7 +960,7 @@ class ReportAPIService {
           if (dashboardId == null || dashboardId.isEmpty) {
             throw Exception('API did not return a valid DashboardID.');
           }
-          return dashboardId; // Return the String ID
+          return dashboardId;
         } else {
           throw Exception('API returned error: ${jsonData['message']}');
         }
@@ -985,7 +974,7 @@ class ReportAPIService {
   }
 
   Future<void> editDashboard({
-    required String dashboardId, // *** FIX: Expect String ***
+    required String dashboardId,
     required String dashboardName,
     String? dashboardDescription,
     required String templateId,
@@ -996,7 +985,7 @@ class ReportAPIService {
     if (url == null) throw Exception('POST API not found for editing dashboard');
 
     final payload = {
-      'DashboardID': dashboardId, // *** FIX: Send String ID ***
+      'DashboardID': dashboardId,
       'DashboardName': dashboardName.trim(),
       'DashboardDescription': dashboardDescription?.trim(),
       'TemplateID': templateId.trim(),
@@ -1028,11 +1017,11 @@ class ReportAPIService {
     }
   }
 
-  Future<void> deleteDashboard({required String dashboardId}) async { // *** FIX: Expect String ***
+  Future<void> deleteDashboard({required String dashboardId}) async {
     final url = _postEndpoints['delete_dashboard'];
     if (url == null) throw Exception('POST API not found for deleting dashboard');
 
-    final payload = {'DashboardID': dashboardId}; // *** FIX: Send String ID ***
+    final payload = {'DashboardID': dashboardId};
 
     try {
       final uri = Uri.parse(url);
@@ -1054,6 +1043,31 @@ class ReportAPIService {
       }
     } catch (e) {
       debugPrint('Error in deleteDashboard: $e');
+      rethrow;
+    }
+  }
+
+  // --- NEW METHOD for Graph Data ---
+  Future<dynamic> getReportData(String? url) async {
+    if (url == null || url.isEmpty) {
+      throw Exception('API URL for graph data is missing.');
+    }
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getReportData');
+      final response = await http.get(uri).timeout(const Duration(seconds: 60));
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          throw Exception('API returned an empty response.');
+        }
+        return jsonDecode(response.body);
+      } else {
+        throw Exception('Failed to load report data: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error in getReportData: $e');
       rethrow;
     }
   }

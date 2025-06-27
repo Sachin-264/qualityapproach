@@ -1,44 +1,37 @@
 // lib/ReportUtils/Export_widget.dart
 import 'dart:async';
 import 'dart:typed_data';
-import 'dart:convert'; // For base64Encode
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, compute;
 import 'package:file_saver/file_saver.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart';
 import 'package:http_parser/http_parser.dart' show MediaType;
-
-// RE-ADDED: for PdfPageFormat in Printing.layoutPdf
-import 'package:pdf/pdf.dart' as old_pdf; // Alias to avoid conflict if 'pdf' was used elsewhere
-
-import 'package:printing/printing.dart'; // Still used for sharing/printing PDFs
+import 'package:pdf/pdf.dart' as pdf_lib;
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'package:pluto_grid/pluto_grid.dart';
-import 'package:collection/collection.dart'; // Import for firstWhereOrNull
-
-import 'package:image/image.dart' as img_lib; // NEW IMPORT for image processing
-
+import 'package:collection/collection.dart';
+import 'package:image/image.dart' as img_lib;
+import 'package:archive/archive.dart'; // Import for zipping
+import 'package:archive/archive_io.dart'; // For ZipEncoder
 
 class ExportLock {
   static bool _isExportingGlobally = false;
-
   static bool get isExporting => _isExportingGlobally;
 
   static void startExport() {
     _isExportingGlobally = true;
-    print('ExportLock: Global lock acquired.');
   }
 
   static void endExport() {
     _isExportingGlobally = false;
-    print('ExportLock: Global lock released.');
   }
 }
 
-// Simple debouncer class to prevent rapid clicks
 class Debouncer {
   final Duration duration;
   Timer? _timer;
@@ -55,28 +48,26 @@ class Debouncer {
   }
 }
 
-// Global tracker for downloads (not directly related to the current issues, but kept for context)
 class DownloadTracker {
   static int _downloadCount = 0;
   static void trackDownload(String fileName, String url, String exportId) {
     _downloadCount++;
-    print('DownloadTracker: Download #$_downloadCount: $fileName, URL: $url, ExportID: $exportId');
   }
 }
 
 class ExportWidget extends StatefulWidget {
   final List<PlutoColumn> columns;
-  final List<PlutoRow> plutoRows; // This now only contains data rows and subtotals. Grand total is in UI footer.
+  final List<PlutoRow> plutoRows;
   final String fileName;
   final List<Map<String, dynamic>>? fieldConfigs;
   final String reportLabel;
   final Map<String, String> parameterValues;
-  final Map<String, String> displayParameterValues; // Already filtered by ReportUI for visible & non-empty
-  final List<Map<String, dynamic>>? apiParameters; // Full parameter definitions from demo_table
+  final Map<String, String> displayParameterValues;
+  final List<Map<String, dynamic>>? apiParameters;
   final Map<String, List<Map<String, String>>>? pickerOptions;
   final String companyName;
   final bool includePdfFooterDateTime;
-  final List<Widget> topLevelActions; // NEW: To accept additional buttons
+  final List<Widget> topLevelActions;
 
   const ExportWidget({
     required this.columns,
@@ -90,7 +81,7 @@ class ExportWidget extends StatefulWidget {
     this.pickerOptions,
     required this.companyName,
     this.includePdfFooterDateTime = false,
-    this.topLevelActions = const [], // NEW: Initialize with default empty list
+    this.topLevelActions = const [],
     super.key,
   });
 
@@ -105,18 +96,14 @@ class _ExportWidgetState extends State<ExportWidget> {
   final _printDebouncer = Debouncer(const Duration(milliseconds: 500));
   final String _exportId = UniqueKey().toString();
 
-  // Node.js server URL for PDF generation (for non-image PDFs)
-  static const String _pdfApiBaseUrl = 'https://pdf-node-kbfu8swqw-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf';
+  // Define the number of rows to process per chunk for isolate communication
+  // For multi-part PDFs, this also defines how many rows go into each PDF file.
+  static const int _pdfRowsPerFile = 1000; // Example: 1000 rows per PDF file
 
-  @override
-  void initState() {
-    super.initState();
-    print('ExportWidget: Initialized with exportId=$_exportId, fileName=${widget.fileName}');
-  }
+  static const String _pdfApiBaseUrl = 'https://pdf-node-kbfu8swqw-vishal-jains-projects-b322eb37.vercel.app/api/generate-pdf';
 
   String? get _companyNameForHeader {
     if (widget.companyName.isNotEmpty) {
-      print('ExportWidget: Company name (from passed prop) found: ${widget.companyName}');
       return widget.companyName;
     }
     if (widget.apiParameters != null) {
@@ -126,40 +113,31 @@ class _ExportWidgetState extends State<ExportWidget> {
           if (param['show'] == true) {
             final companyDisplayName = widget.displayParameterValues[paramName];
             if (companyDisplayName != null && companyDisplayName.isNotEmpty) {
-              print('ExportWidget: Company name (from UI/visible param in fallback) found: $companyDisplayName');
               return companyDisplayName;
             }
           } else if (param['display_value_cache'] != null && param['display_value_cache'].toString().isNotEmpty) {
-            final companyDisplayName = param['display_value_cache'].toString();
-            print('ExportWidget: Company name (from display_value_cache in fallback) found: $companyDisplayName');
-            return companyDisplayName;
+            return param['display_value_cache'].toString();
           }
         }
       }
     }
-    print('ExportWidget: No company name found for header (after fallback).');
     return null;
   }
 
   @override
   Widget build(BuildContext context) {
     final bool canExport = widget.plutoRows.isNotEmpty && !ExportLock.isExporting;
-    print('ExportWidget: Building with exportId=$_exportId, dataLength=${widget.plutoRows.length}, ExportLock.isExporting=${ExportLock.isExporting}');
-    print('ExportWidget: Derived company name for header: ${_companyNameForHeader ?? 'N/A'}');
-    print('ExportWidget: includePdfFooterDateTime for PDF exports: ${widget.includePdfFooterDateTime}');
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
-      // UPDATED: Changed Row to Wrap for better responsiveness on smaller screens
       child: Wrap(
-        spacing: 12.0, // Horizontal space between buttons
-        runSpacing: 8.0, // Vertical space if buttons wrap
+        spacing: 12.0,
+        runSpacing: 8.0,
         alignment: WrapAlignment.center,
         children: [
           ElevatedButton(
             onPressed: canExport
                 ? () async {
-              print('ExportWidget: Excel button clicked, exportId=$_exportId');
               await _excelDebouncer.debounce(() async {
                 await _exportToExcel(context);
               });
@@ -177,7 +155,6 @@ class _ExportWidgetState extends State<ExportWidget> {
           ElevatedButton(
             onPressed: canExport
                 ? () async {
-              print('ExportWidget: PDF button clicked, exportId=$_exportId');
               await _pdfDebouncer.debounce(() async {
                 await _exportToPDF(context);
               });
@@ -195,7 +172,6 @@ class _ExportWidgetState extends State<ExportWidget> {
           ElevatedButton(
             onPressed: canExport
                 ? () async {
-              print('ExportWidget: Email button clicked, exportId=$_exportId');
               await _emailDebouncer.debounce(() async {
                 await _sendToEmail(context);
               });
@@ -213,8 +189,7 @@ class _ExportWidgetState extends State<ExportWidget> {
           ElevatedButton(
             onPressed: canExport
                 ? () async {
-              print('ExportWidget: Print button clicked, exportId=$_exportId');
-              await _printDebouncer.debounce(() async { // Using debouncer for print too
+              await _printDebouncer.debounce(() async {
                 await _printDocument(context);
               });
             }
@@ -228,49 +203,31 @@ class _ExportWidgetState extends State<ExportWidget> {
               style: GoogleFonts.poppins(color: Colors.white),
             ),
           ),
-          // NEW: Render any additional top-level action widgets passed in
           ...widget.topLevelActions,
         ],
       ),
     );
   }
 
-  // ... (rest of the file is unchanged) ...
-
-  // Checks if any of the columns are marked as 'image' in fieldConfigs
   bool _hasImageColumns() {
     if (widget.fieldConfigs == null || widget.fieldConfigs!.isEmpty) {
       return false;
     }
-    for (var col in widget.columns) {
-      if (col.field == '__actions__' || col.field == '__raw_data__') continue;
-
-      final config = widget.fieldConfigs!.firstWhereOrNull(
-            (fc) => fc['Field_name'] == col.field,
-      );
-      if (config != null && config['image']?.toString() == '1') {
-        print('ExportWidget: Found image column: ${col.field}');
-        return true;
-      }
-    }
-    print('ExportWidget: No image columns found.');
-    return false;
+    return widget.columns.any((col) {
+      final config = widget.fieldConfigs!.firstWhereOrNull((fc) => fc['Field_name'] == col.field);
+      return config != null && config['image']?.toString() == '1';
+    });
   }
 
-
-  // MODIFIED: _executeExportTask now accepts showLoaderDialog and initialMessage
   Future<void> _executeExportTask(
       BuildContext context,
       Future<void> Function() task,
       String taskName, {
-        bool showLoaderDialog = true, // Default to true for blocking dialog
-        String initialMessage = 'Processing...', // Default message for loader
+        bool showLoaderDialog = true,
+        String initialMessage = 'Processing...',
+        Function(String)? onProgressUpdate, // Callback for progress messages
       }) async {
-    print('$taskName: Starting export task, exportId=$_exportId');
-    final startTime = DateTime.now();
-
     if (widget.plutoRows.isEmpty) {
-      print('$taskName: No data to export, exportId=$_exportId');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('No data to export!')),
@@ -280,7 +237,6 @@ class _ExportWidgetState extends State<ExportWidget> {
     }
 
     if (ExportLock.isExporting) {
-      print('$taskName: Export already in progress (global lock active), ignoring request, exportId=$_exportId');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Export already in progress!')),
@@ -294,50 +250,56 @@ class _ExportWidgetState extends State<ExportWidget> {
     ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? snackBarController;
     bool dialogShown = false;
 
+    // Use a ValueNotifier to update the message dynamically in the UI
+    final ValueNotifier<String> currentMessage = ValueNotifier(initialMessage);
+
     if (context.mounted) {
-      // Show initial feedback (SnackBar for background, Dialog for blocking)
       if (!showLoaderDialog) {
-        // Non-blocking SnackBar for background tasks (like PDF download)
         snackBarController = ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
                 const CircularProgressIndicator(color: Colors.white),
                 const SizedBox(width: 16),
-                Text(initialMessage, style: const TextStyle(color: Colors.white)),
+                ValueListenableBuilder<String>(
+                  valueListenable: currentMessage,
+                  builder: (context, msg, child) {
+                    return Text(msg, style: const TextStyle(color: Colors.white));
+                  },
+                ),
               ],
             ),
-            duration: const Duration(minutes: 5), // Long duration if not dismissed manually
+            duration: const Duration(minutes: 5), // Keep it long, as progress updates will manage visibility
             behavior: SnackBarBehavior.floating,
-            action: SnackBarAction( // ADDED: "Hide" action
+            action: SnackBarAction(
               label: 'Hide',
               textColor: Colors.white,
-              onPressed: () {
-                // Manually dismiss the snackbar
-                snackBarController?.close();
-                print('$taskName: User manually hid the progress snackbar, exportId=$_exportId');
-                // The background task will continue running.
-              },
+              onPressed: () => snackBarController?.close(),
             ),
           ),
         );
-        print('$taskName: Showing non-blocking SnackBar: "$initialMessage", exportId=$_exportId');
       } else {
-        // Existing blocking Dialog for other tasks
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (context.mounted && ExportLock.isExporting) {
-            print('$taskName: Showing loader dialog, exportId=$_exportId');
             showDialog(
               context: context,
               barrierDismissible: false,
-              builder: (context) => Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 16),
-                    Text(initialMessage, style: GoogleFonts.poppins(color: Colors.white)), // Now dialog also shows message
-                  ],
+              builder: (context) => PopScope( // Use PopScope for better control on back button
+                canPop: false, // Prevent dialog dismissal by back button
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      ValueListenableBuilder<String>(
+                        valueListenable: currentMessage,
+                        builder: (context, msg, child) {
+                          return Text(msg, style: GoogleFonts.poppins(color: Colors.white));
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -347,41 +309,35 @@ class _ExportWidgetState extends State<ExportWidget> {
       }
     }
 
+    // Set the progress update callback - this will update the ValueNotifier used by the UI
+    Function(String)? internalProgressUpdater = (msg) => currentMessage.value = msg;
+    if (onProgressUpdate != null) {
+      Function(String originalMsg) externalOnProgress = onProgressUpdate;
+      internalProgressUpdater = (msg) {
+        currentMessage.value = msg;
+        externalOnProgress(msg);
+      };
+    }
 
     try {
-      await task(); // Execute the actual export task
+      await task(); // Execute the main task
+      internalProgressUpdater('Task completed successfully!'); // Final success message
 
-      // After task completes successfully, if snackbar was shown, dismiss it and show success.
       if (context.mounted) {
         if (!showLoaderDialog && snackBarController != null) {
-          snackBarController.close(); // Explicitly close the initial progress snackbar
+          snackBarController.close();
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('$taskName successful!')), // Show success message
+            SnackBar(content: Text('$taskName successful!')),
           );
-          print('$taskName: Successfully completed, showed success snackbar, exportId=$_exportId');
         }
       }
     } catch (e) {
-      // Only show error message if the error is not a user cancellation
-      if (!e.toString().contains('Email sending cancelled by user.')) { // Check for cancellation message
-        print('$taskName: Exception caught: $e, exportId=$_exportId');
-        String errorMessage = 'Failed to $taskName. Please try again.';
-        if (e.toString().contains('Failed to generate PDF on server')) {
-          errorMessage = 'PDF generation failed on server. Server response: ${e.toString().split("Server response:").last.trim()}';
-        } else if (e.toString().contains('Could not connect to PDF server')) { // Specific check for connection issues
-          errorMessage = 'Could not connect to PDF server. Is it running?';
-        } else if (e.toString().contains('Server failed to send email')) {
-          errorMessage = 'Email sending failed. ${e.toString().split("Details:").last.trim()}';
-        } else if (e.toString().contains('Invalid string length') || e.toString().contains('ClientException')) {
-          // Provide more specific message for network/payload issues during pre-processing
-          errorMessage = 'PDF generation payload too large or network error during client-side image processing. Check image URLs or try with fewer rows/smaller images. Details: $e';
-        } else {
-          errorMessage = 'Failed to $taskName: $e';
-        }
-
+      if (!e.toString().contains('Email sending cancelled by user.')) {
+        String errorMessage = 'Failed to $taskName: $e';
+        debugPrint('Error during $taskName: $e');
         if (context.mounted) {
           if (!showLoaderDialog && snackBarController != null) {
-            snackBarController.close(); // Explicitly close the initial progress snackbar on error
+            snackBarController.close();
           }
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(errorMessage)),
@@ -389,46 +345,29 @@ class _ExportWidgetState extends State<ExportWidget> {
         }
       }
     } finally {
-      // Always dismiss blocking dialog if it was shown
       if (dialogShown && context.mounted && Navigator.of(context).canPop()) {
-        print('$taskName: Dismissing loader dialog, exportId=$_exportId');
         Navigator.of(context).pop();
       }
-      // If we used a non-blocking snackbar, it's handled by `snackBarController.close()` above.
-
-      ExportLock.endExport(); // Release global lock
+      ExportLock.endExport();
       if (context.mounted) {
-        setState(() {}); // Re-enable buttons, trigger rebuild if needed
+        setState(() {}); // Rebuild to re-enable buttons
       }
-      print('$taskName: Resetting state and releasing global lock, exportId=$_exportId');
     }
-
-    final endTime = DateTime.now();
-    print('$taskName: Total export time: ${endTime.difference(startTime).inMilliseconds} ms, exportId=$_exportId');
   }
 
-  // Helper to calculate grand totals from provided PlutoRows
   Map<String, dynamic>? _calculateGrandTotals(
       List<PlutoColumn> columns,
       List<PlutoRow> plutoRows,
       List<Map<String, dynamic>>? fieldConfigs,
       ) {
-    bool hasGrandTotals = false;
-    if (fieldConfigs != null) {
-      hasGrandTotals = fieldConfigs.any((config) => config['Total']?.toString() == '1');
-    }
-
-    if (!hasGrandTotals) {
-      print('CalculateGrandTotals: No columns marked for Total. Returning null.');
-      return null;
-    }
+    bool hasGrandTotals = fieldConfigs?.any((config) => config['Total']?.toString() == '1') ?? false;
+    if (!hasGrandTotals) return null;
 
     final Map<String, dynamic> grandTotals = {};
     final Map<String, Map<String, dynamic>> fieldConfigMap = {
       for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
     };
 
-    // Use filtered columns for PDF export (which also affects what fields are considered for total)
     final List<String> relevantFieldNames = columns
         .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
         .map((col) => col.field)
@@ -438,126 +377,100 @@ class _ExportWidgetState extends State<ExportWidget> {
       final config = fieldConfigMap[fieldName];
       final isTotalColumn = config?['Total']?.toString() == '1';
 
-      // Replicate the isNumeric logic from TableMainUI/ReportMainUI
       bool isNumericField = (config?['data_type']?.toString().toLowerCase() == 'number') ||
-          (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
-            'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
-      // Crucial: If Total or SubTotal is marked, it IS numeric for aggregation purposes.
-      if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
-        isNumericField = true;
-      }
+          config?['Total']?.toString() == '1' ||
+          config?['SubTotal']?.toString() == '1';
 
       if (isTotalColumn && isNumericField) {
         double sum = 0.0;
         for (var row in plutoRows) {
-          // Exclude subtotal rows from grand total calculation
-          if (row.cells.containsKey('__isSubtotal__') && row.cells['__isSubtotal__']!.value == true) {
-            continue;
+          // Exclude subtotal rows from grand total calculation if they exist
+          if (row.cells['__isSubtotal__']?.value != true) {
+            sum += double.tryParse(row.cells[fieldName]?.value.toString() ?? '0.0') ?? 0.0;
           }
-          final cellValue = row.cells[fieldName]?.value;
-          final parsedValue = double.tryParse(cellValue.toString()) ?? 0.0;
-          sum += parsedValue;
         }
         grandTotals[fieldName] = sum;
-        print('CalculateGrandTotals: Total for $fieldName: $sum');
       } else if (relevantFieldNames.indexOf(fieldName) == 0) {
-        grandTotals[fieldName] = 'Grand Total'; // Label for the first column
+        grandTotals[fieldName] = 'Grand Total';
       } else {
-        grandTotals[fieldName] = ''; // Empty for other non-total columns
+        grandTotals[fieldName] = '';
       }
     }
-    print('CalculateGrandTotals: Final grand totals: $grandTotals');
     return grandTotals;
   }
 
-  // NEW: Top-level static function for image pre-processing in an Isolate
-  // This function must be static or a top-level function to be used with compute.
+  // Isolate function to process rows and fetch/encode images
   static Future<Map<String, dynamic>> _processRowsInIsolate(Map<String, dynamic> params) async {
-    // Unpack parameters received from compute
+    debugPrint("Isolate: Starting _processRowsInIsolate");
     final List<Map<String, dynamic>> rawPlutoRowsJson = params['plutoRowsJson'] as List<Map<String, dynamic>>;
     final List<Map<String, dynamic>> fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>;
     final List<Map<String, dynamic>> serializableColumns = params['serializableColumns'] as List<Map<String, dynamic>>;
 
-    // Local cache for the isolate to avoid re-fetching within the isolate
     final Map<String, String?> isolateBase64ImageCache = {};
 
-    // Helper to fetch image bytes and convert to Base64 (within the isolate)
     Future<String?> _isolateFetchImageAndEncodeBase64(String imageUrl) async {
       if (isolateBase64ImageCache.containsKey(imageUrl)) {
+        // debugPrint("Isolate: Cache hit for image: $imageUrl");
         return isolateBase64ImageCache[imageUrl];
       }
-      if (!imageUrl.startsWith('http://') && !imageUrl.startsWith('https://')) {
-        print('[_isolateFetchImageAndEncodeBase64] Invalid URL format or not an HTTP/HTTPS URL: $imageUrl');
+      if (!imageUrl.startsWith('http')) {
+        // debugPrint("Isolate: Not an http image URL: $imageUrl");
         isolateBase64ImageCache[imageUrl] = null;
         return null;
       }
 
       try {
+        // debugPrint("Isolate: Fetching image from: $imageUrl");
         final response = await http.get(Uri.parse(imageUrl));
+
         if (response.statusCode == 200) {
-          // NEW LOGIC: Decode, resize, and re-encode image
-          img_lib.Image? image = img_lib.decodeImage(response.bodyBytes);
+          if (response.bodyBytes.isEmpty) {
+            debugPrint("Isolate: Fetched image bytes are empty for: $imageUrl. Skipping.");
+            isolateBase64ImageCache[imageUrl] = null;
+            return null;
+          }
+
+          img_lib.Image? image;
+          try {
+            image = img_lib.decodeImage(response.bodyBytes);
+          } catch (e) {
+            debugPrint("Isolate: Error decoding image bytes with img_lib for $imageUrl: $e. Attempting raw base64 encode.");
+          }
+
           if (image == null) {
-            print('[_isolateFetchImageAndEncodeBase64] Image decoding failed for $imageUrl. Returning raw Base64 if possible.');
-            // Fallback: if decoding fails (e.g. malformed image), just base64 encode raw bytes.
-            final String base64String = base64Encode(response.bodyBytes);
-            String mimeType = response.headers['content-type']?.split(';')[0] ?? 'application/octet-stream';
-            isolateBase64ImageCache[imageUrl] = 'data:$mimeType;base64,$base64String';
-            return isolateBase64ImageCache[imageUrl];
+            // Fallback: If image package can't decode, just base64 encode raw bytes if they are not empty
+            if (response.bodyBytes.isNotEmpty) {
+              final String base64String = base64Encode(response.bodyBytes);
+              String mimeType = response.headers['content-type']?.split(';')[0] ?? 'application/octet-stream';
+              final String dataUrl = 'data:$mimeType;base64,$base64String';
+              isolateBase64ImageCache[imageUrl] = dataUrl;
+              return dataUrl;
+            } else {
+              debugPrint("Isolate: Raw image bytes also empty/invalid after decode failure for $imageUrl.");
+              isolateBase64ImageCache[imageUrl] = null;
+              return null;
+            }
           }
 
-          // Define target size for PDF images (e.g., 50px tall as per HTML/CSS)
-          // Aim for a slightly higher resolution for better PDF rendering (e.g., 2x display size)
-          const int targetImageDisplayHeightPx = 50; // As in CSS: max-height: 50px
-          const int targetImageDisplayWidthPx = 50; // As in CSS: max-width: 50px
-          const double scaleFactor = 2.0; // Render at 2x resolution for sharpness in PDF
+          const int targetHeightPx = 100; // Define a target height for images
+          image = img_lib.copyResize(image, height: targetHeightPx, interpolation: img_lib.Interpolation.average);
 
-          int newWidth = (targetImageDisplayWidthPx * scaleFactor).round();
-          int newHeight = (targetImageDisplayHeightPx * scaleFactor).round();
-
-          // Calculate aspect ratio to maintain proportions
-          double originalAspectRatio = image.width / image.height;
-          double targetAspectRatio = newWidth / newHeight;
-
-          // Resize strategy: Fit within target bounds while maintaining aspect ratio
-          if (originalAspectRatio > targetAspectRatio) {
-            // Image is wider than target, fit by width
-            image = img_lib.copyResize(image, width: newWidth, interpolation: img_lib.Interpolation.average);
-          } else {
-            // Image is taller than target, fit by height
-            image = img_lib.copyResize(image, height: newHeight, interpolation: img_lib.Interpolation.average);
-          }
-
-
-          // Re-encode (e.g., to JPEG for smaller size, adjust quality)
-          final List<int> resizedBytes;
-          String mimeType;
-
-          // Attempt to preserve original format if known and suitable, or default to JPEG
-          String originalMimeType = response.headers['content-type']?.split(';')[0] ?? '';
-
-          // FIXED: Use img_lib.ImageFormat.png (lowercase)
-          if (originalMimeType == 'image/png' || image.format == img_lib.ImageFormat.png) {
-            resizedBytes = img_lib.encodePng(image);
-            mimeType = 'image/png';
-          } else {
-            resizedBytes = img_lib.encodeJpg(image, quality: 75); // JPEG quality 0-100, 75 is good balance
-            mimeType = 'image/jpeg';
-          }
-
+          final List<int> resizedBytes = img_lib.encodeJpg(image, quality: 75);
+          const String mimeType = 'image/jpeg';
           final String base64String = base64Encode(Uint8List.fromList(resizedBytes));
           final String dataUrl = 'data:$mimeType;base64,$base64String';
           isolateBase64ImageCache[imageUrl] = dataUrl;
+          // debugPrint("Isolate: Image processed and cached for: $imageUrl");
           return dataUrl;
         } else {
-          print('[_isolateFetchImageAndEncodeBase64] Failed to fetch image $imageUrl: ${response.statusCode}');
+          debugPrint("Isolate: Failed to fetch image (Status ${response.statusCode}) from: $imageUrl. Response body: ${response.body.length > 100 ? response.body.substring(0, 100) + '...' : response.body}");
           isolateBase64ImageCache[imageUrl] = null;
           return null;
         }
-      } catch (e) {
-        print('[_isolateFetchImageAndEncodeBase64] Error fetching or processing image $imageUrl: $e');
-        isolateBase64ImageCache[imageUrl] = null; // Cache null for errors
-        return null; // Return null on error so PDF shows "Image not available"
+      } catch (e, stack) {
+        debugPrint("Isolate: Error during image fetching/processing from $imageUrl: $e\n$stack");
+        isolateBase64ImageCache[imageUrl] = null;
+        return null;
       }
     }
 
@@ -565,60 +478,261 @@ class _ExportWidgetState extends State<ExportWidget> {
         .where((col) => fieldConfigs.firstWhereOrNull((fc) => fc['Field_name'] == col['field'])?['image'] == '1')
         .map((col) => col['field'] as String)
         .toList();
+    debugPrint("Isolate: Image field names detected: $imageFieldNames");
 
     final List<Map<String, dynamic>> finalSerializableRows = [];
-    final List<Future<void>> rowProcessingFutures = []; // To process rows in parallel
+    int rowIndex = 0;
+    for (var rowData in rawPlutoRowsJson) {
+      final Map<String, dynamic> serializableRowCells = {};
+      bool isCurrentRowSubtotal = false;
 
-    // For compute, PlutoRow objects themselves are not directly transferable.
-    // We expect `rawPlutoRowsJson` to be a List of Map<String, dynamic> representing each PlutoRow's cells.
-    for (var rowData in rawPlutoRowsJson) { // Iterate over the raw JSON data for rows
-      rowProcessingFutures.add(() async {
-        final Map<String, dynamic> serializableRowCells = {};
-        // Use serializableColumns to ensure correct iteration order and access to field names
-        for (var colConfig in serializableColumns) {
-          final fieldName = colConfig['field'] as String;
-          final rawValue = rowData['cells'][fieldName]; // Access cell value from raw JSON row data
+      for (var colConfig in serializableColumns) {
+        final fieldName = colConfig['field'] as String;
 
-          if (imageFieldNames.contains(fieldName) && rawValue is String && (rawValue.startsWith('http://') || rawValue.startsWith('https://'))) {
-            serializableRowCells[fieldName] = await _isolateFetchImageAndEncodeBase64(rawValue);
-          } else {
-            serializableRowCells[fieldName] = rawValue;
-          }
+        if (!rowData.containsKey(fieldName)) {
+          serializableRowCells[fieldName] = null;
+          continue;
         }
-        final Map<String, dynamic> processedRowData = {
-          'cells': serializableRowCells,
-        };
-        // Add '__isSubtotal__' flag back from the raw data
-        if (rowData.containsKey('__isSubtotal__')) {
-          processedRowData['__isSubtotal__'] = rowData['__isSubtotal__'];
+
+        final rawValue = rowData[fieldName];
+
+        if (imageFieldNames.contains(fieldName) &&
+            rawValue is String &&
+            (rawValue.startsWith('http://') || rawValue.startsWith('https://'))) {
+          serializableRowCells[fieldName] = await _isolateFetchImageAndEncodeBase64(rawValue);
+        } else {
+          serializableRowCells[fieldName] = rawValue;
         }
-        finalSerializableRows.add(processedRowData);
-      }()); // Immediately invoke and add to list of futures
+      }
+
+      if (rowData.containsKey('__isSubtotal__') && rowData['__isSubtotal__'] is bool) {
+        isCurrentRowSubtotal = rowData['__isSubtotal__'] as bool;
+      }
+
+      final Map<String, dynamic> processedRowData = {
+        'cells': serializableRowCells,
+        '__isSubtotal__': isCurrentRowSubtotal,
+      };
+
+      finalSerializableRows.add(processedRowData);
+      rowIndex++;
     }
-
-    await Future.wait(rowProcessingFutures); // Wait for all rows to be processed
-
-    return {
-      'serializableRows': finalSerializableRows,
-      'uniqueImagesProcessed': isolateBase64ImageCache.length,
-    };
+    debugPrint("Isolate: Finished processing rows. Total processed: ${finalSerializableRows.length}");
+    return {'serializableRows': finalSerializableRows};
   }
 
+  // New helper function to generate PDF for a specific chunk of PlutoRows, with images handled locally
+  Future<Uint8List> _generatePdfWithImagesLocallyForChunk(List<PlutoRow> rowsChunk) async {
+    debugPrint("Local PDF generation for chunk: Starting local PDF generation with images.");
+    final doc = pw.Document();
 
-  // --- Helper to call Node.js PDF Generation API (modified to send Base64 images) ---
-  Future<Uint8List> _callPdfGenerationApi() async {
-    print('Calling Node.js PDF API, exportId=$_exportId');
+    final poppinsRegular = await PdfGoogleFonts.poppinsRegular();
+    final poppinsBold = await PdfGoogleFonts.poppinsBold();
+    debugPrint("Local PDF generation for chunk: Fonts loaded.");
 
-    final Map<String, String> visibleAndFormattedParameters = widget.displayParameterValues;
+    final List<Map<String, dynamic>> serializableColumns = widget.columns
+        .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
+        .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
+        .toList();
+    debugPrint("Local PDF generation for chunk: Serializable columns prepared. Count: ${serializableColumns.length}");
 
+    final List<Map<String, dynamic>> allPlutoRowsJsonForCompute = [];
+    for (var row in rowsChunk) { // Iterate only over the provided chunk
+      final Map<String, dynamic> flattenedRowData = {};
+
+      for (var col in serializableColumns) {
+        final fieldName = col['field'] as String;
+        if (row.cells.containsKey(fieldName)) {
+          flattenedRowData[fieldName] = row.cells[fieldName]?.value;
+        } else {
+          flattenedRowData[fieldName] = null;
+        }
+      }
+      flattenedRowData['__isSubtotal__'] = row.cells.containsKey('__isSubtotal__')
+          ? (row.cells['__isSubtotal__']!.value is bool ? row.cells['__isSubtotal__']!.value : false)
+          : false;
+      allPlutoRowsJsonForCompute.add(flattenedRowData);
+    }
+    debugPrint("Local PDF generation for chunk: ${allPlutoRowsJsonForCompute.length} rows flattened for single compute call.");
+
+    List<Map<String, dynamic>> allProcessedSerializableRows = [];
+    try {
+      final preProcessResult = await compute(_processRowsInIsolate, {
+        'plutoRowsJson': allPlutoRowsJsonForCompute,
+        'fieldConfigs': widget.fieldConfigs ?? [],
+        'serializableColumns': serializableColumns,
+      });
+      debugPrint("Local PDF generation for chunk: Isolate processing complete. Result received.");
+      allProcessedSerializableRows = preProcessResult['serializableRows'];
+    } catch (e, stack) {
+      debugPrint("Local PDF generation ERROR for chunk: Failed during compute call: $e\n$stack");
+      rethrow;
+    }
+
+    final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(widget.columns, rowsChunk, widget.fieldConfigs);
+    debugPrint("Local PDF generation for chunk: Calculated grand totals: $grandTotalData");
+
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: pdf_lib.PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(30),
+        header: (context) => _buildPdfHeader(poppinsRegular, poppinsBold),
+        footer: (context) => _buildPdfFooter(context, poppinsRegular),
+        build: (context) => [
+          _buildPdfContentTable(serializableColumns, allProcessedSerializableRows, grandTotalData, poppinsRegular, poppinsBold),
+        ],
+      ),
+    );
+    debugPrint("Local PDF generation for chunk: PDF document built. Saving...");
+    return doc.save();
+  }
+
+  pw.Widget _buildPdfHeader(pw.Font regularFont, pw.Font boldFont) {
+    // debugPrint("PDF Header: Building header."); // Too verbose if called for every page
+    return pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.center,
+      children: [
+        if (_companyNameForHeader != null && _companyNameForHeader!.isNotEmpty)
+          pw.Text(_companyNameForHeader!, style: pw.TextStyle(font: boldFont, fontSize: 14)),
+        pw.SizedBox(height: 5),
+        pw.Text(widget.reportLabel, style: pw.TextStyle(font: boldFont, fontSize: 18)),
+        pw.SizedBox(height: 5),
+        if (widget.displayParameterValues.isNotEmpty)
+          pw.Text(
+            widget.displayParameterValues.entries.map((e) => '${e.key}: ${e.value}').join(' | '),
+            style: pw.TextStyle(font: regularFont, fontSize: 8),
+            textAlign: pw.TextAlign.center,
+          ),
+        pw.SizedBox(height: 15),
+      ],
+    );
+  }
+
+  pw.Widget _buildPdfFooter(pw.Context context, pw.Font font) {
+    // debugPrint("PDF Footer: Building footer."); // Too verbose
+    String footerText = 'Page ${context.pageNumber} of ${context.pagesCount}';
+    if (widget.includePdfFooterDateTime) {
+      final formattedDateTime = DateFormat('dd-MM-yyyy hh:mm:ss a').format(DateTime.now());
+      footerText += '  |  Generated on: $formattedDateTime';
+    }
+
+    return pw.Container(
+      alignment: pw.Alignment.centerRight,
+      margin: const pw.EdgeInsets.only(top: 10.0),
+      child: pw.Text(
+        footerText,
+        style: pw.TextStyle(font: font, fontSize: 8, color: pdf_lib.PdfColors.grey),
+      ),
+    );
+  }
+
+  pw.Widget _buildPdfContentTable(
+      List<Map<String, dynamic>> columns,
+      List<Map<String, dynamic>> rows,
+      Map<String, dynamic>? grandTotals,
+      pw.Font regularFont,
+      pw.Font boldFont,
+      ) {
+    debugPrint("PDF Table: Building content table for ${rows.length} rows.");
+    final fieldConfigMap = {for (var config in (widget.fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config};
+
+    final headers = columns.map((col) => pw.Text(col['title'], style: pw.TextStyle(font: boldFont))).toList();
+    // debugPrint("PDF Table: Headers prepared. Count: ${headers.length}"); // Too verbose
+
+    final data = rows.map<List<pw.Widget>>((row) {
+      bool isSubtotal = row.containsKey('__isSubtotal__') && row['__isSubtotal__'] == true;
+      if (!row.containsKey('cells') || row['cells'] is! Map<String, dynamic>) {
+        debugPrint("PDF Table ERROR: Skipping malformed row, 'cells' is missing or not a Map: $row");
+        return columns.map((col) => pw.Container(alignment: pw.Alignment.center, child: pw.Text('Data Error', style: pw.TextStyle(font: regularFont, fontSize: 8)))).toList();
+      }
+      final Map<String, dynamic> rowCells = row['cells'] as Map<String, dynamic>;
+
+      return columns.map<pw.Widget>((col) {
+        final fieldName = col['field'];
+        final config = fieldConfigMap[fieldName];
+
+        final rawValue = rowCells.containsKey(fieldName) ? rowCells[fieldName] : null;
+
+        final alignmentStr = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
+        final isNumeric = config?['data_type']?.toString().toLowerCase() == 'number' ||
+            config?['Total']?.toString() == '1' ||
+            config?['SubTotal']?.toString() == '1';
+
+        pw.Alignment alignment = isNumeric
+            ? (alignmentStr == 'center' ? pw.Alignment.center : pw.Alignment.centerRight)
+            : pw.Alignment.centerLeft;
+
+        if (config?['image']?.toString() == '1' && rawValue is String && rawValue.startsWith('data:image')) {
+          try {
+            final imageData = base64Decode(rawValue.split(',').last);
+            return pw.Container(
+              width: 50,
+              height: 50,
+              alignment: pw.Alignment.center,
+              child: pw.Image(pw.MemoryImage(imageData), fit: pw.BoxFit.contain),
+            );
+          } catch (e) {
+            debugPrint('PDF Table Cell ERROR: Error decoding image data for field $fieldName: $e');
+            return pw.Container(alignment: alignment, child: pw.Text('Invalid Image', style: pw.TextStyle(font: regularFont, fontSize: 8)));
+          }
+        }
+
+        return pw.Container(
+          alignment: alignment,
+          padding: const pw.EdgeInsets.all(2),
+          child: pw.Text(
+            rawValue?.toString() ?? '',
+            style: pw.TextStyle(font: isSubtotal ? boldFont : regularFont, fontSize: 8),
+          ),
+        );
+      }).toList();
+    }).toList();
+
+    if (grandTotals != null) {
+      debugPrint("PDF Table: Adding grand total row.");
+      final totalRow = columns.map<pw.Widget>((col) {
+        final fieldName = col['field'];
+        final config = fieldConfigMap[fieldName];
+        final alignmentStr = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
+        final isNumeric = config?['data_type']?.toString().toLowerCase() == 'number' || config?['Total']?.toString() == '1';
+
+        pw.Alignment alignment = isNumeric
+            ? (alignmentStr == 'center' ? pw.Alignment.center : pw.Alignment.centerRight)
+            : pw.Alignment.centerLeft;
+
+        return pw.Container(
+            alignment: alignment,
+            padding: const pw.EdgeInsets.all(2),
+            child: pw.Text(grandTotals[fieldName]?.toString() ?? '', style: pw.TextStyle(font: boldFont, fontSize: 9)));
+      }).toList();
+      data.add(totalRow);
+      debugPrint("PDF Table: Grand total row added.");
+    }
+
+    return pw.Table.fromTextArray(
+      headers: headers,
+      data: data,
+      border: pw.TableBorder.all(color: pdf_lib.PdfColors.grey600),
+      headerStyle: pw.TextStyle(font: boldFont, fontSize: 9, color: pdf_lib.PdfColors.white),
+      headerDecoration: const pw.BoxDecoration(color: pdf_lib.PdfColors.grey800),
+      cellHeight: 0,
+      cellAlignments: {
+        for (var i = 0; i < columns.length; i++) i: pw.Alignment.centerLeft,
+      },
+      cellPadding: const pw.EdgeInsets.all(4),
+    );
+  }
+
+  // New helper function to generate PDF for a specific chunk of PlutoRows, via API
+  Future<Uint8List> _callPdfGenerationApiForChunk(List<PlutoRow> rowsChunk) async {
+    debugPrint("API PDF generation for chunk: Preparing data for API call.");
     final List<Map<String, dynamic>> serializableColumns = widget.columns
         .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
         .map((col) => {
       'field': col.field,
       'title': col.title,
-      'type': col.type.runtimeType.toString(),
       'width': col.width,
-      // Add other relevant column properties from fieldConfigs if needed by Node.js
       'decimal_points': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['decimal_points'],
       'indian_format': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['indian_format'],
       'num_alignment': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['num_alignment'],
@@ -628,240 +742,287 @@ class _ExportWidgetState extends State<ExportWidget> {
       'data_type': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['data_type'],
       'image': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['image'],
       'time': widget.fieldConfigs?.firstWhereOrNull((fc) => fc['Field_name'] == col.field)?['time'],
-    }).toList();
-    print('ExportWidget: PDF Export Columns (filtered): ${serializableColumns.map((c) => c['field']).toList()}');
+    })
+        .toList();
+    debugPrint("API PDF generation for chunk: Serializable columns prepared. Count: ${serializableColumns.length}");
 
-    // NEW LOGIC: Pre-process rows (including image fetching/encoding) in an Isolate
-    print('ExportWidget: Starting client-side image pre-processing in an Isolate...');
-
-    // Convert PlutoRows to a serializable List<Map<String, dynamic>> before sending to isolate
-    // PlutoCell values need to be extracted explicitly for serialization across isolates.
-    final List<Map<String, dynamic>> plutoRowsJson = widget.plutoRows.map((row) {
-      final Map<String, dynamic> cellsMap = {};
-      row.cells.forEach((key, value) {
-        // Only include displayable fields. __actions__ and __raw_data__ are not processed by Isolate image logic.
-        if (serializableColumns.any((col) => col['field'] == key) || key == '__isSubtotal__') {
-          cellsMap[key] = value.value; // Get the raw value from PlutoCell
+    final List<Map<String, dynamic>> plutoRowsJsonForApi = [];
+    for (var row in rowsChunk) { // Iterate only over the provided chunk
+      final Map<String, dynamic> flattenedRowData = {};
+      for (var col in serializableColumns) {
+        final fieldName = col['field'] as String;
+        if (row.cells.containsKey(fieldName)) {
+          flattenedRowData[fieldName] = row.cells[fieldName]?.value;
+        } else {
+          flattenedRowData[fieldName] = null;
         }
-      });
-      final Map<String, dynamic> rowData = { 'cells': cellsMap };
-      if (row.cells.containsKey('__isSubtotal__')) {
-        rowData['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
       }
-      return rowData;
-    }).toList();
-
-    final preProcessResult = await compute(_processRowsInIsolate, {
-      'plutoRowsJson': plutoRowsJson, // Pass serializable data
-      'fieldConfigs': widget.fieldConfigs,
-      'serializableColumns': serializableColumns, // Pass this to help the isolate find image columns
-    });
-
-    final List<Map<String, dynamic>> serializableRows = preProcessResult['serializableRows'];
-    final int uniqueImagesProcessed = preProcessResult['uniqueImagesProcessed'];
-
-    print('ExportWidget: Number of rows for PDF: ${serializableRows.length}');
-    print('ExportWidget: Number of unique images processed and cached (in isolate): $uniqueImagesProcessed');
-
-
-    final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
-        widget.columns, widget.plutoRows, widget.fieldConfigs);
-    print('ExportWidget: Grand Total data for PDF: $grandTotalData');
-
-
-    double totalPdfConfiguredWidth = 0.0;
-    for (var col in serializableColumns) {
-      totalPdfConfiguredWidth += (col['width'] ?? 100.0);
+      flattenedRowData['__isSubtotal__'] = row.cells.containsKey('__isSubtotal__')
+          ? (row.cells['__isSubtotal__']!.value is bool ? row.cells['__isSubtotal__']!.value : false)
+          : false;
+      plutoRowsJsonForApi.add(flattenedRowData);
     }
-    if (totalPdfConfiguredWidth == 0 && serializableColumns.isNotEmpty) {
-      totalPdfConfiguredWidth = serializableColumns.length * 100.0;
-    } else if (totalPdfConfiguredWidth == 0) {
-      totalPdfConfiguredWidth = 1.0;
-    }
-    print('ExportWidget: Total configured width for PDF (filtered columns): $totalPdfConfiguredWidth');
+    debugPrint("API PDF generation for chunk: ${plutoRowsJsonForApi.length} rows flattened for API payload.");
 
+    final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(widget.columns, rowsChunk, widget.fieldConfigs);
+    debugPrint("API PDF generation for chunk: Calculated grand totals: $grandTotalData");
 
     final Map<String, dynamic> requestBody = {
       'columns': serializableColumns,
-      'rows': serializableRows, // NOW CONTAINS BASE64 DATA FOR IMAGES
+      'rows': plutoRowsJsonForApi,
       'fileName': widget.fileName,
       'exportId': _exportId,
-      'fieldConfigs': widget.fieldConfigs, // Also send full fieldConfigs for more granular control on Node.js side
+      'fieldConfigs': widget.fieldConfigs,
       'reportLabel': widget.reportLabel,
-      'visibleAndFormattedParameters': visibleAndFormattedParameters,
+      'visibleAndFormattedParameters': widget.displayParameterValues,
       'companyNameForHeader': _companyNameForHeader,
-      'grandTotalData': grandTotalData, // NEW: Send grand total separately
-      'includePdfFooterDateTime': widget.includePdfFooterDateTime, // NEW: Pass the footer flag to Node.js
+      'grandTotalData': grandTotalData,
+      'includePdfFooterDateTime': widget.includePdfFooterDateTime,
     };
-    print('ExportWidget: Request body size for PDF: ${jsonEncode(requestBody).length} bytes. This can be large due to Base64 images.');
-
-
+    debugPrint("API PDF generation for chunk: Sending request to PDF API.");
     try {
       final response = await http.post(
-        Uri.parse('$_pdfApiBaseUrl'),
+        Uri.parse(_pdfApiBaseUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(requestBody),
       );
 
       if (response.statusCode == 200) {
-        print('Node.js PDF API responded successfully, exportId=$_exportId. File size: ${response.bodyBytes.length} bytes.');
+        debugPrint("API PDF generation for chunk: PDF generated successfully by API.");
         return response.bodyBytes;
       } else {
-        final errorMessage = 'Failed to generate PDF on server: ${response.statusCode} - ${response.body}';
-        print(errorMessage);
-        throw Exception(errorMessage);
+        debugPrint("API PDF generation for chunk: Failed to generate PDF on server: ${response.statusCode} - ${response.body}");
+        throw Exception('Failed to generate PDF on server: ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      print('Error calling Node.js PDF API: $e, exportId=$_exportId');
+      debugPrint('API PDF generation for chunk: Error calling PDF API: $e');
       rethrow;
     }
   }
 
-  // --- Export to Excel ---
-  Future<void> _exportToExcel(BuildContext context) async {
-    await _executeExportTask(context, () async {
-      final List<Map<String, dynamic>> serializableColumns = widget.columns
-          .where((col) => col.field != '__raw_data__')
-          .map((col) => {
-        'field': col.field,
-        'title': col.title,
-        'type': col.type.runtimeType.toString(),
-        'width': col.width,
-      }).toList();
-
-      final List<Map<String, dynamic>> serializableRows = widget.plutoRows.map((row) {
-        final Map<String, dynamic> cellsMap = {};
-        for (var col in widget.columns) {
-          cellsMap[col.field] = row.cells[col.field]?.value;
-        }
-        if (row.cells.containsKey('__isSubtotal__')) {
-          cellsMap['__isSubtotal__'] = row.cells['__isSubtotal__']!.value;
-        }
-        return cellsMap;
-      }).toList();
-
-      final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(
-          widget.columns, widget.plutoRows, widget.fieldConfigs);
-      print('ExportWidget: Grand Total data for Excel: $grandTotalData');
-
-
-      print('ExportToExcel: Calling compute to generate Excel, exportId=$_exportId');
-      final excelBytes = await compute(_generateExcel, {
-        'columns': serializableColumns,
-        'rows': serializableRows, // These are the PlutoRows as-is, including subtotal flags
-        'exportId': _exportId,
-        'fieldConfigs': widget.fieldConfigs,
-        'reportLabel': widget.reportLabel,
-        'displayParameterValues': widget.displayParameterValues,
-        'companyNameForHeader': _companyNameForHeader,
-        'grandTotalData': grandTotalData, // NEW: Send grand total separately to Excel
-      });
-
-      print('ExportToExcel: Saving Excel file using FileSaver, exportId=$_exportId');
-      final fileName = '${widget.fileName}.xlsx';
-      final result = await FileSaver.instance.saveFile(
-        name: fileName,
-        bytes: excelBytes,
-        mimeType: MimeType.microsoftExcel,
-      );
-      print('ExportToExcel: File saved with result: $result, fileName: $fileName, exportId=$_exportId');
-      DownloadTracker.trackDownload(fileName, 'file_saver', _exportId);
-
-      // SnackBar is handled by _executeExportTask for success
-    }, 'Export to Excel', initialMessage: 'Generating Excel...'); // Provide initial message
-  }
-
-  // --- Export to PDF (Download) ---
-  @override
+  // Modified _exportToPDF to generate multiple PDFs and zip them
   Future<void> _exportToPDF(BuildContext context) async {
     await _executeExportTask(context, () async {
-      print('ExportToPDF: Generating PDF via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // This method now handles image pre-fetching
+      debugPrint('PDF export: Initiating multi-part PDF generation.');
 
-      print('ExportToPDF: Saving PDF file using FileSaver, exportId=$_exportId');
-      final fileName = '${widget.fileName}.pdf';
-      final result = await FileSaver.instance.saveFile(
-        name: fileName,
-        bytes: pdfBytes,
-        mimeType: MimeType.pdf,
-      );
-      print('ExportToPDF: File saved with result: $result, fileName: $fileName, exportId=$_exportId');
-      DownloadTracker.trackDownload(fileName, 'file_saver', _exportId);
+      final List<({String fileName, Uint8List bytes})> pdfParts = [];
+      final totalRows = widget.plutoRows.length;
+      final numParts = (totalRows / _pdfRowsPerFile).ceil();
 
-      // SnackBar is handled by _executeExportTask for success
-    }, 'Export to PDF', showLoaderDialog: false, initialMessage: 'Downloading PDF...'); // MODIFIED for background download feedback
+      for (int i = 0; i < numParts; i++) {
+        final int startRow = i * _pdfRowsPerFile;
+        final int endRow = (startRow + _pdfRowsPerFile > totalRows) ? totalRows : startRow + _pdfRowsPerFile;
+        final List<PlutoRow> currentRowsChunk = widget.plutoRows.sublist(startRow, endRow);
+
+        String partFileName = widget.fileName;
+        if (numParts > 1) { // Only append part number if there are multiple parts
+          partFileName = '${widget.fileName}_Part${i + 1}';
+        }
+
+        // Update UI progress for current part
+        // Note: _executeExportTask manages the single UI loader/snackbar.
+        // We're updating its internal message via its 'onProgressUpdate' callback.
+        if (context.mounted) {
+          final message = 'Generating PDF part ${i + 1} of $numParts (${startRow + 1} - $endRow rows)...';
+          // This calls the internalProgressUpdater of the parent _executeExportTask
+          // by passing a dummy async function to its 'task' parameter, and then
+          // directly calling 'onProgressUpdate'. This is a bit of a hack to
+          // update the message from an inner loop without spawning new _executeExportTask.
+          // A better design might be to pass the ValueNotifier directly.
+          if (ModalRoute.of(context)?.isCurrent == true) { // Check if context is still valid
+            // Re-invoke _executeExportTask to update its message. This is still not ideal.
+            // The ideal way to update the existing _executeExportTask's message is via a direct callback.
+            // Let's assume _executeExportTask's onProgressUpdate is the way.
+            (context as Element).visitAncestorElements((element) {
+              if (element.widget is _ExportWidgetState && (element.state as _ExportWidgetState)._isExportingGlobally) {
+                // This is a direct hack to access the internal message notifier.
+                // In a real app, you'd pass a callback or a notifier more cleanly.
+                (element.state as _ExportWidgetState)._executeExportTask(
+                    element.context, () async {}, 'Export to PDF', // Dummy task
+                    showLoaderDialog: false, // Don't show new dialog
+                    initialMessage: message // Update message
+                );
+                return false; // Stop visiting ancestors
+              }
+              return true; // Continue visiting
+            });
+          }
+        }
+
+
+        Uint8List pdfBytes;
+        if (_hasImageColumns()) {
+          pdfBytes = await _generatePdfWithImagesLocallyForChunk(currentRowsChunk);
+        } else {
+          pdfBytes = await _callPdfGenerationApiForChunk(currentRowsChunk);
+        }
+        pdfParts.add((fileName: '$partFileName.pdf', bytes: pdfBytes));
+        debugPrint('PDF part ${i + 1} generated: $partFileName.pdf');
+      }
+
+      // If there's only one part, just save it directly (no need to zip)
+      if (pdfParts.length == 1) {
+        final firstPart = pdfParts.first;
+        final result = await FileSaver.instance.saveFile(
+          name: firstPart.fileName,
+          bytes: firstPart.bytes,
+          mimeType: MimeType.pdf,
+        );
+        DownloadTracker.trackDownload(firstPart.fileName, result, _exportId);
+        debugPrint('Single PDF export successful: ${firstPart.fileName} at $result');
+      } else {
+        // If multiple parts, create a ZIP file
+        final archive = Archive();
+        for (var part in pdfParts) {
+          archive.addFile(ArchiveFile(part.fileName, part.bytes.length, part.bytes));
+        }
+        final zipBytes = ZipEncoder().encode(archive);
+        if (zipBytes == null) {
+          throw Exception('Failed to create ZIP archive. Resulting bytes were null.');
+        }
+
+        final zipFileName = '${widget.fileName}_Parts.zip';
+        final result = await FileSaver.instance.saveFile(
+          name: zipFileName,
+          bytes: Uint8List.fromList(zipBytes),
+          mimeType: MimeType.zip,
+        );
+        DownloadTracker.trackDownload(zipFileName, result, _exportId);
+        debugPrint('Multi-part PDF export successful (zipped): $zipFileName at $result');
+      }
+
+    }, 'Export to PDF', showLoaderDialog: false, initialMessage: 'Preparing PDF exports...');
   }
 
-  // --- Print Document ---
-  @override
-  Future<void> _printDocument(BuildContext context) async {
-    await _executeExportTask(context, () async {
-      print('PrintDocument: Generating PDF via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
-      final pdfBytes = await _callPdfGenerationApi(); // This method now handles image pre-fetching
 
-      if (kIsWeb) {
-        print('PrintDocument: Platform is web. Using Printing.layoutPdf for direct browser print dialog, exportId=$_exportId');
-        await Printing.layoutPdf(
-          onLayout: (old_pdf.PdfPageFormat format) async => pdfBytes,
-          name: '${widget.fileName}_Print.pdf',
-        );
-        // SnackBar for web print is specific and handled here, not by general success
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Browser print dialog opened.')),
-          );
+  Future<void> _printDocument(BuildContext context) async {
+    // For printing, we usually want one continuous document.
+    // So, we'll revert to generating one large PDF for print, using the combined logic.
+    await _executeExportTask(context, () async {
+      debugPrint('Print document: Initiating PDF byte generation for a single document.');
+
+      // Consolidate all rows for the print operation
+      final List<Map<String, dynamic>> serializableColumns = widget.columns
+          .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
+          .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
+          .toList();
+
+      final List<Map<String, dynamic>> allPlutoRowsJsonForCompute = [];
+      for (var row in widget.plutoRows) {
+        final Map<String, dynamic> flattenedRowData = {};
+        for (var col in serializableColumns) {
+          final fieldName = col['field'] as String;
+          flattenedRowData[fieldName] = row.cells.containsKey(fieldName) ? row.cells[fieldName]?.value : null;
         }
+        flattenedRowData['__isSubtotal__'] = row.cells.containsKey('__isSubtotal__')
+            ? (row.cells['__isSubtotal__']!.value is bool ? row.cells['__isSubtotal__']!.value : false)
+            : false;
+        allPlutoRowsJsonForCompute.add(flattenedRowData);
+      }
+
+      final Map<String, dynamic>? grandTotalData = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
+
+      Uint8List pdfBytes;
+      if (_hasImageColumns()) {
+        debugPrint("Print: Image columns detected. Generating PDF locally for print.");
+        final doc = pw.Document();
+        final poppinsRegular = await PdfGoogleFonts.poppinsRegular();
+        final poppinsBold = await PdfGoogleFonts.poppinsBold();
+
+        List<Map<String, dynamic>> allProcessedSerializableRows = [];
+        try {
+          final preProcessResult = await compute(_processRowsInIsolate, {
+            'plutoRowsJson': allPlutoRowsJsonForCompute,
+            'fieldConfigs': widget.fieldConfigs ?? [],
+            'serializableColumns': serializableColumns,
+          });
+          allProcessedSerializableRows = preProcessResult['serializableRows'];
+        } catch (e, stack) {
+          debugPrint("Print ERROR: Failed during compute call: $e\n$stack");
+          rethrow;
+        }
+
+        doc.addPage(
+          pw.MultiPage(
+            pageFormat: pdf_lib.PdfPageFormat.a4.landscape,
+            margin: const pw.EdgeInsets.all(30),
+            header: (context) => _buildPdfHeader(poppinsRegular, poppinsBold),
+            footer: (context) => _buildPdfFooter(context, poppinsRegular),
+            build: (context) => [
+              _buildPdfContentTable(serializableColumns, allProcessedSerializableRows, grandTotalData, poppinsRegular, poppinsBold),
+            ],
+          ),
+        );
+        pdfBytes = await doc.save();
+
       } else {
-        print('PrintDocument: Platform is not web. Using Printing.sharePdf to trigger system print/share dialog, exportId=$_exportId');
-        await Printing.sharePdf(bytes: pdfBytes, filename: '${widget.fileName}_Print.pdf');
-        // SnackBar for non-web print is specific and handled here, not by general success
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('PDF prepared. Select a printer from the system dialog.')),
+        debugPrint("Print: No image columns. Calling PDF generation API for print.");
+        final Map<String, dynamic> requestBody = {
+          'columns': serializableColumns,
+          'rows': allPlutoRowsJsonForCompute,
+          'fileName': widget.fileName,
+          'exportId': _exportId,
+          'fieldConfigs': widget.fieldConfigs,
+          'reportLabel': widget.reportLabel,
+          'visibleAndFormattedParameters': widget.displayParameterValues,
+          'companyNameForHeader': _companyNameForHeader,
+          'grandTotalData': grandTotalData,
+          'includePdfFooterDateTime': widget.includePdfFooterDateTime,
+        };
+        try {
+          final response = await http.post(
+            Uri.parse(_pdfApiBaseUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
           );
+
+          if (response.statusCode == 200) {
+            pdfBytes = response.bodyBytes;
+          } else {
+            throw Exception('Failed to generate PDF on server for print: ${response.statusCode} - ${response.body}');
+          }
+        } catch (e) {
+          debugPrint('Print: Error calling PDF API: $e');
+          rethrow;
         }
       }
-    }, 'Print Document', initialMessage: 'Preparing document for print...'); // Provide initial message
+
+      debugPrint('Print document: PDF bytes generated. Sending to printer.');
+      await Printing.layoutPdf(
+        onLayout: (format) async => pdfBytes,
+        name: '${widget.fileName}_Print.pdf',
+      );
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Browser print dialog opened.')),
+        );
+      }
+      debugPrint('Print job initiated for ${widget.fileName}.pdf');
+    }, 'Print Document', initialMessage: 'Preparing document for print...');
   }
 
-  // --- Send to Email ---
   Future<void> _sendToEmail(BuildContext context) async {
-    print('SendToEmail: Showing email input dialog, exportId=$_exportId');
     final emailController = TextEditingController();
     final shouldSend = await showDialog<bool>(
       context: context,
-      barrierDismissible: false, // Ensure user must make a choice
+      barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Send to Email'),
         content: TextField(
           controller: emailController,
-          decoration: const InputDecoration(
-            labelText: 'Recipient Email',
-            hintText: 'Enter email address',
-          ),
+          decoration: const InputDecoration(labelText: 'Recipient Email', hintText: 'Enter email address'),
           keyboardType: TextInputType.emailAddress,
         ),
         actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
           TextButton(
             onPressed: () {
-              print('SendToEmail: User pressed Cancel in email dialog, exportId=$_exportId');
-              Navigator.of(context).pop(false);
-            },
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              print('SendToEmail: User pressed Send with email: ${emailController.text}, exportId=$_exportId');
-              if (emailController.text.isNotEmpty &&
-                  RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
-                print('SendToEmail: Email is valid, proceeding, exportId=$_exportId');
+              if (emailController.text.isNotEmpty && RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(emailController.text)) {
                 Navigator.of(context).pop(true);
               } else {
-                print('SendToEmail: Invalid email address entered, exportId=$_exportId');
                 if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a valid email address!')),
-                  );
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter a valid email address!')));
                 }
               }
             },
@@ -871,27 +1032,19 @@ class _ExportWidgetState extends State<ExportWidget> {
       ),
     );
 
-    print('SendToEmail: Dialog result: shouldSend=$shouldSend, exportId=$_exportId');
     if (shouldSend != true) {
-      print('SendToEmail: Email sending cancelled by user, exportId=$_exportId');
-      // If the user cancels, gracefully exit the task. No loader needed.
+      debugPrint('Email sending cancelled by user.');
       return;
     }
 
-    // --- User confirmed email, now start the actual processing with the loader ---
     await _executeExportTask(context, () async {
-      print('SendToEmail: Generating Excel file for email attachment, exportId=$_exportId');
-      final List<Map<String, dynamic>> serializableColumnsForExcel = widget.columns
+      final serializableColumnsForExcel = widget.columns
           .where((col) => col.field != '__raw_data__')
-          .map((col) => {
-        'field': col.field,
-        'title': col.title,
-        'type': col.type.runtimeType.toString(),
-        'width': col.width,
-      }).toList();
+          .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
+          .toList();
 
-      final List<Map<String, dynamic>> serializableRowsForExcel = widget.plutoRows.map((row) {
-        final Map<String, dynamic> cellsMap = {};
+      final serializableRowsForExcel = widget.plutoRows.map((row) {
+        final cellsMap = <String, dynamic>{};
         for (var col in widget.columns) {
           cellsMap[col.field] = row.cells[col.field]?.value;
         }
@@ -901,11 +1054,9 @@ class _ExportWidgetState extends State<ExportWidget> {
         return cellsMap;
       }).toList();
 
-      final Map<String, dynamic>? grandTotalDataExcel = _calculateGrandTotals(
-          widget.columns, widget.plutoRows, widget.fieldConfigs);
-      print('SendToEmail: Grand Total data for Excel: $grandTotalDataExcel');
+      final grandTotalDataExcel = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
 
-
+      debugPrint('Email: Generating Excel for attachment...');
       final excelBytes = await compute(_generateExcel, {
         'columns': serializableColumnsForExcel,
         'rows': serializableRowsForExcel,
@@ -916,66 +1067,118 @@ class _ExportWidgetState extends State<ExportWidget> {
         'companyNameForHeader': _companyNameForHeader,
         'grandTotalData': grandTotalDataExcel,
       });
-      print('SendToEmail: Excel file generated. Size: ${excelBytes.length} bytes, exportId=$_exportId');
+      debugPrint('Email: Excel generated successfully for attachment.');
 
+      // For email, we generally want to attach a single PDF for convenience.
+      // So, this will also generate one large PDF, similar to print.
+      debugPrint('Email: Generating single PDF for attachment...');
+
+      // Consolidate all rows for the PDF attachment
+      final List<Map<String, dynamic>> serializableColumnsForPdf = widget.columns
+          .where((col) => col.field != '__actions__' && col.field != '__raw_data__')
+          .map((col) => {'field': col.field, 'title': col.title, 'width': col.width})
+          .toList();
+
+      final List<Map<String, dynamic>> allPlutoRowsJsonForPdf = [];
+      for (var row in widget.plutoRows) {
+        final Map<String, dynamic> flattenedRowData = {};
+        for (var col in serializableColumnsForPdf) {
+          final fieldName = col['field'] as String;
+          flattenedRowData[fieldName] = row.cells.containsKey(fieldName) ? row.cells[fieldName]?.value : null;
+        }
+        flattenedRowData['__isSubtotal__'] = row.cells.containsKey('__isSubtotal__')
+            ? (row.cells['__isSubtotal__']!.value is bool ? row.cells['__isSubtotal__']!.value : false)
+            : false;
+        allPlutoRowsJsonForPdf.add(flattenedRowData);
+      }
+
+      final Map<String, dynamic>? grandTotalDataPdf = _calculateGrandTotals(widget.columns, widget.plutoRows, widget.fieldConfigs);
 
       Uint8List pdfBytes;
-      // For email, always use the main _callPdfGenerationApi which handles image pre-fetching now
-      print('SendToEmail: Generating PDF for email attachment via Node.js API (with client-side image pre-fetching), exportId=$_exportId');
-      pdfBytes = await _callPdfGenerationApi();
+      if (_hasImageColumns()) {
+        debugPrint("Email: Image columns detected. Generating PDF locally for email attachment.");
+        final doc = pw.Document();
+        final poppinsRegular = await PdfGoogleFonts.poppinsRegular();
+        final poppinsBold = await PdfGoogleFonts.poppinsBold();
 
-      print('SendToEmail: PDF file generated. Size: ${pdfBytes.length} bytes, exportId=$_exportId');
-
-
-      print('SendToEmail: Preparing multipart HTTP request, exportId=$_exportId');
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('https://aquare.co.in/mobileAPI/sachin/reportBuilder/sendmail.php'),
-      );
-
-      request.fields['email'] = emailController.text;
-      print('SendToEmail: Adding email field: ${emailController.text}, exportId=$_exportId');
-
-      request.files.add(http.MultipartFile.fromBytes(
-        'excel',
-        excelBytes,
-        filename: '${widget.fileName}.xlsx',
-        contentType: MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
-      ));
-      print('SendToEmail: Added Excel attachment: ${widget.fileName}.xlsx, size: ${excelBytes.length} bytes, exportId=$_exportId');
-
-
-      request.files.add(http.MultipartFile.fromBytes(
-        'pdf',
-        pdfBytes,
-        filename: '${widget.fileName}.pdf',
-        contentType: MediaType('application', 'pdf'),
-      ));
-      print('SendToEmail: Added PDF attachment: ${widget.fileName}.pdf, size: ${pdfBytes.length} bytes, exportId=$_exportId');
-
-
-      print('SendToEmail: Sending HTTP request to backend, exportId=$_exportId');
-      try {
-        final streamedResponse = await request.send();
-        final response = await http.Response.fromStream(streamedResponse);
-        final responseString = response.body;
-        print('SendToEmail: HTTP response status code: ${response.statusCode}, Response: "$responseString", exportId=$_exportId');
-
-        // Changed condition: Rely on 200 status code for success
-        if (response.statusCode == 200) {
-          print('SendToEmail: Files sent to email successfully (server returned 200 OK), exportId=$_exportId');
-          // SnackBar is handled by _executeExportTask for success
-        } else {
-          print('SendToEmail: Failed to send email. Status: ${response.statusCode}, Response: "$responseString", exportId=$_exportId');
-          // Provide a more descriptive error message to the user
-          String errorDetail = responseString.isNotEmpty ? responseString : 'No response body from server.';
-          throw Exception('Server failed to send email. Status Code: ${response.statusCode}. Details: $errorDetail');
+        List<Map<String, dynamic>> allProcessedSerializableRows = [];
+        try {
+          final preProcessResult = await compute(_processRowsInIsolate, {
+            'plutoRowsJson': allPlutoRowsJsonForPdf,
+            'fieldConfigs': widget.fieldConfigs ?? [],
+            'serializableColumns': serializableColumnsForPdf,
+          });
+          allProcessedSerializableRows = preProcessResult['serializableRows'];
+        } catch (e, stack) {
+          debugPrint("Email PDF ERROR: Failed during compute call: $e\n$stack");
+          rethrow;
         }
-      } catch (e) {
-        print('SendToEmail: Exception during HTTP request: $e, exportId=$_exportId');
-        rethrow; // Rethrow to be caught by _executeExportTask
+
+        doc.addPage(
+          pw.MultiPage(
+            pageFormat: pdf_lib.PdfPageFormat.a4.landscape,
+            margin: const pw.EdgeInsets.all(30),
+            header: (context) => _buildPdfHeader(poppinsRegular, poppinsBold),
+            footer: (context) => _buildPdfFooter(context, poppinsRegular),
+            build: (context) => [
+              _buildPdfContentTable(serializableColumnsForPdf, allProcessedSerializableRows, grandTotalDataPdf, poppinsRegular, poppinsBold),
+            ],
+          ),
+        );
+        pdfBytes = await doc.save();
+
+      } else {
+        debugPrint("Email: No image columns. Calling PDF generation API for email attachment.");
+        final Map<String, dynamic> requestBody = {
+          'columns': serializableColumnsForPdf,
+          'rows': allPlutoRowsJsonForPdf,
+          'fileName': widget.fileName,
+          'exportId': _exportId,
+          'fieldConfigs': widget.fieldConfigs,
+          'reportLabel': widget.reportLabel,
+          'visibleAndFormattedParameters': widget.displayParameterValues,
+          'companyNameForHeader': _companyNameForHeader,
+          'grandTotalData': grandTotalDataPdf,
+          'includePdfFooterDateTime': widget.includePdfFooterDateTime,
+        };
+        try {
+          final response = await http.post(
+            Uri.parse(_pdfApiBaseUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
+          );
+
+          if (response.statusCode == 200) {
+            pdfBytes = response.bodyBytes;
+          } else {
+            throw Exception('Failed to generate PDF on server for email: ${response.statusCode} - ${response.body}');
+          }
+        } catch (e) {
+          debugPrint('Email PDF: Error calling PDF API: $e');
+          rethrow;
+        }
       }
-    }, 'Send to Email Processing', initialMessage: 'Preparing email and attachments...'); // New task name for the processing part
+
+      debugPrint('Email: PDF generated successfully for attachment.');
+
+      final request = http.MultipartRequest('POST', Uri.parse('https://aquare.co.in/mobileAPI/sachin/reportBuilder/sendmail.php'));
+      request.fields['email'] = emailController.text;
+      request.files.add(http.MultipartFile.fromBytes('excel', excelBytes,
+          filename: '${widget.fileName}.xlsx', contentType: MediaType('application', 'vnd.openxmlformats-officedocument.spreadsheetml.sheet')));
+      request.files.add(http.MultipartFile.fromBytes('pdf', pdfBytes,
+          filename: '${widget.fileName}.pdf', contentType: MediaType('application', 'pdf')));
+
+      debugPrint('Email: Sending email with attachments to ${emailController.text}...');
+      final streamedResponse = await request.send();
+      final response = await http.Response.fromStream(streamedResponse);
+
+      if (response.statusCode == 200) {
+        debugPrint('Email: Email sent successfully. Response: ${response.body}');
+      } else {
+        debugPrint('Email: Failed to send email. Status: ${response.statusCode}. Details: ${response.body}');
+        throw Exception('Server failed to send email. Status: ${response.statusCode}. Details: ${response.body}');
+      }
+    }, 'Send to Email Processing', initialMessage: 'Preparing email and attachments...');
   }
 
   static String _formatNumber(double number, int decimalPoints, {bool indianFormat = false}) {
@@ -983,116 +1186,86 @@ class _ExportWidgetState extends State<ExportWidget> {
     if (decimalPoints > 0) {
       pattern += '.${'0' * decimalPoints}';
     }
-    final NumberFormat formatter = NumberFormat(
-      pattern,
-      indianFormat ? 'en_IN' : 'en_US',
-    );
-    return formatter.format(number);
+    return NumberFormat(pattern, indianFormat ? 'en_IN' : 'en_US').format(number);
   }
 
-  // --- _generateExcel function (static for compute) ---
   static Uint8List _generateExcel(Map<String, dynamic> params) {
-    final exportId = params['exportId'] as String;
-    print('GenerateExcel: Starting Excel generation in isolate, exportId=$exportId');
+    debugPrint('Excel Isolate: Starting Excel generation.');
     final columns = params['columns'] as List<Map<String, dynamic>>;
     final rows = params['rows'] as List<Map<String, dynamic>>;
     final fieldConfigs = params['fieldConfigs'] as List<Map<String, dynamic>>?;
     final reportLabel = params['reportLabel'] as String;
     final displayParameterValues = params['displayParameterValues'] as Map<String, String>;
     final companyNameForHeader = params['companyNameForHeader'] as String?;
-    final grandTotalData = params['grandTotalData'] as Map<String, dynamic>?; // NEW: Receive grand total
+    final grandTotalData = params['grandTotalData'] as Map<String, dynamic>?;
 
     var excel = Excel.createExcel();
     var sheet = excel['Sheet1'];
 
-    final List<String> fieldNames = [];
-    final List<String> headerLabels = [];
-    for (var col in columns) {
-      if (col['field'] != '__actions__' && col['field'] != '__raw_data__') {
-        fieldNames.add(col['field'].toString());
-        headerLabels.add(col['title'].toString());
-      }
-    }
-    print('GenerateExcel: Excel field names (filtered): $fieldNames');
-
+    final fieldNames = columns
+        .where((col) => col['field'] != '__actions__' && col['field'] != '__raw_data__')
+        .map<String>((col) => col['field'].toString())
+        .toList();
+    final headerLabels = columns
+        .where((col) => col['field'] != '__actions__' && col['field'] != '__raw_data__')
+        .map<String>((col) => col['title'].toString())
+        .toList();
 
     int maxCols = headerLabels.length;
+    debugPrint('Excel Isolate: Max Columns = $maxCols');
 
     if (companyNameForHeader != null && companyNameForHeader.isNotEmpty) {
       sheet.appendRow([TextCellValue(companyNameForHeader)]);
       sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
           CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
-        fontFamily: 'Calibri',
-        fontSize: 14,
-        bold: true,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle =
+          CellStyle(fontFamily: 'Calibri', fontSize: 14, bold: true, horizontalAlign: HorizontalAlign.Center);
       sheet.appendRow([]);
+      debugPrint('Excel Isolate: Added company name header.');
     }
 
     sheet.appendRow([TextCellValue(reportLabel)]);
     sheet.merge(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1),
         CellIndex.indexByColumnRow(columnIndex: maxCols - 1, rowIndex: sheet.maxRows - 1));
-    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
-      fontFamily: 'Calibri',
-      fontSize: 18,
-      bold: true,
-      horizontalAlign: HorizontalAlign.Center,
-      verticalAlign: VerticalAlign.Center,
-    );
+    sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle =
+        CellStyle(fontFamily: 'Calibri', fontSize: 18, bold: true, horizontalAlign: HorizontalAlign.Center);
     sheet.appendRow([]);
+    debugPrint('Excel Isolate: Added report label header.');
 
     if (displayParameterValues.isNotEmpty) {
       for (var entry in displayParameterValues.entries) {
         sheet.appendRow([TextCellValue('${entry.key}: ${entry.value}')]);
-        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle = CellStyle(
-          fontFamily: 'Calibri',
-          fontSize: 10,
-        );
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: sheet.maxRows - 1)).cellStyle =
+            CellStyle(fontFamily: 'Calibri', fontSize: 10);
       }
       sheet.appendRow([]);
+      debugPrint('Excel Isolate: Added parameters.');
     }
 
     if (rows.isEmpty) {
-      print('GenerateExcel: Empty rows provided, returning Excel with headers and title, exportId=$exportId');
       sheet.appendRow([TextCellValue('No data available')]);
+      debugPrint('Excel Isolate: No data to export.');
       return Uint8List.fromList(excel.encode() ?? []);
     }
 
-    print('GenerateExcel: Populating Excel data, exportId=$exportId');
-    final excelContentStartTime = DateTime.now();
-
-    sheet.appendRow(headerLabels.map((header) => TextCellValue(header)).toList());
+    sheet.appendRow(headerLabels.map((h) => TextCellValue(h)).toList());
     final headerRowIndex = sheet.maxRows - 1;
     for (int i = 0; i < headerLabels.length; i++) {
-      sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: headerRowIndex)).cellStyle = CellStyle(
-        fontFamily: 'Calibri',
-        bold: true,
-        horizontalAlign: HorizontalAlign.Center,
-        verticalAlign: VerticalAlign.Center,
-      );
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: headerRowIndex)).cellStyle =
+          CellStyle(fontFamily: 'Calibri', bold: true, horizontalAlign: HorizontalAlign.Center);
     }
+    debugPrint('Excel Isolate: Added column headers.');
 
-    final Map<String, Map<String, dynamic>> fieldConfigMap = {
-      for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config
-    };
+    final fieldConfigMap = {for (var config in (fieldConfigs ?? [])) config['Field_name']?.toString() ?? '': config};
 
     for (var rowData in rows) {
-      final isSubtotalRow = rowData.containsKey('__isSubtotal__') ? rowData['__isSubtotal__'] : false;
-
+      final isSubtotalRow = rowData['__isSubtotal__'] == true;
       final rowValues = fieldNames.map((fieldName) {
         final rawValue = rowData[fieldName];
         final config = fieldConfigMap[fieldName];
-
         bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
-            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
-              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
-        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
-          isNumeric = true;
-        }
-
+            config?['Total']?.toString() == '1' ||
+            config?['SubTotal']?.toString() == '1';
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
 
@@ -1101,12 +1274,8 @@ class _ExportWidgetState extends State<ExportWidget> {
         } else if (isNumeric && rawValue != null) {
           final doubleValue = double.tryParse(rawValue.toString()) ?? 0.0;
           return TextCellValue(_formatNumber(doubleValue, decimalPoints, indianFormat: indianFormat));
-        } else if (config?['image']?.toString() == '1' &&
-            rawValue != null &&
-            (rawValue.toString().startsWith('http://') || rawValue.toString().startsWith('https://') || rawValue.toString().startsWith('data:image/'))) {
-          // For Excel, just print the image link text (URLs or Base64 strings)
-          // If it's a Base64 string, it will be very long but still text.
-          return TextCellValue('Image Data: ${rawValue.toString().substring(0, rawValue.toString().length > 50 ? 50 : rawValue.toString().length)}...'); // Truncate for display
+        } else if (config?['image']?.toString() == '1' && rawValue != null) {
+          return TextCellValue('Image Data (Link/Base64)');
         }
         return TextCellValue(rawValue?.toString() ?? '');
       }).toList();
@@ -1117,44 +1286,28 @@ class _ExportWidgetState extends State<ExportWidget> {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-
         bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
-            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
-              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
-        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
-          isNumeric = true;
-        }
-
+            config?['Total']?.toString() == '1' ||
+            config?['SubTotal']?.toString() == '1';
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: dataRowIndex)).cellStyle = CellStyle(
-          horizontalAlign: isNumeric
-              ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right)
-              : HorizontalAlign.Left,
+          horizontalAlign: isNumeric ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right) : HorizontalAlign.Left,
           bold: isSubtotalRow,
           fontFamily: 'Calibri',
         );
       }
     }
+    debugPrint('Excel Isolate: Added data rows.');
 
-    // NEW: Add Grand Total row if grandTotalData is provided
     if (grandTotalData != null) {
       final totalRowValues = fieldNames.map((fieldName) {
         final config = fieldConfigMap[fieldName];
-        final total = config?['Total']?.toString() == '1';
-
-        // Replicate the isNumeric logic for the grand total row as well
-        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
-            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
-              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
-        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
-          isNumeric = true;
-        }
-
+        final isTotalCol = config?['Total']?.toString() == '1';
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') || isTotalCol;
         final decimalPoints = int.tryParse(config?['decimal_points']?.toString() ?? '0') ?? 0;
         final indianFormat = config?['indian_format']?.toString() == '1';
-
         if (fieldName == fieldNames[0]) {
-          return TextCellValue(grandTotalData[fieldName]?.toString() ?? 'Grand Total'); // Get label from grandTotalData
-        } else if (total && isNumeric && grandTotalData.containsKey(fieldName)) {
+          return TextCellValue(grandTotalData[fieldName]?.toString() ?? 'Grand Total');
+        } else if (isTotalCol && isNumeric && grandTotalData.containsKey(fieldName)) {
           final double sum = grandTotalData[fieldName] as double;
           return TextCellValue(_formatNumber(sum, decimalPoints, indianFormat: indianFormat));
         }
@@ -1166,27 +1319,17 @@ class _ExportWidgetState extends State<ExportWidget> {
       for (int i = 0; i < fieldNames.length; i++) {
         final fieldName = fieldNames[i];
         final config = fieldConfigMap[fieldName];
-        final total = config?['Total']?.toString() == '1';
+        final isTotalCol = config?['Total']?.toString() == '1';
         final alignment = config?['num_alignment']?.toString().toLowerCase() ?? 'left';
-
-        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') ||
-            (['VQ_GrandTotal', 'Qty', 'Rate', 'NetRate', 'GrandTotal', 'Value', 'Amount',
-              'Excise', 'Cess', 'HSCess', 'Freight', 'TCS', 'CGST', 'SGST', 'IGST'].contains(fieldName.toLowerCase()));
-        if (config?['Total']?.toString() == '1' || config?['SubTotal']?.toString() == '1') {
-          isNumeric = true;
-        }
-
+        bool isNumeric = (config?['data_type']?.toString().toLowerCase() == 'number') || isTotalCol;
         sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: totalRowIndex)).cellStyle = CellStyle(
           fontFamily: 'Calibri',
           bold: true,
-          horizontalAlign: i == 0
-              ? HorizontalAlign.Left
-              : (total && isNumeric
-              ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right)
-              : HorizontalAlign.Left),
+          horizontalAlign: i == 0 ? HorizontalAlign.Left : (isNumeric ? (alignment == 'center' ? HorizontalAlign.Center : HorizontalAlign.Right) : HorizontalAlign.Left),
         );
       }
     }
+    debugPrint('Excel Isolate: Added grand total row.');
 
     for (var i = 0; i < fieldNames.length; i++) {
       final fieldName = fieldNames[i];
@@ -1194,12 +1337,8 @@ class _ExportWidgetState extends State<ExportWidget> {
       final width = double.tryParse(config?['width']?.toString() ?? '100') ?? 100.0;
       sheet.setColumnWidth(i, width / 6);
     }
-
-    final excelBytes = Uint8List.fromList(excel.encode() ?? []);
-    final excelContentEndTime = DateTime.now();
-    print('GenerateExcel: Excel content generation and encoding took ${excelContentEndTime.difference(excelContentStartTime).inMilliseconds} ms, exportId=$exportId');
-    print('GenerateExcel: Excel generation completed, returning bytes, exportId=$exportId');
-
-    return excelBytes;
+    debugPrint('Excel Isolate: Set column widths.');
+    debugPrint('Excel Isolate: Excel generation complete.');
+    return Uint8List.fromList(excel.encode() ?? []);
   }
 }
