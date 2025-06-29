@@ -236,7 +236,7 @@ class _ContentArea extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool isHomeView = selectedGroup == null;
-    final String title = isHomeView ? 'All Reports' : selectedGroup!.groupName;
+    final String title = isHomeView ? 'Home' : selectedGroup!.groupName;
     final reportsSource = isHomeView ? allGroups.expand((g) => g.reports) : selectedGroup!.reports;
 
     return Column(
