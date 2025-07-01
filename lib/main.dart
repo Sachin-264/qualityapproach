@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart'; // <--- NEW: Import the provider package
+import 'package:qualityapproach/SetupScreen/setup_bloc.dart';
 
 // Your existing Bloc imports
 import 'CustomerRetail/RetailBloc.dart';
@@ -53,6 +54,7 @@ void main() {
           BlocProvider<ReportAdminBloc>(create: (context) => ReportAdminBloc(apiService)),
           BlocProvider<EditDetailMakerBloc>(create: (context) => EditDetailMakerBloc(apiService)),
           BlocProvider<EditReportMakerBloc>(create: (context) => EditReportMakerBloc(apiService)),
+          BlocProvider<SetupBloc>(create: (context) => SetupBloc()),
         ],
         child: const MyApp(),
       ),

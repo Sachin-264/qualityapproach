@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-
 import 'APIgenerator/api_generator.dart';
 import 'ReportDashboard/DashboardBloc/dashboard_builder_bloc.dart';
 import 'ReportDashboard/DashboardScreen/dashboard_listing_screen.dart';
@@ -15,7 +14,6 @@ import 'EditSparePart/editspareui.dart';
 import 'NEWREPORT/EDIT/filterreport.dart';
 import 'NEWREPORT/EDIT/filterreportbloc.dart';
 import 'NEWREPORT/ReportEdit/edit_bloc.dart';
-// import 'NEWREPORT/ReportEdit/editReport_bloc.dart'; // Not in provided code
 import 'NEWREPORT/ReportEdit/edit_ui.dart';
 import 'NEWREPORT/report.dart';
 import 'NEWREPORT/report_bloc.dart';
@@ -29,6 +27,8 @@ import 'ReportDynamic/Report_Make.dart';
 import 'ReportDynamic/Report_MakeBLoc.dart';
 import 'SaleVsTarget/sale_TargetBloc.dart';
 import 'SaleVsTarget/sale_targetUI.dart';
+import 'SetupScreen/setup_bloc.dart';
+import 'SetupScreen/setup_screen.dart';
 import 'SparePart/spare_UI.dart';
 import 'SparePart/spare_bloc.dart';
 
@@ -37,7 +37,7 @@ import 'ReportDashboard/DashboardScreen/dashboard_builder_screen.dart';
 
 
 class ComplaintPage extends StatelessWidget {
-  ComplaintPage({super.key}); // Add super.key for consistency
+  ComplaintPage({super.key});
 
   ListTile _createDrawerItem({
     required IconData icon,
@@ -49,7 +49,7 @@ class ComplaintPage extends StatelessWidget {
         children: <Widget>[
           Icon(icon),
           Padding(
-            padding: const EdgeInsets.only(left: 8.0), // Use const for padding
+            padding: const EdgeInsets.only(left: 8.0),
             child: Text(text),
           )
         ],
@@ -98,7 +98,6 @@ class ComplaintPage extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: const [
-                      // Use const for column children if possible
                       Icon(Icons.dashboard, size: 50, color: Colors.white),
                       SizedBox(height: 10),
                       Text(
@@ -113,133 +112,20 @@ class ComplaintPage extends StatelessWidget {
                   ),
                 ),
               ),
-              // _createDrawerItem(
-              // icon: Icons.home,
-              // text: 'Complaint Page',
-              // onTap: () {
-              // Navigator.pop(context);
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.search,
-              // text: 'Customer Report',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<RetailCustomerBloc>(),
-              // child: RetailCustomerPage(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.high_quality,
-              // text: 'Quality Checks',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<BranchBloc>(),
-              // child: QualityFilterPage(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.edit,
-              // text: 'Edit Report',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<FilterBloc>(),
-              // child: FilterUI(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.repeat_on,
-              // text: 'Report check',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<ReportBloc>(),
-              // child: ReportPage(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.edit,
-              // text: 'Real Edit Report',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<EditBloc>(),
-              // child: EditPage(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.edit,
-              // text: 'SparePart',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<SparePartBloc>(),
-              // child: SparePartScreen(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
-              // _createDrawerItem(
-              // icon: Icons.edit,
-              // text: 'EditSparePart',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<EditSpareBloc>(),
-              // child: EditSpareScreen(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
               // Dashboard Listing Menu Item
               _createDrawerItem(
-                icon: Icons.dashboard, // Using dashboard icon
-                text: 'Dashboard Viewer', // Clear text for builder
+                icon: Icons.dashboard,
+                text: 'Dashboard Viewer',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
                       builder: (context) => BlocProvider.value(
-                        // IMPORTANT: Provide the DashboardBuilderBloc
                         value: context.read<DashboardBuilderBloc>(),
                         child: DashboardListingScreen(
                             apiService:
-                            context.read<ReportAPIService>()), // Pass API service
+                            context.read<ReportAPIService>()),
                       ),
                     ),
                   );
@@ -247,10 +133,10 @@ class ComplaintPage extends StatelessWidget {
               ),
               // NEW: Create Dashboard Menu Item
               _createDrawerItem(
-                icon: Icons.add, // Or Icons.note_add, Icons.create
-                text: 'Create New Dashboard', // Clearer label
+                icon: Icons.add,
+                text: 'Create New Dashboard',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer first
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -258,35 +144,20 @@ class ComplaintPage extends StatelessWidget {
                         value: context.read<DashboardBuilderBloc>(),
                         child: DashboardBuilderScreen(
                           apiService: context
-                              .read<ReportAPIService>(), // Use context.read to get the service
+                              .read<ReportAPIService>(),
                           dashboardToEdit:
-                          null, // Pass null to indicate creating a new dashboard
+                          null,
                         ),
                       ),
                     ),
                   );
                 },
               ),
-              // _createDrawerItem(
-              // icon: Icons.satellite_alt_outlined,
-              // text: 'SaleVsTarget',
-              // onTap: () {
-              // Navigator.push(
-              // context,
-              // MaterialPageRoute(
-              // builder: (context) => BlocProvider.value(
-              // value: context.read<SaleTargetBloc>(),
-              // child: SaleTargetUI(),
-              // ),
-              // ),
-              // );
-              // },
-              // ),
               _createDrawerItem(
                 icon: Icons.dynamic_feed,
                 text: 'API Generator',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -297,9 +168,9 @@ class ComplaintPage extends StatelessWidget {
               ),
               _createDrawerItem(
                 icon: Icons.satellite_alt_outlined,
-                text: 'dynamic Report Builder ',
+                text: ' Aquare-Report Builder',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -315,7 +186,7 @@ class ComplaintPage extends StatelessWidget {
                 icon: Icons.access_time,
                 text: 'dynamic Report generator ',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -329,9 +200,9 @@ class ComplaintPage extends StatelessWidget {
               ),
               _createDrawerItem(
                 icon: Icons.search,
-                text: 'Report Admin',
+                text: ' Create Report',
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -343,7 +214,27 @@ class ComplaintPage extends StatelessWidget {
                   );
                 },
               ),
-              const Divider(), // Use const for Divider
+              // --- NEW: Setup Option ---
+              const Divider(), // A visual separator
+              _createDrawerItem(
+                icon: Icons.settings_input_component, // A good icon for setup/configuration
+                text: 'Database Setup', // Clear and concise text
+                onTap: () {
+                  Navigator.pop(context); // Close the drawer first
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BlocProvider(
+                        // Provide the SetupBloc to the SetupScreen
+                        create: (context) => SetupBloc(),
+                        child: const SetupScreen(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              // --- End NEW Setup Option ---
+              const Divider(),
               _createDrawerItem(
                 icon: Icons.settings,
                 text: 'Settings',
@@ -356,7 +247,6 @@ class ComplaintPage extends StatelessWidget {
         ),
       ),
       body: const Center(
-        // Use const for simple Text widget
         child: Text('Complaint Page'),
       ),
     );
