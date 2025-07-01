@@ -1,24 +1,22 @@
-// lib/ReportDynamic/ReportAPIService.dart
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:flutter/foundation.dart'; // Import for debugPrint
+import 'package:flutter/foundation.dart';
 
 class ReportAPIService {
   final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
   final String _databaseFetchUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseFetch.php';
   final String _databaseFieldUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseField.php';
+  final String _setupApiUrl = 'http://localhost/reportBuilder/DatabaseSetup.php';
+
   late final Map<String, String> _postEndpoints;
   late final Map<String, String> _getEndpoints;
 
-  // Cache for API details fetched from get_database_server
   Map<String, Map<String, dynamic>> _apiDetails = {};
 
-  // Completer to manage concurrent fetches of _apiDetails
   Completer<void>? _apiDetailsLoadingCompleter;
 
-  static int _recNoCounter = 0; // Consider if this is truly needed or if backend manages RecNo
+  static int _recNoCounter = 0;
 
   ReportAPIService() {
     _postEndpoints = {
@@ -119,14 +117,31 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success') {
-          return List<String>.from(jsonData['databases'] ?? []);
-        } else {
-          throw Exception('API returned error: ${jsonData['message']}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success') {
+            return List<String>.from(jsonData['databases'] ?? []);
+          } else {
+            throw Exception('API returned error: ${jsonData['message']}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to fetch databases: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch databases: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -155,14 +170,31 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success' && jsonData['tables'] is List) {
-          return List<String>.from(jsonData['tables'].map((item) => item.toString()));
-        } else {
-          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success' && jsonData['tables'] is List) {
+            return List<String>.from(jsonData['tables'].map((item) => item.toString()));
+          } else {
+            throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to fetch tables: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch tables: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -192,14 +224,31 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
-          return List<String>.from(jsonData['fields'].map((item) => item.toString()));
-        } else {
-          throw Exception('API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success' && jsonData['fields'] is List) {
+            return List<String>.from(jsonData['fields'].map((item) => item.toString()));
+          } else {
+            throw Exception('API returned error or unexpected data format for fields: ${jsonData['message'] ?? response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to fetch fields: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch fields: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -231,14 +280,31 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
-          return (jsonData['data'] as List).whereType<Map<String, dynamic>>().toList();
-        } else {
-          throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+            return (jsonData['data'] as List).whereType<Map<String, dynamic>>().toList();
+          } else {
+            throw Exception('API returned error or unexpected data format for picker data: ${jsonData['message'] ?? response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to fetch picker data: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch picker data: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -269,14 +335,31 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
-          return List<String>.from(jsonData['data'].map((item) => item.toString()));
-        } else {
-          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+            return List<String>.from(jsonData['data'].map((item) => item.toString()));
+          } else {
+            throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to fetch field values: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch field values: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -294,36 +377,53 @@ class ReportAPIService {
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <String>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success') {
-          _apiDetails = {}; // Always clear the cache when fetching from source
-          final uniqueApis = <String>{};
-          for (var item in jsonData['data']) {
-            if (item is Map<String, dynamic> && item['APIName'] != null) {
-              final bool isDashboard = (item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true);
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success') {
+            _apiDetails = {};
+            final uniqueApis = <String>{};
+            for (var item in jsonData['data']) {
+              if (item is Map<String, dynamic> && item['APIName'] != null) {
+                final bool isDashboard = (item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true);
 
-              if (!uniqueApis.contains(item['APIName'])) {
-                uniqueApis.add(item['APIName']);
-                _apiDetails[item['APIName']] = {
-                  'url': item['APIServerURl'],
-                  'parameters': item['Parameter'] != null && item['Parameter'].toString().isNotEmpty ? jsonDecode(item['Parameter']) : <dynamic>[],
-                  'serverIP': item['ServerIP'],
-                  'userName': item['UserName'],
-                  'password': item['Password'],
-                  'databaseName': item['DatabaseName'],
-                  'id': item['id'],
-                  'IsDashboard': isDashboard,
-                  'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
-                };
+                if (!uniqueApis.contains(item['APIName'])) {
+                  uniqueApis.add(item['APIName']);
+                  _apiDetails[item['APIName']] = {
+                    'url': item['APIServerURl'],
+                    'parameters': item['Parameter'] != null && item['Parameter'].toString().isNotEmpty ? jsonDecode(item['Parameter']) : <dynamic>[],
+                    'serverIP': item['ServerIP'],
+                    'userName': item['UserName'],
+                    'password': item['Password'],
+                    'databaseName': item['DatabaseName'],
+                    'id': item['id'],
+                    'IsDashboard': isDashboard,
+                    'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
+                  };
+                }
               }
             }
+            return uniqueApis.toList();
+          } else {
+            throw Exception('API returned error: ${jsonData['message']}');
           }
-          return uniqueApis.toList();
-        } else {
-          throw Exception('API returned error: ${jsonData['message']}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to load APIs: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to load APIs: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -379,9 +479,26 @@ class ReportAPIService {
       final response = await http.get(uri).timeout(const Duration(seconds: 120));
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return {};
-        return jsonDecode(response.body);
+        try {
+          return jsonDecode(response.body);
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
       } else {
-        throw Exception('Failed to fetch raw JSON from $url: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to fetch raw JSON from $url: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic>) {
+              errorMessage += ' - ${errorData['message'] ?? response.body}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -430,32 +547,34 @@ class ReportAPIService {
       if (response.body.trim().isEmpty) {
         return response.statusCode == 200 ? <Map<String, dynamic>>[] : throw Exception('Empty response body: ${response.statusCode}');
       }
-      final dynamic jsonData = jsonDecode(response.body);
-      if (jsonData is List) {
-        if (jsonData.isNotEmpty) {
-          if (jsonData[0] is List) return (jsonData[0] as List).whereType<Map<String, dynamic>>().toList();
-          if (jsonData[0] is Map<String, dynamic>) return jsonData.whereType<Map<String, dynamic>>().toList();
-          throw Exception('List contains unexpected element type: ${jsonData[0].runtimeType}');
-        }
-        return <Map<String, dynamic>>[];
-      } else if (jsonData is Map<String, dynamic>) {
-        final status = jsonData['status'];
-        final isSuccess = status == 'success' || status == 200 || status == '200';
-        if (isSuccess && jsonData.containsKey('data')) {
-          final data = jsonData['data'];
-          if (data is List) return data.whereType<Map<String, dynamic>>().toList();
-          if (data is Map<String, dynamic>) return [Map<String, dynamic>.from(data)];
-          throw Exception('Data field must be a list or a map');
-        } else if (!isSuccess && jsonData.containsKey('message')) {
-          throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final dynamic jsonData = jsonDecode(response.body);
+        if (jsonData is List) {
+          if (jsonData.isNotEmpty) {
+            if (jsonData[0] is List) return (jsonData[0] as List).whereType<Map<String, dynamic>>().toList();
+            if (jsonData[0] is Map<String, dynamic>) return jsonData.whereType<Map<String, dynamic>>().toList();
+            throw Exception('List contains unexpected element type: ${jsonData[0].runtimeType}');
+          }
+          return <Map<String, dynamic>>[];
+        } else if (jsonData is Map<String, dynamic>) {
+          final status = jsonData['status'];
+          final isSuccess = status == 'success' || status == 200 || status == '200';
+          if (isSuccess && jsonData.containsKey('data')) {
+            final data = jsonData['data'];
+            if (data is List) return data.whereType<Map<String, dynamic>>().toList();
+            if (data is Map<String, dynamic>) return [Map<String, dynamic>.from(data)];
+            throw Exception('Data field must be a list or a map');
+          } else if (!isSuccess && jsonData.containsKey('message')) {
+            throw Exception('API returned error: ${jsonData['message']}');
+          } else {
+            throw Exception('Unexpected response format: ${response.body}');
+          }
         } else {
-          throw Exception('Unexpected response format: ${response.body}');
+          throw Exception('Invalid outermost response format: ${response.body}');
         }
-      } else {
-        throw Exception('Invalid outermost response format: ${response.body}');
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
       }
-    } on FormatException catch (e) {
-      throw Exception('Failed to parse response JSON: $e. Response was: "${response.body}".');
     } catch (e) {
       rethrow;
     }
@@ -471,31 +590,48 @@ class ReportAPIService {
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success') {
-          List<Map<String, dynamic>> reports = [];
-          for (var item in jsonData['data']) {
-            if (item is Map<String, dynamic>) {
-              Map<String, dynamic> reportItem = Map.from(item);
-              if (reportItem['actions_config'] is String && reportItem['actions_config'].toString().isNotEmpty) {
-                try {
-                  reportItem['actions_config'] = jsonDecode(reportItem['actions_config'].toString());
-                } catch (e) {
-                  reportItem['actions_config'] = <Map<String, dynamic>>[];
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success') {
+            List<Map<String, dynamic>> reports = [];
+            for (var item in jsonData['data']) {
+              if (item is Map<String, dynamic>) {
+                Map<String, dynamic> reportItem = Map.from(item);
+                if (reportItem['actions_config'] is String && reportItem['actions_config'].toString().isNotEmpty) {
+                  try {
+                    reportItem['actions_config'] = jsonDecode(reportItem['actions_config'].toString());
+                  } catch (e) {
+                    reportItem['actions_config'] = <Map<String, dynamic>>[];
+                  }
+                } else {
+                  reportItem['actions_config'] ??= <Map<String, dynamic>>[];
                 }
-              } else {
-                reportItem['actions_config'] ??= <Map<String, dynamic>>[];
+                reportItem['pdf_footer_datetime'] = item['pdf_footer_datetime'] == '1' || item['pdf_footer_datetime'] == true;
+                reports.add(reportItem);
               }
-              reportItem['pdf_footer_datetime'] = item['pdf_footer_datetime'] == '1' || item['pdf_footer_datetime'] == true;
-              reports.add(reportItem);
             }
+            return reports;
+          } else {
+            throw Exception('API returned error: ${jsonData['message']}');
           }
-          return reports;
-        } else {
-          throw Exception('API returned error: ${jsonData['message']}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to load data: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -513,27 +649,44 @@ class ReportAPIService {
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success') {
-          List<Map<String, dynamic>> fields = [];
-          for (var item in (jsonData['data'] as List)) {
-            if (item is Map<String, dynamic>) {
-              Map<String, dynamic> fieldItem = Map.from(item);
-              fieldItem['is_api_driven'] = item['is_api_driven'] == '1' || item['is_api_driven'] == true;
-              fieldItem['api_url'] = item['api_url']?.toString() ?? '';
-              fieldItem['field_params'] = item['field_params'] is String && item['field_params'].isNotEmpty ? (jsonDecode(item['field_params']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
-              fieldItem['is_user_filling'] = item['is_user_filling'] == '1' || item['is_user_filling'] == true;
-              fieldItem['updated_url'] = item['updated_url']?.toString() ?? '';
-              fieldItem['payload_structure'] = item['payload_structure'] is String && item['payload_structure'].isNotEmpty ? (jsonDecode(item['payload_structure']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
-              fields.add(fieldItem);
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success') {
+            List<Map<String, dynamic>> fields = [];
+            for (var item in (jsonData['data'] as List)) {
+              if (item is Map<String, dynamic>) {
+                Map<String, dynamic> fieldItem = Map.from(item);
+                fieldItem['is_api_driven'] = item['is_api_driven'] == '1' || item['is_api_driven'] == true;
+                fieldItem['api_url'] = item['api_url']?.toString() ?? '';
+                fieldItem['field_params'] = item['field_params'] is String && item['field_params'].isNotEmpty ? (jsonDecode(item['field_params']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+                fieldItem['is_user_filling'] = item['is_user_filling'] == '1' || item['is_user_filling'] == true;
+                fieldItem['updated_url'] = item['updated_url']?.toString() ?? '';
+                fieldItem['payload_structure'] = item['payload_structure'] is String && item['payload_structure'].isNotEmpty ? (jsonDecode(item['payload_structure']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+                fields.add(fieldItem);
+              }
             }
+            return fields;
+          } else {
+            throw Exception('API returned error: ${jsonData['message']}');
           }
-          return fields;
-        } else {
-          throw Exception('API returned error: ${jsonData['message']}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to load data: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to load data: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -565,10 +718,14 @@ class ReportAPIService {
       );
       if (response.statusCode != 200) throw Exception('Failed to save report: ${response.statusCode} - ${response.body}');
       if (response.body.isEmpty) throw Exception('API returned empty response, cannot confirm save.');
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
-      final backendRecNo = int.tryParse(jsonData['RecNo'].toString());
-      return backendRecNo ?? recNo;
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+        final backendRecNo = int.tryParse(jsonData['RecNo'].toString());
+        return backendRecNo ?? recNo;
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+      }
     } catch (e) {
       rethrow;
     }
@@ -609,8 +766,12 @@ class ReportAPIService {
       );
       if (response.statusCode != 200) throw Exception('Failed to save database server: ${response.statusCode} - ${response.body}');
       if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+      }
     } catch (e) {
       rethrow;
     }
@@ -661,8 +822,12 @@ class ReportAPIService {
         );
         if (response.statusCode != 200) throw Exception('Failed to save field config for ${field['Field_name']}: ${response.statusCode} - ${response.body}');
         if (response.body.isEmpty) continue;
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
       } catch (e) {
         throw Exception('Failed to save field config for ${field['Field_name']}: $e');
       }
@@ -684,8 +849,12 @@ class ReportAPIService {
       );
       if (response.statusCode != 200) throw Exception('Failed to delete database server: ${response.statusCode} - ${response.body}');
       if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+      }
     } catch (e) {
       rethrow;
     }
@@ -726,12 +895,15 @@ class ReportAPIService {
       );
       if (response.statusCode != 200) throw Exception('Failed to edit database server: ${response.statusCode} - ${response.body}');
       if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
 
-      clearApiDetailsCache();
-      debugPrint('ReportAPIService: Successfully edited database server, cache cleared.');
-
+        clearApiDetailsCache();
+        debugPrint('ReportAPIService: Successfully edited database server, cache cleared.');
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+      }
     } catch (e) {
       rethrow;
     }
@@ -782,22 +954,22 @@ class ReportAPIService {
           } else {
             throw Exception('API returned an error: ${data['message'] ?? 'Unknown error'}');
           }
-        } catch (e) {
-          debugPrint('JSON Decode Error: ${e.toString()}');
-          debugPrint('Server Response Body: ${response.body}');
-          throw Exception('Failed to parse server response. The server script likely has an error.');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        debugPrint('Server Error ${response.statusCode}: ${response.body}');
+        String errorMessage = 'Server Error ${response.statusCode}';
         try {
           final errorJson = jsonDecode(response.body);
-          if (errorJson['error'] != null) {
-            throw Exception('Server Error: ${errorJson['error']}');
+          if (errorJson is Map<String, dynamic> && errorJson['error'] != null) {
+            errorMessage += ': ${errorJson['error']}';
+          } else {
+            errorMessage += ': Raw body: ${response.body}';
           }
         } catch (_) {
-          throw Exception('Server returned error code: ${response.statusCode}');
+          errorMessage += ': Raw body: ${response.body}';
         }
-        throw Exception('Server returned error code: ${response.statusCode}');
+        throw Exception(errorMessage);
       }
     } catch (e) {
       debugPrint('Error in editDemoTables API call: $e');
@@ -820,9 +992,13 @@ class ReportAPIService {
       );
       if (response.statusCode != 200) throw Exception('Failed to delete demo tables: ${response.statusCode} - ${response.body}');
       if (response.body.isEmpty) return {'status': 'success', 'message': 'Operation completed but no response body.'};
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
-      return jsonData;
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
+        return jsonData;
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+      }
     } catch (e) {
       rethrow;
     }
@@ -850,9 +1026,26 @@ class ReportAPIService {
       ).timeout(const Duration(seconds: 180));
       if (response.statusCode == 200) {
         if (response.body.isEmpty) throw Exception('Empty response body from deployment script.');
-        return jsonDecode(response.body);
+        try {
+          return jsonDecode(response.body);
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
       } else {
-        throw Exception('Server error during deployment: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Server error during deployment: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -872,27 +1065,34 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return {'status': 'success', 'message': 'Operation successful with no content.'};
-        final decodedBody = jsonDecode(response.body);
-        if (decodedBody is List && decodedBody.isNotEmpty) {
-          if (decodedBody[0] is Map<String, dynamic>) {
-            final Map<String, dynamic> result = decodedBody[0];
-            if (result.containsKey('ResultStatus') && !result.containsKey('status')) {
-              result['status'] = result['ResultStatus']?.toString().toLowerCase();
-            }
-            return result;
-          }
-        } else if (decodedBody is Map<String, dynamic>) {
-          return decodedBody;
-        }
-        throw Exception('Unexpected JSON format from server: ${response.body}');
-      } else {
         try {
-          final errorBody = jsonDecode(response.body);
-          if (errorBody is Map<String, dynamic>) return errorBody;
-        } catch (_) {
-          throw Exception('Server error: ${response.statusCode} - ${response.body}');
+          final decodedBody = jsonDecode(response.body);
+          if (decodedBody is List && decodedBody.isNotEmpty) {
+            if (decodedBody[0] is Map<String, dynamic>) {
+              final Map<String, dynamic> result = decodedBody[0];
+              if (result.containsKey('ResultStatus') && !result.containsKey('status')) {
+                result['status'] = result['ResultStatus']?.toString().toLowerCase();
+              }
+              return result;
+            }
+          } else if (decodedBody is Map<String, dynamic>) {
+            return decodedBody;
+          }
+          throw Exception('Unexpected JSON format from server: ${response.body}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
-        throw Exception('Server error: ${response.statusCode} - ${response.body}');
+      } else {
+        String errorMessage = 'Server error: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorBody = jsonDecode(response.body);
+            if (errorBody is Map<String, dynamic>) return errorBody;
+          } catch (_) {
+            errorMessage += ' - ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       return {'status': 'error', 'message': 'Failed to process request: $e'};
@@ -910,14 +1110,31 @@ class ReportAPIService {
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         if (response.body.isEmpty) return <Map<String, dynamic>>[];
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success' && jsonData['data'] is List) {
-          return List<Map<String, dynamic>>.from(jsonData['data']);
-        } else {
-          throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success' && jsonData['data'] is List) {
+            return List<Map<String, dynamic>>.from(jsonData['data']);
+          } else {
+            throw Exception('API returned error or unexpected data format: ${jsonData['message'] ?? response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to load dashboards: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to load dashboards: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       rethrow;
@@ -954,18 +1171,35 @@ class ReportAPIService {
 
       if (response.statusCode == 200 || response.statusCode == 201) {
         if (response.body.isEmpty) throw Exception('API returned empty response for save dashboard.');
-        final jsonData = jsonDecode(response.body);
-        if (jsonData['status'] == 'success') {
-          final dashboardId = jsonData['DashboardID']?.toString();
-          if (dashboardId == null || dashboardId.isEmpty) {
-            throw Exception('API did not return a valid DashboardID.');
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData['status'] == 'success') {
+            final dashboardId = jsonData['DashboardID']?.toString();
+            if (dashboardId == null || dashboardId.isEmpty) {
+              throw Exception('API did not return a valid DashboardID.');
+            }
+            return dashboardId;
+          } else {
+            throw Exception('API returned error: ${jsonData['message']}');
           }
-          return dashboardId;
-        } else {
-          throw Exception('API returned error: ${jsonData['message']}');
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        throw Exception('Failed to save dashboard: ${response.statusCode} - ${response.body}');
+        String errorMessage = 'Failed to save dashboard: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       debugPrint('Error in saveDashboard: $e');
@@ -1007,9 +1241,13 @@ class ReportAPIService {
         throw Exception('Failed to edit dashboard: ${response.statusCode} - ${response.body}');
       }
       if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') {
-        throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') {
+          throw Exception('API returned error: ${jsonData['message']}');
+        }
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
       }
     } catch (e) {
       debugPrint('Error in editDashboard: $e');
@@ -1037,9 +1275,13 @@ class ReportAPIService {
         throw Exception('Failed to delete dashboard: ${response.statusCode} - ${response.body}');
       }
       if (response.body.isEmpty) return;
-      final jsonData = jsonDecode(response.body);
-      if (jsonData['status'] != 'success') {
-        throw Exception('API returned error: ${jsonData['message']}');
+      try {
+        final jsonData = jsonDecode(response.body);
+        if (jsonData['status'] != 'success') {
+          throw Exception('API returned error: ${jsonData['message']}');
+        }
+      } on FormatException catch (e) {
+        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
       }
     } catch (e) {
       debugPrint('Error in deleteDashboard: $e');
@@ -1047,7 +1289,6 @@ class ReportAPIService {
     }
   }
 
-  // --- NEW METHOD for Graph Data ---
   Future<dynamic> getReportData(String? url) async {
     if (url == null || url.isEmpty) {
       throw Exception('API URL for graph data is missing.');
@@ -1062,13 +1303,143 @@ class ReportAPIService {
         if (response.body.isEmpty) {
           throw Exception('API returned an empty response.');
         }
-        return jsonDecode(response.body);
+        try {
+          return jsonDecode(response.body);
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
       } else {
-        throw Exception('Failed to load report data: ${response.statusCode}');
+        String errorMessage = 'Failed to load report data: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
       }
     } catch (e) {
       debugPrint('Error in getReportData: $e');
       rethrow;
     }
   }
+
+  Future<void> saveSetupConfiguration({
+    required String configName,
+    required String serverIP,
+    required String userName,
+    required String password,
+  }) async {
+    final uri = Uri.parse(_setupApiUrl);
+    final payload = {
+      'configName': configName,
+      'serverIP': serverIP,
+      'userName': userName,
+      'password': password,
+    };
+
+    _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveSetupConfiguration');
+
+    try {
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 201 || response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          debugPrint('ReportAPIService: saveSetupConfiguration received empty body with success status.');
+          return;
+        }
+        try {
+          final jsonData = jsonDecode(response.body);
+          if (jsonData is Map<String, dynamic> && jsonData.containsKey('message')) {
+            debugPrint('Setup Configuration saved: ${jsonData['message']}');
+          } else {
+            throw Exception('Unexpected response format: ${response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
+      } else {
+        String errorMessage = 'Failed to save setup configuration: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> getSetupConfigurations() async {
+    final uri = Uri.parse(_setupApiUrl);
+    _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getSetupConfigurations');
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 30));
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          // If body is empty but status is 200, return a success map with empty data
+          return {'status': 'success', 'data': []};
+        }
+        try {
+          final dynamic jsonData = jsonDecode(response.body);
+          // Directly return the parsed JSON data, as the Bloc expects a Map
+          // and will handle extracting the 'data' key.
+          if (jsonData is Map<String, dynamic>) {
+            // Log the full received map for debugging, as per your original problem
+            debugPrint('Received full response map for getSetupConfigurations: ${response.body}');
+            return jsonData;
+          } else {
+            // If it's not a map (e.g., a direct list, or other unexpected format)
+            // convert it to a map with a 'data' key for consistency with the bloc's expectation
+            // (This fallback might be less common if backend is consistent)
+            if (jsonData is List) {
+              return {'status': 'success', 'data': jsonData};
+            }
+            throw Exception('Unexpected response format for GET setup configurations: ${response.body}');
+          }
+        } on FormatException catch (e) {
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
+      } else {
+        String errorMessage = 'Failed to fetch setup configurations: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      rethrow;
+    }
+  }
+
 }

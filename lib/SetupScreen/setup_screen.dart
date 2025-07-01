@@ -7,8 +7,9 @@ import 'dart:async';
 // Assuming these are in your project already
 import '../ReportUtils/Appbar.dart';
 import '../ReportUtils/subtleloader.dart';
+import '../ReportDynamic/ReportAPIService.dart'; // Import the API service
 
-import 'setup_bloc.dart'; // Import the new setup bloc
+import 'setup_bloc.dart';
 
 class SetupScreen extends StatefulWidget {
   const SetupScreen({super.key});
@@ -25,13 +26,14 @@ class _SetupScreenState extends State<SetupScreen> {
 
   late final SetupBloc _bloc;
   Timer? _debounce;
+  late final ReportAPIService _apiService; // Declare the API service
 
   @override
   void initState() {
     super.initState();
-    _bloc = SetupBloc(); // Initialize the new SetupBloc
+    _apiService = ReportAPIService(); // Initialize the API service
+    _bloc = SetupBloc(_apiService); // Pass the API service to the bloc
 
-    // Add listeners with debouncing for all text controllers
     _configNameController.addListener(() => _debouncedUpdate(() {
       _bloc.add(UpdateConfigName(_configNameController.text));
     }));
@@ -46,7 +48,6 @@ class _SetupScreenState extends State<SetupScreen> {
     }));
   }
 
-  // Debounce logic to prevent too frequent state updates
   void _debouncedUpdate(VoidCallback callback) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), callback);
@@ -54,16 +55,15 @@ class _SetupScreenState extends State<SetupScreen> {
 
   @override
   void dispose() {
-    _debounce?.cancel(); // Cancel any active debounce timer
+    _debounce?.cancel();
     _configNameController.dispose();
     _serverIPController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
-    _bloc.close(); // Close the bloc when the widget is disposed
+    _bloc.close();
     super.dispose();
   }
 
-  // Re-used and simplified _buildTextField
   Widget _buildTextField({
     required TextEditingController controller,
     String? label,
@@ -102,7 +102,6 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  // Re-used _buildButton
   Widget _buildButton({
     required String text,
     required Color color,
@@ -138,7 +137,6 @@ class _SetupScreenState extends State<SetupScreen> {
     );
   }
 
-  // Summary dialog before saving
   void _showSummaryDialog(BuildContext context, SetupState state) {
     showDialog(
       context: context,
@@ -180,7 +178,7 @@ class _SetupScreenState extends State<SetupScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(context);
-              _bloc.add(const SaveSetup()); // Trigger the save event
+              _bloc.add(const SaveSetup());
             },
             child: Text(
               'Confirm Save',
@@ -198,7 +196,7 @@ class _SetupScreenState extends State<SetupScreen> {
       create: (context) => _bloc,
       child: Scaffold(
         appBar: AppBarWidget(
-          title: 'Database Setup', // Custom title for this screen
+          title: 'Database Setup',
           onBackPress: () => Navigator.pop(context),
         ),
         body: BlocConsumer<SetupBloc, SetupState>(
@@ -233,12 +231,10 @@ class _SetupScreenState extends State<SetupScreen> {
                   duration: const Duration(seconds: 3),
                 ),
               );
-              // Clear the text fields after successful save
               _configNameController.clear();
               _serverIPController.clear();
               _userNameController.clear();
               _passwordController.clear();
-              // Reset bloc state to initial (important to clear isSaved flag and any previous data)
               context.read<SetupBloc>().add(const ResetSetup());
             }
           },
@@ -249,7 +245,6 @@ class _SetupScreenState extends State<SetupScreen> {
               previous.password != current.password ||
               previous.isLoading != current.isLoading,
           builder: (context, state) {
-            // Check if all required fields are filled to enable the Save button
             final bool isFormValid = state.configName.isNotEmpty &&
                 state.serverIP.isNotEmpty &&
                 state.userName.isNotEmpty &&
@@ -272,7 +267,7 @@ class _SetupScreenState extends State<SetupScreen> {
                             children: [
                               _buildTextField(
                                 controller: _configNameController,
-                                label: 'Configuration Name', // Changed from 'Name' to be explicit
+                                label: 'Configuration Name',
                                 icon: Icons.label_important,
                               ),
                               const SizedBox(height: 16),
@@ -294,7 +289,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                 icon: Icons.lock,
                                 obscureText: true,
                               ),
-                              const SizedBox(height: 24), // More space before buttons
+                              const SizedBox(height: 24),
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
@@ -303,7 +298,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                     color: Colors.blueAccent,
                                     onPressed: isFormValid && !state.isLoading
                                         ? () => _showSummaryDialog(context, state)
-                                        : null, // Disable if form not valid or loading
+                                        : null,
                                     icon: Icons.save,
                                   ),
                                   const SizedBox(width: 12),
@@ -311,7 +306,7 @@ class _SetupScreenState extends State<SetupScreen> {
                                     text: 'Reset',
                                     color: Colors.redAccent,
                                     onPressed: state.isLoading
-                                        ? null // Disable while loading
+                                        ? null
                                         : () {
                                       _configNameController.clear();
                                       _serverIPController.clear();
@@ -330,7 +325,6 @@ class _SetupScreenState extends State<SetupScreen> {
                     ),
                   ),
                 ),
-                // Show loader if bloc is in loading state
                 state.isLoading ? const SubtleLoader() : const SizedBox.shrink(),
               ],
             );

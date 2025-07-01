@@ -54,7 +54,13 @@ void main() {
           BlocProvider<ReportAdminBloc>(create: (context) => ReportAdminBloc(apiService)),
           BlocProvider<EditDetailMakerBloc>(create: (context) => EditDetailMakerBloc(apiService)),
           BlocProvider<EditReportMakerBloc>(create: (context) => EditReportMakerBloc(apiService)),
-          BlocProvider<SetupBloc>(create: (context) => SetupBloc()),
+          BlocProvider<SetupBloc>(create: (context) => SetupBloc(apiService))
+
+
+
+
+
+          ,
         ],
         child: const MyApp(),
       ),

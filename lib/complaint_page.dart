@@ -224,9 +224,9 @@ class ComplaintPage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => BlocProvider(
+                      builder: (context) => BlocProvider.value(
                         // Provide the SetupBloc to the SetupScreen
-                        create: (context) => SetupBloc(),
+                        value: context.read<SetupBloc>(),
                         child: const SetupScreen(),
                       ),
                     ),

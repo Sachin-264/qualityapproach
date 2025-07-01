@@ -1,6 +1,7 @@
 // lib/setup_feature/setup_bloc.dart
 import 'package:bloc/bloc.dart';
 import 'package:equatable/equatable.dart';
+import '../ReportDynamic/ReportAPIService.dart'; // Import the API service
 
 // --- Setup Events ---
 abstract class SetupEvent extends Equatable {
@@ -100,7 +101,9 @@ class SetupState extends Equatable {
 
 // --- Setup Bloc ---
 class SetupBloc extends Bloc<SetupEvent, SetupState> {
-  SetupBloc() : super(const SetupState()) {
+  final ReportAPIService _apiService; // Declare the API service
+
+  SetupBloc(this._apiService) : super(const SetupState()) { // Inject the API service
     on<UpdateConfigName>((event, emit) {
       emit(state.copyWith(configName: event.configName, error: null, isSaved: false));
     });
@@ -116,25 +119,26 @@ class SetupBloc extends Bloc<SetupEvent, SetupState> {
     on<SaveSetup>((event, emit) async {
       emit(state.copyWith(isLoading: true, error: null, isSaved: false));
       try {
-        // --- Simulate API call or local storage save ---
-        // In a real application, you would integrate with a service here
-        // e.g., await SomeStorageService.saveConfiguration(state.configName, state.serverIP, state.userName, state.password);
-        await Future.delayed(const Duration(seconds: 2)); // Simulate network delay
-
-        // Basic validation before "saving"
+        // Validate fields before sending to API
         if (state.configName.isEmpty || state.serverIP.isEmpty || state.userName.isEmpty || state.password.isEmpty) {
           throw Exception('All fields are required.');
         }
 
-        // If successful
+        // Use the injected API service to save the configuration
+        await _apiService.saveSetupConfiguration(
+          configName: state.configName,
+          serverIP: state.serverIP,
+          userName: state.userName,
+          password: state.password,
+        );
+
         emit(state.copyWith(isLoading: false, isSaved: true, error: null));
       } catch (e) {
-        // If an error occurs during saving
         emit(state.copyWith(isLoading: false, error: 'Failed to save configuration: ${e.toString()}', isSaved: false));
       }
     });
     on<ResetSetup>((event, emit) {
-      emit(const SetupState()); // Reset to initial empty state
+      emit(const SetupState());
     });
   }
 }

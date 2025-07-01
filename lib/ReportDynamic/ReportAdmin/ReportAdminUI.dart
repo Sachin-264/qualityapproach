@@ -17,6 +17,7 @@ class ReportAdminUI extends StatefulWidget {
 }
 
 class _ReportAdminUIState extends State<ReportAdminUI> {
+  final TextEditingController _selectedConfigNameController = TextEditingController();
   final TextEditingController _serverIPController = TextEditingController();
   final TextEditingController _userNameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -26,17 +27,20 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
   final Map<int, TextEditingController> _paramControllers = {};
   bool _showParameters = false;
   bool _isParsingParameters = false;
-  bool _wasLoading = false;
-  bool _wasSaving = false;
+  bool _wasLoading = false; // Tracks if previous state was loading
+  bool _wasSaving = false; // Tracks if the previous action was a save attempt
+  bool _showPassword = false; // New state for password visibility toggle
 
   late final ReportAdminBloc _bloc;
-  Timer? _debounce;
+  Timer? _debounce; // For debouncing text field inputs
 
   @override
   void initState() {
     super.initState();
-    _bloc = ReportAdminBloc(ReportAPIService());
+    _bloc = ReportAdminBloc(ReportAPIService()); // Initialize Bloc instance here
 
+    // Listeners for text controllers with debouncing
+    // These listeners dispatch events to the BLoC when text changes after a short delay
     _serverIPController.addListener(() => _debouncedUpdate(() {
       _bloc.add(UpdateServerIP(_serverIPController.text));
     }));
@@ -62,6 +66,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     }));
   }
 
+  // Debounces a callback function to avoid too many updates (e.g., from rapid typing)
   void _debouncedUpdate(VoidCallback callback) {
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), callback);
@@ -69,18 +74,20 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
 
   @override
   void dispose() {
-    _debounce?.cancel();
+    _debounce?.cancel(); // Cancel any active debounce timer
+    _selectedConfigNameController.dispose();
     _serverIPController.dispose();
     _userNameController.dispose();
     _passwordController.dispose();
     _databaseNameController.dispose();
     _apiServerURLController.dispose();
     _apiNameController.dispose();
-    _paramControllers.values.forEach((controller) => controller.dispose());
-    _bloc.close();
+    _paramControllers.values.forEach((controller) => controller.dispose()); // Dispose all parameter controllers
+    _bloc.close(); // Close the bloc instance to free resources
     super.dispose();
   }
 
+  // Helper widget for consistent TextField styling
   Widget _buildTextField({
     required TextEditingController controller,
     String? label,
@@ -90,13 +97,14 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     bool isDateField = false,
     VoidCallback? onTap,
     bool isSmall = false,
+    Widget? suffixIcon, // Added for custom suffix icons like password toggle
   }) {
     return TextField(
       controller: controller,
       focusNode: focusNode,
       obscureText: obscureText,
-      readOnly: isDateField,
-      onTap: onTap,
+      readOnly: isDateField, // Make date fields read-only for date picker
+      onTap: onTap, // Callback for tapping date fields
       style: GoogleFonts.poppins(fontSize: isSmall ? 14 : 16, color: Colors.black87),
       decoration: InputDecoration(
         labelText: label,
@@ -106,7 +114,8 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
           fontWeight: FontWeight.w600,
         ),
         prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: isSmall ? 20 : 22) : null,
-        suffixIcon: isDateField ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20) : null,
+        suffixIcon: suffixIcon ?? // Use provided suffixIcon if available
+            (isDateField ? Icon(Icons.calendar_today, color: Colors.blueAccent, size: isSmall ? 18 : 20) : null),
         filled: true,
         fillColor: Colors.white.withOpacity(0.9),
         border: OutlineInputBorder(
@@ -127,6 +136,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     );
   }
 
+  // Helper widget for consistent DropdownButtonFormField styling
   Widget _buildDropdownField({
     required String? value,
     required List<String> items,
@@ -135,7 +145,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     IconData? icon,
   }) {
     return DropdownButtonFormField<String>(
-      value: value != null && items.contains(value) ? value : null,
+      value: value != null && items.contains(value) ? value : null, // Ensure value is in items
       onChanged: onChanged,
       items: items.isEmpty
           ? [
@@ -181,6 +191,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     );
   }
 
+  // Helper widget for consistent ElevatedButton styling
   Widget _buildButton({
     required String text,
     required Color color,
@@ -216,23 +227,25 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     );
   }
 
+  // Checks if a parameter name or value suggests it's a date field
   bool _isDateParameter(String name, String value) {
-    final datePattern = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$');
+    final datePattern = RegExp(r'^\d{2}-[A-Za-z]{3}-\d{4}$'); // e.g., 01-Jan-2023
     return name.toLowerCase().contains('date') || datePattern.hasMatch(value);
   }
 
+  // Shows a date picker and updates the text field and bloc with the selected date
   Future<void> _selectDate(BuildContext context, TextEditingController controller, int index) async {
     DateTime? initialDate;
     try {
       initialDate = DateFormat('dd-MMM-yyyy').parse(controller.text);
     } catch (e) {
-      initialDate = DateTime.now();
+      initialDate = DateTime.now(); // Fallback to current date if parsing fails
     }
 
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: initialDate,
-      firstDate: DateTime(2000),
+      firstDate: DateTime(2000), // Sensible date range
       lastDate: DateTime(2100),
       builder: (context, child) {
         return Theme(
@@ -259,10 +272,11 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     if (picked != null && context.mounted) {
       final formattedDate = DateFormat('dd-MMM-yyyy').format(picked);
       controller.text = formattedDate;
-      _bloc.add(UpdateParameterValue(index, formattedDate));
+      _bloc.add(UpdateParameterValue(index, formattedDate)); // Update bloc with new value
     }
   }
 
+  // Shows a dialog to get a custom field label from the user
   Future<String?> _showFieldLabelDialog(BuildContext context, String paramName, String? currentLabel) async {
     final TextEditingController labelController = TextEditingController(text: currentLabel ?? '');
     String? fieldLabel;
@@ -320,32 +334,31 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
       ),
     );
 
-    labelController.dispose();
+    labelController.dispose(); // Dispose controller after dialog is closed
     return fieldLabel;
   }
 
+  // Shows a summary of the current configuration before saving
   void _showSummaryDialog(BuildContext context, ReportAdminState state) {
     final uri = Uri.parse(state.apiServerURL);
     final baseUrl = '${uri.scheme}://${uri.host}${uri.path}?';
     final originalParams = uri.queryParameters;
-    final queryParams = <String, String>{};
     final changedParams = <String, bool>{};
 
+    // Build the query parameters for the summary
     for (var param in state.parameters) {
       final name = param['name'].toString();
       final value = param['value'].toString();
-      queryParams[name] = value;
-      changedParams[name] = originalParams[name] != value;
+      changedParams[name] = originalParams[name] != value; // Check if value changed from original URL
     }
 
-    final updatedUri = Uri.parse(state.apiServerURL).replace(queryParameters: queryParams);
-
-    final queryParts = state.parameters.asMap().entries.map((entry) {
-      final name = entry.value['name'].toString();
-      final value = entry.value['value'].toString();
+    final queryParts = state.parameters.map((param) {
+      final name = param['name'].toString();
+      final value = param['value'].toString();
       final changed = changedParams[name] ?? false;
       return {'name': name, 'value': value, 'changed': changed};
     }).toList();
+
 
     showDialog(
       context: context,
@@ -365,6 +378,9 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
               const SizedBox(height: 8),
               Text('Username: ${state.userName}', style: GoogleFonts.poppins(fontSize: 14)),
               const SizedBox(height: 8),
+              // IMPORTANT: Do NOT display the password here in a real application's summary,
+              // or handle it with extreme care (e.g., only show if explicitly requested and with user authentication).
+              // For demonstration purposes, keeping it as per original request.
               Text('Password: ${state.password}', style: GoogleFonts.poppins(fontSize: 14)),
               const SizedBox(height: 8),
               Text('Database Name: ${state.databaseName}', style: GoogleFonts.poppins(fontSize: 14)),
@@ -379,9 +395,8 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                   style: GoogleFonts.poppins(fontSize: 14, color: Colors.black87),
                   children: [
                     TextSpan(text: baseUrl),
-                    ...queryParts.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final param = entry.value;
+                    ...List.generate(queryParts.length, (index) {
+                      final param = queryParts[index];
                       final isLast = index == queryParts.length - 1;
                       return TextSpan(
                         text: '${param['name']}=${param['value']}${isLast ? '' : '&'}',
@@ -391,7 +406,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                           fontWeight: param['changed'] as bool ? FontWeight.bold : FontWeight.normal,
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                 ),
               ),
@@ -410,9 +425,9 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
             onPressed: () {
               Navigator.pop(context);
               setState(() {
-                _wasSaving = true;
+                _wasSaving = true; // Set flag to indicate save attempt
               });
-              _bloc.add(SaveDatabaseServer());
+              _bloc.add(const SaveDatabaseServer()); // Dispatch save event
             },
             child: Text(
               'Confirm',
@@ -424,6 +439,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     );
   }
 
+  // Groups parameters for display, prioritizing date pairs
   List<List<Map<String, dynamic>>> _groupParameters(List<Map<String, dynamic>> parameters) {
     final List<List<Map<String, dynamic>>> grouped = [];
     final List<Map<String, dynamic>> remaining = List.from(parameters);
@@ -443,7 +459,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
 
     int index = 0;
     while (index < remaining.length) {
-      if (index + 1 < remaining.length && index % 3 == 0) {
+      if (index + 1 < remaining.length && index % 2 == 0) {
         grouped.add([remaining[index], remaining[index + 1]]);
         index += 2;
       } else {
@@ -455,13 +471,31 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
     return grouped;
   }
 
+  // Clears all text controllers and disposes parameter controllers
+  void _clearAllControllers() {
+    _selectedConfigNameController.clear();
+    _serverIPController.clear();
+    _userNameController.clear();
+    _passwordController.clear();
+    _databaseNameController.clear();
+    _apiServerURLController.clear();
+    _apiNameController.clear();
+    _disposeParameterControllers(); // Dispose existing parameter controllers
+  }
+
+  // Helper to dispose existing parameter controllers
+  void _disposeParameterControllers() {
+    _paramControllers.values.forEach((controller) => controller.dispose());
+    _paramControllers.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (context) => _bloc,
+      create: (context) => _bloc, // Provide the initialized bloc instance
       child: Scaffold(
         appBar: AppBarWidget(
-          title: 'Sachin Database',
+          title: 'Create Report',
           onBackPress: () => Navigator.pop(context),
         ),
         body: BlocConsumer<ReportAdminBloc, ReportAdminState>(
@@ -469,11 +503,20 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
           previous.error != current.error ||
               previous.isLoading != current.isLoading ||
               previous.parameters.length != current.parameters.length ||
-              previous.availableDatabases != current.availableDatabases,
+              previous.availableDatabases != current.availableDatabases ||
+              previous.savedConfigurations != current.savedConfigurations || // Listen for saved configs updates
+              previous.selectedConfigId != current.selectedConfigId || // Listen for selection changes
+              previous.password != current.password || // Explicitly listen for password changes
+              previous.serverIP != current.serverIP || // Listen for server IP changes
+              previous.userName != current.userName || // Listen for username changes
+              previous.databaseName != current.databaseName || // Listen for database name changes
+              previous.apiServerURL != current.apiServerURL || // Listen for API URL changes
+              previous.apiName != current.apiName, // Listen for API Name changes
           listener: (context, state) {
-            print('Listener triggered: isLoading=${state.isLoading}, error=${state.error}, '
-                'databases=${state.availableDatabases.length}, parameters=${state.parameters.length}, '
-                'wasSaving=$_wasSaving');
+            // Debugging prints
+            print('ReportAdminUI Listener: state.password=${state.password}, _passwordController.text=${_passwordController.text}');
+
+            // Handle errors by showing a SnackBar
             if (state.error != null) {
               String errorMessage = state.error!;
               if (errorMessage.contains('Failed to fetch databases')) {
@@ -492,7 +535,9 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                   duration: const Duration(seconds: 5),
                 ),
               );
-            } else if (!state.isLoading && _wasSaving && state.error == null) {
+            }
+            // Handle successful save
+            else if (!state.isLoading && _wasSaving && state.error == null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -506,28 +551,102 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                   duration: const Duration(seconds: 3),
                 ),
               );
-              _serverIPController.clear();
-              _userNameController.clear();
-              _passwordController.clear();
-              _databaseNameController.clear();
-              _apiServerURLController.clear();
-              _apiNameController.clear();
-              _paramControllers.clear();
+              _clearAllControllers(); // Clear controllers after successful save
               setState(() {
                 _showParameters = false;
                 _isParsingParameters = false;
                 _wasSaving = false;
+                _showPassword = false; // Reset password visibility
               });
-              context.read<ReportAdminBloc>().add(ResetAdminState());
             }
-            _wasLoading = state.isLoading;
-            if (_isParsingParameters && (state.parameters.isNotEmpty || state.error != null)) {
+            // Handle selection of a saved configuration OR any state update that changes these fields
+            // Only update controller text if it's different from the state to prevent infinite loops
+            // caused by the controller's own listener dispatching back to the bloc.
+            if (_serverIPController.text != state.serverIP) {
+              _serverIPController.text = state.serverIP;
+            }
+            if (_userNameController.text != state.userName) {
+              _userNameController.text = state.userName;
+            }
+            if (_passwordController.text != state.password) {
+              _passwordController.text = state.password;
+            }
+            if (_databaseNameController.text != state.databaseName) {
+              _databaseNameController.text = state.databaseName;
+            }
+            if (_apiServerURLController.text != state.apiServerURL) {
+              _apiServerURLController.text = state.apiServerURL;
+            }
+            if (_apiNameController.text != state.apiName) {
+              _apiNameController.text = state.apiName;
+            }
+
+            // Update Autocomplete field when a config is selected or cleared
+            final selectedConfigName = state.savedConfigurations
+                .firstWhere(
+                    (config) => config['ConfigID']?.toString() == state.selectedConfigId,
+                orElse: () => <String, dynamic>{})['ConfigName']
+                ?.toString() ??
+                '';
+            // Only update _selectedConfigNameController if it truly needs to change.
+            // The Autocomplete's internal controller is handled by the Autocomplete itself.
+            if (_selectedConfigNameController.text != selectedConfigName) {
+              _selectedConfigNameController.text = selectedConfigName;
+            }
+
+
+            // Parameters visibility and controller management
+            if (state.selectedConfigId != null && !_showParameters) {
+              // If a config is selected, and parameters are currently hidden, show them
               setState(() {
-                _isParsingParameters = false;
+                _showParameters = true;
+              });
+            } else if (state.selectedConfigId == null && _showParameters && !state.isLoading) {
+              // If no config is selected (e.g., after Reset), hide parameters
+              setState(() {
+                _showParameters = false;
               });
             }
-            if (!_showParameters) {
-              _paramControllers.clear();
+
+            if (_showParameters) {
+              // Re-create parameter controllers only if parameters have truly changed (length or content)
+              bool needsParamControllerUpdate = _paramControllers.length != state.parameters.length;
+              if (!needsParamControllerUpdate) {
+                for (int i = 0; i < state.parameters.length; i++) {
+                  if (!_paramControllers.containsKey(i) ||
+                      _paramControllers[i]!.text != state.parameters[i]['value'].toString()) {
+                    needsParamControllerUpdate = true;
+                    break;
+                  }
+                }
+              }
+
+              if (needsParamControllerUpdate) {
+                _disposeParameterControllers(); // Dispose old ones
+                for (int i = 0; i < state.parameters.length; i++) {
+                  _paramControllers[i] = TextEditingController(
+                    text: state.parameters[i]['value'].toString(),
+                  )..addListener(() {
+                    _debouncedUpdate(() {
+                      context.read<ReportAdminBloc>().add(
+                        UpdateParameterValue(
+                          i,
+                          _paramControllers[i]!.text,
+                        ),
+                      );
+                    });
+                  });
+                }
+                if (mounted) setState(() {}); // Rebuild to show new parameter fields
+              }
+            } else {
+              _disposeParameterControllers(); // Dispose if hiding parameters
+            }
+
+
+            _wasLoading = state.isLoading; // Update loading state tracking
+            // When parameters are parsed or an error occurs, stop parsing indicator
+            if (_isParsingParameters && (state.parameters.isNotEmpty || state.error != null)) {
               setState(() {
                 _isParsingParameters = false;
               });
@@ -542,10 +661,10 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
               previous.apiServerURL != current.apiServerURL ||
               previous.apiName != current.apiName ||
               previous.parameters != current.parameters ||
-              previous.isLoading != current.isLoading,
+              previous.isLoading != current.isLoading ||
+              previous.savedConfigurations != current.savedConfigurations ||
+              previous.selectedConfigId != current.selectedConfigId,
           builder: (context, state) {
-            print('BlocConsumer rebuild: parameters=${state.parameters.length}, '
-                'databases=${state.availableDatabases}');
             return Column(
               children: [
                 Padding(
@@ -580,6 +699,102 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              // Autocomplete for selecting saved configurations
+                              Autocomplete<Map<String, dynamic>>(
+                                displayStringForOption: (option) => option['ConfigName'] as String,
+                                optionsBuilder: (TextEditingValue textEditingValue) {
+                                  if (textEditingValue.text.isEmpty) {
+                                    return state.savedConfigurations; // Show all options when field is empty
+                                  }
+                                  return state.savedConfigurations.where((option) {
+                                    final configName = option['ConfigName'] as String? ?? '';
+                                    return configName.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                                  });
+                                },
+                                onSelected: (Map<String, dynamic> selection) {
+                                  // This updates the Autocomplete's internal controller and typically closes the dropdown
+                                  // The _selectedConfigNameController will be updated by the listener
+                                  context.read<ReportAdminBloc>().add(
+                                      SelectSavedConfiguration(selection['ConfigID'].toString()));
+                                },
+                                fieldViewBuilder: (BuildContext context,
+                                    TextEditingController fieldTextEditingController,
+                                    FocusNode fieldFocusNode,
+                                    VoidCallback onFieldSubmitted) {
+                                  // **CRITICAL CHANGE:**
+                                  // Removed the WidgetsBinding.instance.addPostFrameCallback block.
+                                  // Let Autocomplete manage its own fieldTextEditingController directly.
+                                  // The _selectedConfigNameController is updated by the Bloc listener
+                                  // and serves as the source of truth from the Bloc state.
+                                  return TextField(
+                                    controller: fieldTextEditingController, // Use Autocomplete's provided controller
+                                    focusNode: fieldFocusNode,
+                                    style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
+                                    decoration: InputDecoration(
+                                      labelText: 'Select Existing Configuration',
+                                      labelStyle: GoogleFonts.poppins(
+                                        color: Colors.grey[700],
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      prefixIcon: const Icon(Icons.search, color: Colors.blueAccent, size: 22),
+                                      suffixIcon: state.isLoading && state.savedConfigurations.isEmpty
+                                          ? const Padding(
+                                        padding: EdgeInsets.all(8.0),
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                                      )
+                                          : null, // Show loading indicator
+                                      filled: true,
+                                      fillColor: Colors.white.withOpacity(0.9),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(color: Colors.grey[500]!, width: 1),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide(color: Colors.grey[500]!, width: 1),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5),
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                                      floatingLabelBehavior: FloatingLabelBehavior.auto,
+                                    ),
+                                  );
+                                },
+                                optionsViewBuilder: (BuildContext context,
+                                    AutocompleteOnSelected<Map<String, dynamic>> onSelected,
+                                    Iterable<Map<String, dynamic>> options) {
+                                  return Align(
+                                    alignment: Alignment.topLeft,
+                                    child: Material(
+                                      elevation: 4.0,
+                                      child: SizedBox(
+                                        // Adjust height based on options available
+                                        height: options.isNotEmpty ? 200.0 : 0.0,
+                                        child: ListView.builder(
+                                          padding: EdgeInsets.zero,
+                                          itemCount: options.length,
+                                          itemBuilder: (BuildContext context, int index) {
+                                            final option = options.elementAt(index);
+                                            return GestureDetector(
+                                              onTap: () {
+                                                onSelected(option);
+                                              },
+                                              child: ListTile(
+                                                title: Text(option['ConfigName'] as String,
+                                                    style: GoogleFonts.poppins()),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(height: 24),
                               Row(
                                 children: [
                                   Expanded(
@@ -604,10 +819,22 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                 controller: _passwordController,
                                 label: 'Password',
                                 icon: Icons.lock,
-                                obscureText: true,
+                                obscureText: !_showPassword, // Controlled by _showPassword state
+                                suffixIcon: IconButton( // Suffix icon for password visibility toggle
+                                  icon: Icon(
+                                    _showPassword ? Icons.visibility : Icons.visibility_off,
+                                    color: Colors.blueAccent,
+                                  ),
+                                  onPressed: () {
+                                    setState(() {
+                                      _showPassword = !_showPassword;
+                                    });
+                                  },
+                                ),
                               ),
                               const SizedBox(height: 16),
-                              state.isLoading && state.availableDatabases.isEmpty
+                              // Display loading indicator for databases or the dropdown
+                              state.isLoading && state.availableDatabases.isEmpty && state.error == null
                                   ? const Center(
                                 child: CircularProgressIndicator(
                                   color: Colors.blueAccent,
@@ -618,7 +845,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                 items: state.availableDatabases,
                                 onChanged: (value) {
                                   if (value != null) {
-                                    _databaseNameController.text = value;
+                                    _databaseNameController.text = value; // Update local controller
                                     context.read<ReportAdminBloc>().add(UpdateDatabaseName(value));
                                   }
                                 },
@@ -640,12 +867,13 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                     _showParameters = !_showParameters;
                                     if (_showParameters) {
                                       _isParsingParameters = true;
-                                      context.read<ReportAdminBloc>().add(ParseParameters());
+                                      context.read<ReportAdminBloc>().add(ParseParameters()); // Parse params if showing
                                     } else {
-                                      _paramControllers.clear();
+                                      _disposeParameterControllers(); // Dispose when hiding
                                       _apiNameController.clear();
                                       _isParsingParameters = false;
                                       context.read<ReportAdminBloc>().add(UpdateApiName(''));
+                                      context.read<ReportAdminBloc>().add(ParseParameters()); // Clear parameters in bloc
                                     }
                                   });
                                 },
@@ -659,6 +887,7 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                   icon: Icons.api,
                                 ),
                                 const SizedBox(height: 20),
+                                // Conditional display for parameters area
                                 _isParsingParameters
                                     ? Center(
                                   child: state.parameters.isEmpty && state.error == null
@@ -704,27 +933,43 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                       ),
                                     ),
                                     const SizedBox(height: 10),
-                                    ..._groupParameters(state.parameters).asMap().entries.map((groupEntry) {
+                                    // Build parameter input fields
+                                    ..._groupParameters(state.parameters)
+                                        .asMap()
+                                        .entries
+                                        .map((groupEntry) {
                                       final group = groupEntry.value;
                                       return Padding(
                                         padding: const EdgeInsets.only(bottom: 16.0),
                                         child: Row(
                                           children: group.asMap().entries.map((paramEntry) {
-                                            final paramIndex = state.parameters.indexOf(paramEntry.value);
                                             final param = paramEntry.value;
-                                            final isDate = _isDateParameter(param['name'], param['value']);
-                                            _paramControllers[paramIndex] ??= TextEditingController(
-                                              text: param['value'].toString(),
-                                            )..addListener(() {
-                                              _debouncedUpdate(() {
-                                                context.read<ReportAdminBloc>().add(
-                                                  UpdateParameterValue(
-                                                    paramIndex,
-                                                    _paramControllers[paramIndex]!.text,
-                                                  ),
-                                                );
+                                            final paramIndex =
+                                            state.parameters.indexOf(param); // Get actual index
+                                            final isDate =
+                                            _isDateParameter(param['name'], param['value']);
+
+                                            // Ensure controller exists and its text is synchronized
+                                            if (!_paramControllers.containsKey(paramIndex)) {
+                                              _paramControllers[paramIndex] = TextEditingController();
+                                              _paramControllers[paramIndex]!.addListener(() {
+                                                _debouncedUpdate(() {
+                                                  context.read<ReportAdminBloc>().add(
+                                                    UpdateParameterValue(
+                                                      paramIndex,
+                                                      _paramControllers[paramIndex]!.text,
+                                                    ),
+                                                  );
+                                                });
                                               });
-                                            });
+                                            }
+                                            // Always update the text to reflect the current bloc state
+                                            if (_paramControllers[paramIndex]!.text !=
+                                                param['value'].toString()) {
+                                              _paramControllers[paramIndex]!.text =
+                                                  param['value'].toString();
+                                            }
+
                                             return Expanded(
                                               child: Padding(
                                                 padding: const EdgeInsets.only(right: 8.0),
@@ -749,16 +994,19 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                                     ),
                                                     if (param['show'] ?? false)
                                                       IconButton(
-                                                        icon: Icon(Icons.edit, color: Colors.blueAccent, size: 20),
+                                                        icon: const Icon(Icons.edit,
+                                                            color: Colors.blueAccent, size: 20),
                                                         onPressed: () async {
-                                                          final fieldLabel = await _showFieldLabelDialog(
+                                                          final fieldLabel =
+                                                          await _showFieldLabelDialog(
                                                             context,
                                                             param['name'],
                                                             param['field_label'],
                                                           );
                                                           if (fieldLabel != null && context.mounted) {
                                                             context.read<ReportAdminBloc>().add(
-                                                              UpdateParameterFieldLabel(paramIndex, fieldLabel),
+                                                              UpdateParameterFieldLabel(
+                                                                  paramIndex, fieldLabel),
                                                             );
                                                           }
                                                         },
@@ -769,22 +1017,27 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                                       value: param['show'] ?? false,
                                                       onChanged: (value) async {
                                                         if (value == true) {
-                                                          final fieldLabel = await _showFieldLabelDialog(
+                                                          final fieldLabel =
+                                                          await _showFieldLabelDialog(
                                                             context,
                                                             param['name'],
                                                             param['field_label'],
                                                           );
-                                                          if (fieldLabel != null && context.mounted) {
+                                                          if (fieldLabel != null &&
+                                                              context.mounted) {
                                                             context.read<ReportAdminBloc>().add(
-                                                              UpdateParameterFieldLabel(paramIndex, fieldLabel),
+                                                              UpdateParameterFieldLabel(
+                                                                  paramIndex, fieldLabel),
                                                             );
                                                             context.read<ReportAdminBloc>().add(
-                                                              UpdateParameterShow(paramIndex, true),
+                                                              UpdateParameterShow(
+                                                                  paramIndex, true),
                                                             );
                                                           }
                                                         } else {
                                                           context.read<ReportAdminBloc>().add(
-                                                            UpdateParameterShow(paramIndex, false),
+                                                            UpdateParameterShow(
+                                                                paramIndex, false),
                                                           );
                                                         }
                                                       },
@@ -826,18 +1079,13 @@ class _ReportAdminUIState extends State<ReportAdminUI> {
                                     onPressed: state.isLoading
                                         ? null
                                         : () {
-                                      _serverIPController.clear();
-                                      _userNameController.clear();
-                                      _passwordController.clear();
-                                      _databaseNameController.clear();
-                                      _apiServerURLController.clear();
-                                      _apiNameController.clear();
-                                      _paramControllers.clear();
+                                      _clearAllControllers();
                                       setState(() {
                                         _showParameters = false;
                                         _isParsingParameters = false;
+                                        _showPassword = false; // Reset password visibility
                                       });
-                                      context.read<ReportAdminBloc>().add(ResetAdminState());
+                                      context.read<ReportAdminBloc>().add(const ResetAdminState());
                                     },
                                     icon: Icons.refresh,
                                   ),
