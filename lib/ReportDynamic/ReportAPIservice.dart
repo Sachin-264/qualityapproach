@@ -1330,18 +1330,29 @@ class ReportAPIService {
     }
   }
 
+  // ... inside your ReportAPIService class ...
+
   Future<void> saveSetupConfiguration({
     required String configName,
     required String serverIP,
     required String userName,
     required String password,
+    // UPDATED: Added new required parameters
+    required String databaseName,
+    required String connectionString,
   }) async {
     final uri = Uri.parse(_setupApiUrl);
+
+    // UPDATED: The payload now includes the new fields.
+    // The keys 'databaseName' and 'connectionString' must match
+    // what your PHP script expects in the request body.
     final payload = {
       'configName': configName,
       'serverIP': serverIP,
       'userName': userName,
       'password': password,
+      'databaseName': databaseName,
+      'connectionString': connectionString,
     };
 
     _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveSetupConfiguration');
@@ -1385,6 +1396,7 @@ class ReportAPIService {
         throw Exception(errorMessage);
       }
     } catch (e) {
+      // Rethrows the exception to be handled by the BLoC
       rethrow;
     }
   }

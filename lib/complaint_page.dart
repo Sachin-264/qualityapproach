@@ -63,7 +63,7 @@ class ComplaintPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          "Complaint Entry List",
+          "Aquare-Report Builder",
           style: TextStyle(
             color: Colors.white,
           ),
@@ -101,7 +101,7 @@ class ComplaintPage extends StatelessWidget {
                       Icon(Icons.dashboard, size: 50, color: Colors.white),
                       SizedBox(height: 10),
                       Text(
-                        'Complaint Management',
+                        'Aquare-Report Builder',
                         style: TextStyle(
                           fontSize: 20,
                           color: Colors.white,
@@ -168,7 +168,7 @@ class ComplaintPage extends StatelessWidget {
               ),
               _createDrawerItem(
                 icon: Icons.satellite_alt_outlined,
-                text: ' Aquare-Report Builder',
+                text: ' Report Designer',
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
@@ -184,7 +184,7 @@ class ComplaintPage extends StatelessWidget {
               ),
               _createDrawerItem(
                 icon: Icons.access_time,
-                text: 'dynamic Report generator ',
+                text: 'Report generator',
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
@@ -200,7 +200,7 @@ class ComplaintPage extends StatelessWidget {
               ),
               _createDrawerItem(
                 icon: Icons.search,
-                text: ' Create Report',
+                text: 'Report Setup',
                 onTap: () {
                   Navigator.pop(context);
                   Navigator.push(
@@ -234,20 +234,20 @@ class ComplaintPage extends StatelessWidget {
                 },
               ),
               // --- End NEW Setup Option ---
-              const Divider(),
-              _createDrawerItem(
-                icon: Icons.settings,
-                text: 'Settings',
-                onTap: () {
-                  Navigator.pop(context);
-                },
-              ),
+              // const Divider(),
+              // _createDrawerItem(
+              //   icon: Icons.settings,
+              //   text: 'Settings',
+              //   onTap: () {
+              //     Navigator.pop(context);
+              //   },
+              // ),
             ],
           ),
         ),
       ),
       body: const Center(
-        child: Text('Complaint Page'),
+        child: Text('Aquare-Report Builder'),
       ),
     );
   }
