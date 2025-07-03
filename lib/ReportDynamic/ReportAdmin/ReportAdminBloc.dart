@@ -1,7 +1,8 @@
 // lib/report_admin_feature/report_admin_bloc.dart
 
+import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import '../ReportAPIService.dart'; // Ensure this path is correct for your project
+import '../ReportAPIService.dart'; // Ensure this path is correct
 import 'dart:convert'; // For jsonDecode
 
 // --- Events ---
@@ -36,8 +37,6 @@ class UpdateApiServerURL extends ReportAdminEvent {
   const UpdateApiServerURL(this.apiServerURL);
 }
 
-class ParseParameters extends ReportAdminEvent {}
-
 class UpdateApiName extends ReportAdminEvent {
   final String apiName;
   const UpdateApiName(this.apiName);
@@ -47,18 +46,6 @@ class UpdateParameterValue extends ReportAdminEvent {
   final int index;
   final String value;
   const UpdateParameterValue(this.index, this.value);
-}
-
-class UpdateParameterShow extends ReportAdminEvent {
-  final int index;
-  final bool show;
-  const UpdateParameterShow(this.index, this.show);
-}
-
-class UpdateParameterFieldLabel extends ReportAdminEvent {
-  final int index;
-  final String fieldLabel;
-  const UpdateParameterFieldLabel(this.index, this.fieldLabel);
 }
 
 class SaveDatabaseServer extends ReportAdminEvent {
@@ -90,6 +77,7 @@ class ReportAdminState {
   final List<Map<String, dynamic>> parameters;
   final bool isLoading;
   final String? error;
+  final String? successMessage;
   final List<Map<String, dynamic>> savedConfigurations;
   final String? selectedConfigId;
 
@@ -104,6 +92,7 @@ class ReportAdminState {
     this.parameters = const [],
     this.isLoading = false,
     this.error,
+    this.successMessage,
     this.savedConfigurations = const [],
     this.selectedConfigId,
   });
@@ -118,7 +107,8 @@ class ReportAdminState {
     String? apiName,
     List<Map<String, dynamic>>? parameters,
     bool? isLoading,
-    String? error,
+    ValueGetter<String?>? error,
+    ValueGetter<String?>? successMessage,
     List<Map<String, dynamic>>? savedConfigurations,
     String? selectedConfigId,
   }) {
@@ -132,7 +122,8 @@ class ReportAdminState {
       apiName: apiName ?? this.apiName,
       parameters: parameters ?? this.parameters,
       isLoading: isLoading ?? this.isLoading,
-      error: error,
+      error: error != null ? error() : this.error,
+      successMessage: successMessage != null ? successMessage() : this.successMessage,
       savedConfigurations: savedConfigurations ?? this.savedConfigurations,
       selectedConfigId: selectedConfigId,
     );
@@ -181,7 +172,7 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
       if (_lastServerIP.isEmpty || _lastUserName.isEmpty || _lastPassword.isEmpty) {
         return;
       }
-      emit(state.copyWith(isLoading: true, error: null));
+      emit(state.copyWith(isLoading: true, error: () => null));
       try {
         final databases = await apiService.fetchDatabases(
           serverIP: _lastServerIP,
@@ -191,24 +182,38 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
         emit(state.copyWith(
           isLoading: false,
           availableDatabases: databases,
-          databaseName: databases.isNotEmpty && !databases.contains(state.databaseName)
-              ? databases.first
-              : state.databaseName,
-          error: null,
+          databaseName: databases.isNotEmpty && !databases.contains(state.databaseName) ? databases.first : state.databaseName,
+          error: () => null,
         ));
       } catch (e) {
-        emit(state.copyWith(
-          isLoading: false,
-          availableDatabases: [],
-          error: 'Failed to fetch databases: $e',
-        ));
+        emit(state.copyWith(isLoading: false, availableDatabases: [], error: () => 'Failed to fetch databases: $e'));
+      }
+    });
+
+    on<UpdateApiServerURL>((event, emit) {
+      final newParams = _parseUrlParameters(event.apiServerURL);
+      final mergedParams = _mergeParameters(state.parameters, newParams);
+      emit(state.copyWith(apiServerURL: event.apiServerURL, parameters: mergedParams));
+    });
+
+    on<UpdateApiName>((event, emit) {
+      emit(state.copyWith(apiName: event.apiName));
+    });
+
+    on<UpdateParameterValue>((event, emit) {
+      if (event.index < state.parameters.length) {
+        final List<Map<String, dynamic>> updatedParameters = List.from(state.parameters);
+        updatedParameters[event.index] = {
+          ...updatedParameters[event.index],
+          'value': event.value,
+        };
+        emit(state.copyWith(parameters: updatedParameters));
       }
     });
 
     on<SaveDatabaseServer>((event, emit) async {
-      emit(state.copyWith(isLoading: true, error: null));
+      emit(state.copyWith(isLoading: true, error: () => null, successMessage: () => null));
       try {
-        // FIXED: Removed databaseConnectionString from this call
         await apiService.saveDatabaseServer(
           serverIP: state.serverIP,
           userName: state.userName,
@@ -218,10 +223,16 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
           apiName: state.apiName,
           parameters: state.parameters,
         );
-        emit(state.copyWith(isLoading: false, selectedConfigId: null));
+        emit(state.copyWith(
+          isLoading: false,
+          successMessage: () => 'Configuration saved successfully!',
+        ));
         add(const FetchSavedConfigurations());
       } catch (e) {
-        emit(state.copyWith(isLoading: false, error: e.toString()));
+        emit(state.copyWith(
+          isLoading: false,
+          error: () => 'Failed to save configuration: ${e.toString()}',
+        ));
       }
     });
 
@@ -229,23 +240,22 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
       _lastServerIP = '';
       _lastUserName = '';
       _lastPassword = '';
-      emit(ReportAdminState());
-      add(const FetchSavedConfigurations());
+      emit(ReportAdminState(savedConfigurations: state.savedConfigurations));
     });
 
     on<FetchSavedConfigurations>((event, emit) async {
-      emit(state.copyWith(isLoading: true, error: null));
+      emit(state.copyWith(isLoading: true, error: () => null));
       try {
         final Map<String, dynamic> response = await apiService.getSetupConfigurations();
         if (response['status'] == 'success' && response['data'] is List) {
           final List<Map<String, dynamic>> configs = (response['data'] as List).cast<Map<String, dynamic>>();
           configs.sort((a, b) => (a['ConfigName'] as String? ?? '').compareTo(b['ConfigName'] as String? ?? ''));
-          emit(state.copyWith(isLoading: false, savedConfigurations: configs, error: null));
+          emit(state.copyWith(isLoading: false, savedConfigurations: configs, error: () => null));
         } else {
-          emit(state.copyWith(isLoading: false, error: 'Failed to load saved configurations: Unexpected response format', savedConfigurations: []));
+          emit(state.copyWith(isLoading: false, error: () => 'Failed to load configurations: Unexpected format', savedConfigurations: []));
         }
       } catch (e) {
-        emit(state.copyWith(isLoading: false, error: 'Failed to load saved configurations: ${e.toString()}', savedConfigurations: []));
+        emit(state.copyWith(isLoading: false, error: () => 'Failed to load configurations: ${e.toString()}', savedConfigurations: []));
       }
     });
 
@@ -258,9 +268,9 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
       if (selectedConfig.isNotEmpty) {
         final String serverIP = selectedConfig['ServerIP']?.toString() ?? '';
         final String userName = selectedConfig['UserName']?.toString() ?? '';
-        final String password = selectedConfig['Password']?.toString() ?? ''; // Corrected key
+        final String password = selectedConfig['Password']?.toString() ?? '';
         final String databaseName = selectedConfig['DatabaseName']?.toString() ?? '';
-        final String apiServerURL = selectedConfig['APIServerURL']?.toString() ?? '';
+        final String apiServerURL = selectedConfig['APIServerURl']?.toString() ?? ''; // Correct key
         final String apiName = selectedConfig['APIName']?.toString() ?? '';
 
         List<Map<String, dynamic>> parsedParams = [];
@@ -283,7 +293,7 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
           apiName: apiName,
           parameters: parsedParams,
           selectedConfigId: event.configId,
-          error: null,
+          error: () => null,
         ));
 
         _lastServerIP = serverIP;
@@ -291,17 +301,9 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
         _lastPassword = password;
         _triggerFetchDatabases();
       } else {
-        emit(state.copyWith(error: 'Selected configuration not found.', selectedConfigId: null));
+        emit(state.copyWith(error: () => 'Selected configuration not found.', selectedConfigId: null));
       }
     });
-
-    // Unchanged event handlers
-    on<UpdateApiServerURL>((event, emit) {/*...no change...*/});
-    on<ParseParameters>((event, emit) {/*...no change...*/});
-    on<UpdateApiName>((event, emit) {/*...no change...*/});
-    on<UpdateParameterValue>((event, emit) {/*...no change...*/});
-    on<UpdateParameterShow>((event, emit) {/*...no change...*/});
-    on<UpdateParameterFieldLabel>((event, emit) {/*...no change...*/});
 
     add(const FetchSavedConfigurations());
   }
@@ -313,22 +315,27 @@ class ReportAdminBloc extends Bloc<ReportAdminEvent, ReportAdminState> {
   }
 
   List<Map<String, dynamic>> _parseUrlParameters(String url) {
-    if (url.isEmpty) return [];
+    if (url.isEmpty || !url.contains('?')) return [];
     try {
       final uri = Uri.parse(url);
-      return uri.queryParameters.entries.map((entry) => {'name': entry.key, 'value': entry.value, 'show': false, 'field_label': ''}).toList();
+      return uri.queryParameters.entries.map((entry) {
+        return {'name': entry.key, 'value': entry.value, 'show': false, 'field_label': ''};
+      }).toList();
     } catch (e) {
       return [];
     }
   }
 
   List<Map<String, dynamic>> _mergeParameters(List<Map<String, dynamic>> existing, List<Map<String, dynamic>> newParams) {
+    if (newParams.isEmpty) return [];
+
     final merged = <Map<String, dynamic>>[];
     final existingMap = {for (var p in existing) p['name']: p};
+
     for (var newParam in newParams) {
       final name = newParam['name'];
       if (existingMap.containsKey(name)) {
-        merged.add({...existingMap[name]!, 'value': newParam['value']});
+        merged.add({ ...existingMap[name]!, 'value': newParam['value'] });
       } else {
         merged.add(newParam);
       }
