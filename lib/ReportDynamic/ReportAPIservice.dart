@@ -1004,6 +1004,9 @@ class ReportAPIService {
     }
   }
 
+  // =========================================================================
+  // == START: REVISED deployReportToClient with EXCESSIVE LOGGING
+  // =========================================================================
   Future<Map<String, dynamic>> deployReportToClient({
     required Map<String, dynamic> reportMetadata,
     required List<Map<String, dynamic>> fieldConfigs,
@@ -1012,26 +1015,90 @@ class ReportAPIService {
     required String clientPassword,
     required String clientDatabaseName,
   }) async {
+    const jsonEncoder = JsonEncoder.withIndent('  ');
+
+    debugPrint('\n\n======================================================');
+    debugPrint('====== START deployReportToClient INVOCATION ======');
+    debugPrint('======================================================');
+
     final url = _postEndpoints['deploy_report'];
-    if (url == null) throw Exception('POST API not found for deployment.');
-    final payload = {'report_metadata': jsonEncode(reportMetadata), 'field_configs': jsonEncode(fieldConfigs), 'client_server': clientServerIP.trim(), 'client_user': clientUserName.trim(), 'client_password': clientPassword.trim(), 'client_database': clientDatabaseName.trim()};
+    if (url == null) {
+      debugPrint('[FATAL ERROR] Deployment URL ("deploy_report") is not defined in _postEndpoints map.');
+      debugPrint('====================== DEPLOYMENT END ======================');
+      throw Exception('POST API not found for deployment.');
+    }
+
+    debugPrint('Step 1: Deployment URL confirmed: $url');
+
     try {
+      // Log the raw data received from the BLoC
+      debugPrint('\n--- Step 2: Logging Raw Input Data ---');
+      debugPrint('Client Server IP: "$clientServerIP"');
+      debugPrint('Client User Name: "$clientUserName"');
+      debugPrint('Client Password: "${clientPassword.isNotEmpty ? "********" : "EMPTY"}"');
+      debugPrint('Client Database Name: "$clientDatabaseName"');
+      debugPrint('--- Raw Report Metadata (from BLoC) ---');
+      debugPrint(jsonEncoder.convert(reportMetadata));
+      debugPrint('--- Raw Field Configs (from BLoC) ---');
+      debugPrint('Field Configs Count: ${fieldConfigs.length}');
+      debugPrint(jsonEncoder.convert(fieldConfigs));
+      debugPrint('----------------------------------------');
+
+      // Prepare payload and log it
+      debugPrint('\n--- Step 3: Preparing Payload for HTTP POST ---');
+      final payload = {
+        'report_metadata': jsonEncode(reportMetadata),
+        'field_configs': jsonEncode(fieldConfigs),
+        'client_server': clientServerIP.trim(),
+        'client_user': clientUserName.trim(),
+        'client_password': clientPassword.trim(),
+        'client_database': clientDatabaseName.trim()
+      };
+
+      debugPrint('--- Final Payload being sent to the server ---');
+      debugPrint('This is the exact JSON body of the POST request.');
+      debugPrint(jsonEncoder.convert(payload));
+      debugPrint('------------------------------------------------');
+
+      // Make the HTTP request
       final uri = Uri.parse(url);
-      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'deployReportToClient');
+      debugPrint('\n--- Step 4: Making the HTTP POST Request ---');
+      _logRequest(httpMethod: 'POST', url: uri.toString(), functionName: 'deployReportToClient (INTERNAL)');
 
       final response = await http.post(
         uri,
         headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 180));
+
+      // Log the full response
+      debugPrint('\n--- Step 5: Received HTTP Response ---');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Headers:');
+      debugPrint(jsonEncoder.convert(response.headers));
+      debugPrint('--- Full Raw Response Body ---');
+      debugPrint(response.body);
+      debugPrint('----------------------------------');
+
       if (response.statusCode == 200) {
-        if (response.body.isEmpty) throw Exception('Empty response body from deployment script.');
+        if (response.body.isEmpty) {
+          debugPrint('[ERROR] Response body is empty, but status code is 200. This is ambiguous.');
+          throw Exception('Empty response body from deployment script.');
+        }
         try {
-          return jsonDecode(response.body);
+          final Map<String, dynamic> decodedResponse = jsonDecode(response.body);
+          debugPrint('\n--- Step 6: Successfully Parsed JSON Response ---');
+          debugPrint(jsonEncoder.convert(decodedResponse));
+          debugPrint('====================== DEPLOYMENT END (SUCCESS) ======================');
+          return decodedResponse;
         } on FormatException catch (e) {
+          debugPrint('[FATAL ERROR] Failed to parse the server\'s JSON response.');
+          debugPrint('Error details: $e');
+          debugPrint('====================== DEPLOYMENT END (ERROR) ======================');
           throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
+        debugPrint('[ERROR] Server returned a non-200 status code: ${response.statusCode}.');
         String errorMessage = 'Server error during deployment: ${response.statusCode}';
         if (response.body.isNotEmpty) {
           try {
@@ -1045,12 +1112,21 @@ class ReportAPIService {
             errorMessage += ' - Raw body: ${response.body}';
           }
         }
+        debugPrint('Final error message to be thrown: "$errorMessage"');
+        debugPrint('====================== DEPLOYMENT END (ERROR) ======================');
         throw Exception(errorMessage);
       }
     } catch (e) {
+      debugPrint('[FATAL CATCH BLOCK] An unexpected error occurred during deployment process.');
+      debugPrint('Error Type: ${e.runtimeType}');
+      debugPrint('Error: $e');
+      debugPrint('====================== DEPLOYMENT END (ERROR) ======================');
       rethrow;
     }
   }
+  // =========================================================================
+  // == END: REVISED deployReportToClient
+  // =========================================================================
 
   Future<Map<String, dynamic>> postJson(String url, Map<String, dynamic> payload) async {
     try {

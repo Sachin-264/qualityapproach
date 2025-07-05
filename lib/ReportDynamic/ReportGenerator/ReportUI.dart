@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
-import 'package:collection/collection.dart';
 import '../../ReportDashboard/DashboardBloc/preselectedreportloader.dart';
 import '../../ReportUtils/Appbar.dart';
 import '../../ReportUtils/subtleloader.dart';
@@ -14,9 +13,6 @@ import 'ReportMainUI.dart';
 import 'Reportbloc.dart';
 
 class ReportUI extends StatefulWidget {
-  // Can be in one of two modes:
-  // 1. Selection Mode: reportToPreload is null. User selects a report.
-  // 2. Filter Mode: reportToPreload is provided. User filters an existing report.
   final Map<String, dynamic>? reportToPreload;
   final Map<String, String>? initialParameters;
 
@@ -48,13 +44,8 @@ class _ReportUIState extends State<ReportUI> {
   void initState() {
     super.initState();
     if (_isPreloadedMode) {
-      // In filter mode, we just set the local state.
-      // The BLoC is already alive and correctly configured from ReportMainUI.
       _selectedReport = widget.reportToPreload;
       _reportLabelDisplayController.text = _selectedReport?['Report_label'] ?? 'Preloaded Report';
-    } else {
-      // In selection mode, we create a new BLoC.
-      // This is wrapped in a BlocProvider later in the build method.
     }
   }
 
@@ -70,23 +61,18 @@ class _ReportUIState extends State<ReportUI> {
 
   void _handlePrimaryAction(BuildContext context, ReportState state) {
     if (_selectedReport == null) return;
-
     final bloc = context.read<ReportBlocGenerate>();
     debugPrint('\n=============================================\n==== "${_isPreloadedMode ? "APPLY FILTERS" : "SHOW"}" CLICKED ====\nReport: ${_selectedReport!['Report_label']}\n--- CURRENT PARAMETER VALUES ---\n${state.userParameterValues.entries.map((e) => '  ${e.key}: "${e.value}"').join('\n')}\n=============================================\n');
-
     if (!context.mounted) return;
-
     if (_isPreloadedMode) {
       Navigator.pop(context, true);
     } else {
-      // In selection mode, we now navigate to the PreSelectedReportLoader
-      // to handle the initial data fetch cleanly.
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => PreSelectedReportLoader(
             reportDefinition: _selectedReport!,
-            apiService: ReportAPIService(), // Or however you get this
+            apiService: ReportAPIService(),
             initialParameters: state.userParameterValues,
           ),
         ),
@@ -108,42 +94,23 @@ class _ReportUIState extends State<ReportUI> {
   }
 
   Widget _buildTextField({
-    required TextEditingController controller,
-    String? label,
-    FocusNode? focusNode,
-    Function(String)? onChanged,
-    IconData? icon,
-    bool readOnly = false,
-    VoidCallback? onTap,
-    TextInputType? keyboardType,
-    bool enableClearButton = false,
-    VoidCallback? onClear,
+    required TextEditingController controller, String? label, FocusNode? focusNode, Function(String)? onChanged,
+    IconData? icon, bool readOnly = false, VoidCallback? onTap, TextInputType? keyboardType,
+    bool enableClearButton = false, VoidCallback? onClear,
   }) {
     return TextField(
-      controller: controller,
-      focusNode: focusNode,
-      onChanged: onChanged,
-      readOnly: readOnly,
-      onTap: onTap,
-      keyboardType: keyboardType,
-      style: GoogleFonts.poppins(fontSize: 16, color: readOnly ? Colors.grey[600] : Colors.black87),
+      controller: controller, focusNode: focusNode, onChanged: onChanged, readOnly: readOnly, onTap: onTap,
+      keyboardType: keyboardType, style: GoogleFonts.poppins(fontSize: 16, color: readOnly ? Colors.grey[600] : Colors.black87),
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: GoogleFonts.poppins(
-            color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
+        labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
         prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22) : null,
         suffixIcon: enableClearButton && controller.text.isNotEmpty
             ? IconButton(
           icon: const Icon(Icons.clear, color: Colors.grey),
-          onPressed: () {
-            controller.clear();
-            onClear?.call();
-            onChanged?.call('');
-          },
-        )
-            : null,
-        filled: true,
-        fillColor: readOnly ? Colors.grey[200] : Colors.white.withOpacity(0.9),
+          onPressed: () { controller.clear(); onClear?.call(); onChanged?.call(''); },
+        ) : null,
+        filled: true, fillColor: readOnly ? Colors.grey[200] : Colors.white.withOpacity(0.9),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[500]!, width: 1)),
         enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[500]!, width: 1)),
         focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5)),
@@ -154,19 +121,13 @@ class _ReportUIState extends State<ReportUI> {
   }
 
   Widget _buildButton({
-    required String text,
-    required Color color,
-    required VoidCallback? onPressed,
-    IconData? icon,
+    required String text, required Color color, required VoidCallback? onPressed, IconData? icon,
   }) {
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-        elevation: 4,
-        shadowColor: color.withOpacity(0.3),
+        backgroundColor: color, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14), elevation: 4, shadowColor: color.withOpacity(0.3),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -228,15 +189,12 @@ class _ReportUIState extends State<ReportUI> {
 
   @override
   Widget build(BuildContext context) {
-    // If in selection mode, create a new BLoC.
-    // If in filter mode, it will use the one provided by ReportMainUI.
     if (!_isPreloadedMode) {
       return BlocProvider(
         create: (context) => ReportBlocGenerate(ReportAPIService())..add(LoadReports()),
         child: _buildContent(context),
       );
     }
-    // If in filter mode, just build the content.
     return _buildContent(context);
   }
 
@@ -250,6 +208,41 @@ class _ReportUIState extends State<ReportUI> {
         },
         child: BlocBuilder<ReportBlocGenerate, ReportState>(
           builder: (context, state) {
+            // =========================================================================
+            // == START: REVISED DEPLOY BUTTON LOGIC
+            // =========================================================================
+            String? clientApiName;
+
+            debugPrint('\n--- [ReportUI Build] DEPLOY BUTTON CHECK ---');
+
+            // Condition 1: A report must be selected in the UI.
+            final bool isReportSelected = _selectedReport != null;
+            debugPrint('1. Report Selected (UI)?      : $isReportSelected (Label: "${_selectedReport?['Report_label']}")');
+
+            // Condition 2: The field configurations for the selected report must be loaded.
+            final bool areFieldConfigsLoaded = state.fieldConfigs.isNotEmpty;
+            debugPrint('2. Field Configs Loaded (BLoC)?: $areFieldConfigsLoaded (Count: ${state.fieldConfigs.length})');
+
+            // Condition 3: The selected report must have a valid 'API_name' to target for deployment.
+            // THIS IS THE NEW LOGIC.
+            debugPrint('3. Finding Client API Name (from selected report)...');
+            if (isReportSelected) {
+              clientApiName = _selectedReport!['API_name']?.toString();
+              debugPrint('   - Found "API_name" field in selected report: "$clientApiName"');
+            } else {
+              debugPrint('   - Cannot check for "API_name" because no report is selected.');
+            }
+            final bool isClientApiNameValid = clientApiName != null && clientApiName.isNotEmpty;
+            debugPrint('   - Is clientApiName valid?     : $isClientApiNameValid');
+
+            // Final Decision: All three conditions must be true.
+            final bool canDeploy = isReportSelected && areFieldConfigsLoaded && isClientApiNameValid;
+            debugPrint('==> FINAL DECISION: canDeploy is $canDeploy');
+            debugPrint('------------------------------------------\n');
+            // =========================================================================
+            // == END: REVISED DEPLOY BUTTON LOGIC
+            // =========================================================================
+
             final textInputParams = state.selectedApiParameters.where((p) { final configType = p['config_type']?.toString().toLowerCase() ?? ''; return p['show'] == true && !['radio', 'checkbox'].contains(configType); }).toList();
             for (var param in textInputParams) {
               final paramName = param['name'].toString();
@@ -269,7 +262,32 @@ class _ReportUIState extends State<ReportUI> {
                 initialValue: TextEditingValue(text: _reportLabelDisplayController.text),
                 optionsBuilder: (textEditingValue) { if (textEditingValue.text.isEmpty && _selectedReport != null) { WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); }); } return state.reports.where((r) => r['Report_label'].toString().toLowerCase().contains(textEditingValue.text.toLowerCase())).toList()..sort((a, b) => (a['Report_label']?.toString() ?? '').compareTo(b['Report_label']?.toString() ?? '')); },
                 displayStringForOption: (option) => option['Report_label'],
-                onSelected: (selection) { final bloc = context.read<ReportBlocGenerate>(); bloc.add(ResetReports()); setState(() { _selectedReport = selection; _reportLabelDisplayController.text = selection['Report_label']; }); final actionsRaw = selection['actions_config']; List<Map<String, dynamic>> actionsConfig = []; if (actionsRaw is List) { actionsConfig = List.from(actionsRaw); } else if (actionsRaw is String && actionsRaw.isNotEmpty) { try { actionsConfig = List.from(jsonDecode(actionsRaw)); } catch (e) {} } final includePdfFooter = selection['pdf_footer_datetime'] == true; bloc.add(FetchApiDetails(selection['API_name'], actionsConfig, includePdfFooterDateTimeFromReportMetadata: includePdfFooter)); WidgetsBinding.instance.addPostFrameCallback((_) { bloc.add(FetchFieldConfigs(selection['RecNo'].toString(), selection['API_name'], selection['Report_label'], dynamicApiParams: bloc.state.userParameterValues)); }); },
+                onSelected: (selection) {
+                  final bloc = context.read<ReportBlocGenerate>();
+                  bloc.add(ResetReports());
+                  setState(() {
+                    _selectedReport = selection;
+                    _reportLabelDisplayController.text = selection['Report_label'];
+                  });
+
+                  final actionsRaw = selection['actions_config'];
+                  List<Map<String, dynamic>> actionsConfig = [];
+                  if (actionsRaw is List) {
+                    actionsConfig = List.from(actionsRaw);
+                  } else if (actionsRaw is String && actionsRaw.isNotEmpty) {
+                    try { actionsConfig = List.from(jsonDecode(actionsRaw)); } catch (e) {
+                      debugPrint('Error decoding actions_config from selection: $e');
+                    }
+                  }
+                  final includePdfFooter = selection['pdf_footer_datetime'] == true;
+
+                  bloc.add(FetchApiDetails(
+                    selection['API_name'],
+                    actionsConfig,
+                    includePdfFooterDateTimeFromReportMetadata: includePdfFooter,
+                    reportSelectionPayload: selection,
+                  ));
+                },
                 fieldViewBuilder: (c, tc, fn, ofs) => _buildTextField(controller: tc, focusNode: fn, label: 'Report Label', icon: Icons.label, enableClearButton: true, onClear: () { _resetAllFields(context); tc.clear(); }, onChanged: (v) { _reportLabelDisplayController.text = v; if (v.isEmpty) WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); }); }),
                 optionsViewBuilder: (c, onSel, opts) => Align(alignment: Alignment.topLeft, child: Material(elevation: 4, child: SizedBox(width: 300, height: opts.length > 5 ? 250 : null, child: ListView.builder(itemCount: opts.length, itemBuilder: (ctx, i) => ListTile(title: Text(opts.elementAt(i)['Report_label']), onTap: () => onSel(opts.elementAt(i))))))),
               );
@@ -283,9 +301,7 @@ class _ReportUIState extends State<ReportUI> {
                     children: [
                       Expanded(
                         child: Card(
-                          color: Colors.white,
-                          elevation: 6,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          color: Colors.white, elevation: 6, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           child: Padding(
                             padding: const EdgeInsets.all(20.0),
                             child: Column(
@@ -299,7 +315,21 @@ class _ReportUIState extends State<ReportUI> {
                                     _buildButton(text: _isPreloadedMode ? 'Apply Filters' : 'Show', color: Colors.blueAccent, onPressed: _selectedReport != null ? () => _handlePrimaryAction(context, state) : null, icon: _isPreloadedMode ? Icons.check_circle_outline : Icons.visibility),
                                     if (!_isPreloadedMode) ...[
                                       const SizedBox(width: 12),
-                                      _buildButton(text: 'Send to Client', color: Colors.purple, onPressed: _selectedReport != null && state.fieldConfigs.isNotEmpty ? () {} : null, icon: Icons.cloud_upload),
+                                      _buildButton(
+                                          text: 'Send to Client',
+                                          color: Colors.purple,
+                                          onPressed: canDeploy ? () {
+                                            debugPrint('UI: "Send to Client" clicked. Dispatching DeployReportToClient event.');
+                                            context.read<ReportBlocGenerate>().add(
+                                              DeployReportToClient(
+                                                reportMetadata: _selectedReport!,
+                                                fieldConfigs: state.fieldConfigs,
+                                                clientApiName: clientApiName!, // Use the name found in the logic above
+                                              ),
+                                            );
+                                          } : null,
+                                          icon: Icons.cloud_upload
+                                      ),
                                     ],
                                     const SizedBox(width: 12),
                                     _buildButton(text: 'Reset', color: Colors.redAccent, onPressed: () => _resetAllFields(context), icon: Icons.refresh),

@@ -1,33 +1,37 @@
+// lib/ReportDynamic/ReportGenerator/Reportbloc.dart
+
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:intl/intl.dart';
 import 'dart:convert';
 import '../ReportAPIService.dart';
 import 'package:flutter/foundation.dart'; // For debugPrint
+import 'package:collection/collection.dart'; // For firstWhereOrNull
 
 // --- Events ---
 abstract class ReportEvent {}
 
 class LoadReports extends ReportEvent {}
 
-// We make this event public so the loader can dispatch it.
 class StartPreselectedReportChain extends ReportEvent {
   final Map<String, dynamic> reportDefinition;
   final Map<String, String> initialParameters;
   StartPreselectedReportChain(this.reportDefinition, this.initialParameters);
 }
 
-// MODIFIED to carry the optional payload for chaining.
+// MODIFIED: Added reportSelectionPayload for chaining from the UI
 class FetchApiDetails extends ReportEvent {
   final String apiName;
   final List<Map<String, dynamic>> actionsConfig;
   final bool includePdfFooterDateTimeFromReportMetadata;
-  final StartPreselectedReportChain? chainPayload; // The special payload
+  final StartPreselectedReportChain? chainPayload;
+  final Map<String, dynamic>? reportSelectionPayload; // NEW PAYLOAD
 
   FetchApiDetails(
       this.apiName,
       this.actionsConfig, {
         this.includePdfFooterDateTimeFromReportMetadata = false,
-        this.chainPayload, // Make it an optional named parameter
+        this.chainPayload,
+        this.reportSelectionPayload, // NEW
       });
 }
 
@@ -215,7 +219,6 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     on<DeployReportToClient>(_onDeployReportToClient);
   }
 
-  // This new handler starts the sequence.
   void _onStartPreselectedReportChain(StartPreselectedReportChain event, Emitter<ReportState> emit) {
     add(ResetReports());
 
@@ -231,12 +234,11 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     }
     final bool includePdfFooter = event.reportDefinition['pdf_footer_datetime'] == true;
 
-    // Dispatch the first event and pass the original event as a payload.
     add(FetchApiDetails(
       apiName,
       actionsConfig,
       includePdfFooterDateTimeFromReportMetadata: includePdfFooter,
-      chainPayload: event, // Pass the payload
+      chainPayload: event,
     ));
   }
 
@@ -269,6 +271,8 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         finalActionsConfig = event.actionsConfig;
       }
 
+      debugPrint('Bloc: [_onFetchApiDetails] - Determined final actionsConfig to use: ${jsonEncode(finalActionsConfig)}');
+
       for (var param in fetchedParameters) {
         if (param['name'] != null) {
           String paramName = param['name'].toString();
@@ -285,13 +289,29 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         }
       }
 
-      // If we have a payload, override default params with initial params from the dashboard.
       if (event.chainPayload != null) {
         initialUserParameterValues.addAll(event.chainPayload!.initialParameters);
       }
 
+      // Determine what to set in the state based on the event payload type
+      String? recNo, reportLabel;
+      if (event.chainPayload != null) {
+        recNo = event.chainPayload!.reportDefinition['RecNo']?.toString();
+        reportLabel = event.chainPayload!.reportDefinition['Report_label']?.toString();
+      } else if (event.reportSelectionPayload != null) {
+        recNo = event.reportSelectionPayload!['RecNo']?.toString();
+        reportLabel = event.reportSelectionPayload!['Report_label']?.toString();
+      }
+
+      debugPrint('Bloc: [_onFetchApiDetails] - Preparing to emit state with:');
+      debugPrint('  - selectedApiName: ${event.apiName}');
+      debugPrint('  - selectedRecNo: $recNo');
+      debugPrint('  - selectedReportLabel: $reportLabel');
+      debugPrint('  - actionsConfig count: ${finalActionsConfig.length}');
+      debugPrint('  - initialUserParameterValues count: ${initialUserParameterValues.length}');
+
       emit(state.copyWith(
-        isLoading: false,
+        isLoading: false, // Will be set to true again by FetchFieldConfigs
         selectedApiUrl: apiDetails['url'],
         selectedApiParameters: fetchedParameters,
         userParameterValues: initialUserParameterValues,
@@ -301,23 +321,30 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         databaseName: databaseName,
         actionsConfig: finalActionsConfig,
         error: null,
-        // Also set these from the report definition when chaining
-        selectedApiName: event.chainPayload?.reportDefinition['API_name']?.toString() ?? event.apiName,
-        selectedRecNo: event.chainPayload?.reportDefinition['RecNo']?.toString(),
-        selectedReportLabel: event.chainPayload?.reportDefinition['Report_label']?.toString(),
+        selectedApiName: event.apiName,
+        selectedRecNo: recNo,
+        selectedReportLabel: reportLabel,
         includePdfFooterDateTime: event.includePdfFooterDateTimeFromReportMetadata,
       ));
-      debugPrint('Bloc: FetchApiDetails success for API: ${event.apiName}.');
+      debugPrint('Bloc: [_onFetchApiDetails] - State emitted. Now checking for chaining.');
 
-      // --- THE CHAINING LOGIC ---
-      // If a payload exists, it means we are in the pre-selected flow.
-      // Now that API details are loaded, we can dispatch the next event.
+      // --- MODIFIED CHAINING LOGIC ---
       if (event.chainPayload != null) {
         final chainEvent = event.chainPayload!;
+        debugPrint('Bloc: [_onFetchApiDetails] - Chaining FetchFieldConfigs for pre-selected report.');
         add(FetchFieldConfigs(
           chainEvent.reportDefinition['RecNo'].toString(),
           chainEvent.reportDefinition['API_name'].toString(),
           chainEvent.reportDefinition['Report_label'].toString(),
+          dynamicApiParams: state.userParameterValues,
+        ));
+      } else if (event.reportSelectionPayload != null) { // CHAIN FROM UI SELECTION
+        final selection = event.reportSelectionPayload!;
+        debugPrint('Bloc: [_onFetchApiDetails] - Chaining FetchFieldConfigs from UI selection for RecNo: ${selection['RecNo']}');
+        add(FetchFieldConfigs(
+          selection['RecNo'].toString(),
+          selection['API_name'].toString(),
+          selection['Report_label'].toString(),
           dynamicApiParams: state.userParameterValues, // Use the fresh state
         ));
       }
@@ -331,8 +358,8 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
 
-    debugPrint('Bloc: FetchFieldConfigs: Starting for RecNo=${event.recNo}, apiName=${event.apiName}, reportLabel=${event.reportLabel}');
-    debugPrint('Bloc: FetchFieldConfigs: Dynamic parameters provided for API call: ${event.dynamicApiParams}');
+    debugPrint('Bloc: [_onFetchFieldConfigs] - START for RecNo=${event.recNo}, apiName=${event.apiName}');
+    debugPrint('Bloc: [_onFetchFieldConfigs] - Dynamic parameters for API call: ${event.dynamicApiParams}');
 
     try {
       final results = await Future.wait([
@@ -347,16 +374,25 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       final fieldConfigs = results[0] as List<Map<String, dynamic>>;
       final apiResponse = results[1] as Map<String, dynamic>;
 
+      debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched ${fieldConfigs.length} field configs.');
+      debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched grid data API response status: ${apiResponse['status']}');
+
       List<Map<String, dynamic>> reportData = [];
       String? errorMessage;
 
       if (apiResponse['status'] == 200) {
         reportData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
-        debugPrint('Bloc: Fetched ${reportData.length} rows for grid report.');
+        debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched ${reportData.length} rows for grid report.');
       } else {
         errorMessage = apiResponse['error'] ?? 'Unexpected error occurred.';
-        debugPrint('Bloc: API response status not 200 for grid report: $errorMessage');
+        debugPrint('Bloc: [_onFetchFieldConfigs] - API response status not 200 for grid report: $errorMessage');
       }
+
+      debugPrint('Bloc: [_onFetchFieldConfigs] - Preparing to emit final state with:');
+      debugPrint('  - isLoading: false');
+      debugPrint('  - fieldConfigs count: ${fieldConfigs.length}');
+      debugPrint('  - reportData count: ${reportData.length}');
+      debugPrint('  - error: $errorMessage');
 
       emit(state.copyWith(
         isLoading: false,
@@ -368,14 +404,12 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         error: errorMessage,
         apiDrivenFieldOptions: {},
       ));
-      debugPrint('Bloc: FetchFieldConfigs success. Emitted state with ${fieldConfigs.length} field configs.');
+      debugPrint('Bloc: [_onFetchFieldConfigs] - SUCCESS. State emitted with field configs.');
     } catch (e) {
+      debugPrint('Bloc: [_onFetchFieldConfigs] - ERROR: $e');
       emit(state.copyWith(isLoading: false, error: 'Failed to fetch field configs: $e'));
-      debugPrint('Bloc: FetchFieldConfigs error: $e');
     }
   }
-
-
 
   void _onUpdateParameter(UpdateParameter event, Emitter<ReportState> emit) {
     final updatedUserParams = Map<String, String>.from(state.userParameterValues);
@@ -464,7 +498,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
   void _onResetReports(ResetReports event, Emitter<ReportState> emit) {
     emit(ReportState(
-      reports: state.reports, // Preserve the loaded reports list
+      reports: state.reports,
       isLoading: false,
       error: null,
       successMessage: null,
@@ -491,7 +525,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
   Future<void> _onDeployReportToClient(DeployReportToClient event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
-    debugPrint('Bloc: DeployReportToClient event received for report RecNo: ${event.reportMetadata['RecNo']}');
+    debugPrint('\n--- Bloc: [_onDeployReportToClient] - START ---');
+    debugPrint('Received clientApiName: ${event.clientApiName}');
+    debugPrint('Received reportMetadata: ${jsonEncode(event.reportMetadata)}');
+    debugPrint('Received fieldConfigs count: ${event.fieldConfigs.length}');
+    if (event.fieldConfigs.isEmpty) {
+      debugPrint('!! WARNING: fieldConfigs list is EMPTY. Deployment will likely fail or be incorrect.');
+    }
+
     try {
       final apiDetails = await apiService.getApiDetails(event.clientApiName);
       final String? clientServerIP = apiDetails['serverIP']?.toString();
@@ -531,6 +572,8 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         successMessage: null,
       ));
       debugPrint('Bloc: DeployReportToClient error: $e');
+    } finally {
+      debugPrint('--- Bloc: [_onDeployReportToClient] - END ---\n');
     }
   }
 }
