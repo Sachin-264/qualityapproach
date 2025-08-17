@@ -28,6 +28,8 @@ class ReportAPIService {
       'edit_demo_tables': '$_baseUrl?mode=edit_demo_tables',
       'delete_demo_tables': '$_baseUrl?mode=delete_demo_tables',
       'deploy_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
+      // Assuming the new function might eventually have its own endpoint
+      'transfer_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
       'post_dashboard': '$_baseUrl?mode=post_dashboard',
       'edit_dashboard': '$_baseUrl?mode=edit_dashboard',
       'delete_dashboard': '$_baseUrl?mode=delete_dashboard',
@@ -1004,9 +1006,7 @@ class ReportAPIService {
     }
   }
 
-  // =========================================================================
-  // == START: REVISED deployReportToClient with EXCESSIVE LOGGING
-  // =========================================================================
+
   Future<Map<String, dynamic>> deployReportToClient({
     required Map<String, dynamic> reportMetadata,
     required List<Map<String, dynamic>> fieldConfigs,
@@ -1124,9 +1124,126 @@ class ReportAPIService {
       rethrow;
     }
   }
-  // =========================================================================
-  // == END: REVISED deployReportToClient
-  // =========================================================================
+
+  Future<Map<String, dynamic>> transferReportToDatabase({
+    required Map<String, dynamic> reportMetadata,
+    required List<Map<String, dynamic>> fieldConfigs,
+    required String targetServerIP,
+    required String targetUserName,
+    required String targetPassword,
+    required String targetDatabaseName,
+  }) async {
+    const jsonEncoder = JsonEncoder.withIndent('  ');
+
+    debugPrint('\n\n======================================================');
+    debugPrint('====== START transferReportToDatabase INVOCATION ======');
+    debugPrint('======================================================');
+
+    final url = _postEndpoints['transfer_report'];
+    if (url == null) {
+      debugPrint('[FATAL ERROR] Transfer URL ("transfer_report") is not defined in _postEndpoints map.');
+      debugPrint('====================== TRANSFER END ======================');
+      throw Exception('POST API not found for report transfer.');
+    }
+
+    debugPrint('Step 1: Transfer URL confirmed: $url');
+
+    try {
+      // Log the raw data received
+      debugPrint('\n--- Step 2: Logging Raw Input Data ---');
+      debugPrint('Target Server IP: "$targetServerIP"');
+      debugPrint('Target User Name: "$targetUserName"');
+      debugPrint('Target Password: "${targetPassword.isNotEmpty ? "********" : "EMPTY"}"');
+      debugPrint('Target Database Name: "$targetDatabaseName"');
+      debugPrint('--- Raw Report Metadata ---');
+      debugPrint(jsonEncoder.convert(reportMetadata));
+      debugPrint('--- Raw Field Configs ---');
+      debugPrint('Field Configs Count: ${fieldConfigs.length}');
+      debugPrint(jsonEncoder.convert(fieldConfigs));
+      debugPrint('----------------------------------------');
+
+      // Prepare payload and log it
+      debugPrint('\n--- Step 3: Preparing Payload for HTTP POST ---');
+      final payload = {
+        'report_metadata': jsonEncode(reportMetadata),
+        'field_configs': jsonEncode(fieldConfigs),
+        'client_server': targetServerIP.trim(),       // WAS: 'target_server'
+        'client_user': targetUserName.trim(),       // WAS: 'target_user'
+        'client_password': targetPassword.trim(),     // WAS: 'target_password'
+        'client_database': targetDatabaseName.trim()
+      };
+
+      debugPrint('--- Final Payload being sent to the server ---');
+      debugPrint('This is the exact JSON body of the POST request.');
+      debugPrint(jsonEncoder.convert(payload));
+      debugPrint('------------------------------------------------');
+
+      // Make the HTTP request
+      final uri = Uri.parse(url);
+      debugPrint('\n--- Step 4: Making the HTTP POST Request ---');
+      _logRequest(httpMethod: 'POST', url: uri.toString(), functionName: 'transferReportToDatabase (INTERNAL)');
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 180));
+
+      // Log the full response
+      debugPrint('\n--- Step 5: Received HTTP Response ---');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Headers:');
+      debugPrint(jsonEncoder.convert(response.headers));
+      debugPrint('--- Full Raw Response Body ---');
+      debugPrint(response.body);
+      debugPrint('----------------------------------');
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          debugPrint('[ERROR] Response body is empty, but status code is 200. This is ambiguous.');
+          throw Exception('Empty response body from transfer script.');
+        }
+        try {
+          final Map<String, dynamic> decodedResponse = jsonDecode(response.body);
+          debugPrint('\n--- Step 6: Successfully Parsed JSON Response ---');
+          debugPrint(jsonEncoder.convert(decodedResponse));
+          debugPrint('====================== TRANSFER END (SUCCESS) ======================');
+          return decodedResponse;
+        } on FormatException catch (e) {
+          debugPrint('[FATAL ERROR] Failed to parse the server\'s JSON response.');
+          debugPrint('Error details: $e');
+          debugPrint('====================== TRANSFER END (ERROR) ======================');
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
+      } else {
+        debugPrint('[ERROR] Server returned a non-200 status code: ${response.statusCode}.');
+        String errorMessage = 'Server error during transfer: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        debugPrint('Final error message to be thrown: "$errorMessage"');
+        debugPrint('====================== TRANSFER END (ERROR) ======================');
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      debugPrint('[FATAL CATCH BLOCK] An unexpected error occurred during the transfer process.');
+      debugPrint('Error Type: ${e.runtimeType}');
+      debugPrint('Error: $e');
+      debugPrint('====================== DEPLOYMENT END (ERROR) ======================');
+      // **** MODIFICATION HERE ****
+      // Instead of rethrowing a raw ClientException, throw a clean, readable Exception.
+      throw Exception('Network Error: Could not connect to the deployment server. Please check the server address and your network connection.');
+    }
+  }
 
   Future<Map<String, dynamic>> postJson(String url, Map<String, dynamic> payload) async {
     try {
@@ -1406,7 +1523,7 @@ class ReportAPIService {
     }
   }
 
-  // ... inside your ReportAPIService class ...
+
 
   Future<void> saveSetupConfiguration({
     required String configName,
@@ -1419,9 +1536,6 @@ class ReportAPIService {
   }) async {
     final uri = Uri.parse(_setupApiUrl);
 
-    // UPDATED: The payload now includes the new fields.
-    // The keys 'databaseName' and 'connectionString' must match
-    // what your PHP script expects in the request body.
     final payload = {
       'configName': configName,
       'serverIP': serverIP,

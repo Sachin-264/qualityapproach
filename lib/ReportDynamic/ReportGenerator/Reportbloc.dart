@@ -105,6 +105,30 @@ class DeployReportToClient extends ReportEvent {
   });
 }
 
+// =========================================================================
+// == START: NEW EVENT FOR DYNAMIC DATABASE TRANSFER
+// =========================================================================
+class TransferReportToDatabase extends ReportEvent {
+  final Map<String, dynamic> reportMetadata;
+  final List<Map<String, dynamic>> fieldConfigs;
+  final String targetServerIP;
+  final String targetUserName;
+  final String targetPassword;
+  final String targetDatabaseName;
+
+  TransferReportToDatabase({
+    required this.reportMetadata,
+    required this.fieldConfigs,
+    required this.targetServerIP,
+    required this.targetUserName,
+    required this.targetPassword,
+    required this.targetDatabaseName,
+  });
+}
+// =========================================================================
+// == END: NEW EVENT
+// =========================================================================
+
 
 // --- State (No changes needed) ---
 class ReportState {
@@ -217,6 +241,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     on<FetchPickerOptions>(_onFetchPickerOptions);
     on<ResetReports>(_onResetReports);
     on<DeployReportToClient>(_onDeployReportToClient);
+    on<TransferReportToDatabase>(_onTransferReportToDatabase); // ADDED
   }
 
   void _onStartPreselectedReportChain(StartPreselectedReportChain event, Emitter<ReportState> emit) {
@@ -576,4 +601,52 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       debugPrint('--- Bloc: [_onDeployReportToClient] - END ---\n');
     }
   }
+
+  // =========================================================================
+  // == START: NEW HANDLER FOR DYNAMIC DATABASE TRANSFER
+  // =========================================================================
+  Future<void> _onTransferReportToDatabase(TransferReportToDatabase event, Emitter<ReportState> emit) async {
+    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
+    debugPrint('\n--- Bloc: [_onTransferReportToDatabase] - START ---');
+    debugPrint('Target DB: ${event.targetDatabaseName} @ ${event.targetServerIP}');
+    debugPrint('Received reportMetadata: ${jsonEncode(event.reportMetadata)}');
+    debugPrint('Received fieldConfigs count: ${event.fieldConfigs.length}');
+
+    try {
+      final response = await apiService.transferReportToDatabase(
+        reportMetadata: event.reportMetadata,
+        fieldConfigs: event.fieldConfigs,
+        targetServerIP: event.targetServerIP,
+        targetUserName: event.targetUserName,
+        targetPassword: event.targetPassword,
+        targetDatabaseName: event.targetDatabaseName,
+      );
+
+      if (response['status'] == 'success') {
+        emit(state.copyWith(
+          isLoading: false,
+          successMessage: response['message'] ?? 'Report transferred successfully!',
+          error: null,
+        ));
+        debugPrint('Bloc: Report transferred successfully: ${response['message']}');
+      } else {
+        emit(state.copyWith(
+          isLoading: false,
+          error: response['message'] ?? 'Failed to transfer report.',
+          successMessage: null,
+        ));
+        debugPrint('Bloc: Report transfer failed: ${response['message']}');
+      }
+    } catch (e) {
+      emit(state.copyWith(
+        isLoading: false,
+        error: 'Failed to transfer report: $e',
+        successMessage: null,
+      ));
+      debugPrint('Bloc: TransferReportToDatabase error: $e');
+    } finally {
+      debugPrint('--- Bloc: [_onTransferReportToDatabase] - END ---\n');
+    }
+  }
+
 }
