@@ -19,6 +19,9 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
   final TextEditingController _reportNameController = TextEditingController();
   final TextEditingController _reportLabelController = TextEditingController();
   final TextEditingController _apiController = TextEditingController();
+  // NEW: Controller for the unique code
+  final TextEditingController _ucodeController = TextEditingController();
+
 
   // Controllers for field config panel
   final TextEditingController _fieldNameController = TextEditingController();
@@ -49,6 +52,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
       _reportNameController,
       _reportLabelController,
       _apiController,
+      _ucodeController, // Added new controller
       _fieldNameController,
       _fieldLabelController,
       _sequenceController,
@@ -56,10 +60,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
       _decimalPointsController
     ]) {
       controller.addListener(() {
-        // This logic helps in keeping the cursor at the end when text changes programmatically
-        // but it can also interfere with manual cursor placement if not handled carefully.
-        // For general text fields, this might not be desired. For number fields, it's often fine.
-        // Keeping it for now as per original code.
         if (controller.text.isNotEmpty && controller.selection.baseOffset < controller.text.length) {
           controller.selection = TextSelection.fromPosition(
             TextPosition(offset: controller.text.length),
@@ -74,6 +74,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     _reportNameController.dispose();
     _reportLabelController.dispose();
     _apiController.dispose();
+    _ucodeController.dispose(); // Disposing the new controller
     _fieldNameController.dispose();
     _fieldLabelController.dispose();
     _sequenceController.dispose();
@@ -82,6 +83,28 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     _animationController.dispose();
     super.dispose();
   }
+
+  void _generateUniqueCode(String reportName) {
+    if (reportName.trim().isEmpty) {
+      _ucodeController.clear();
+      return;
+    }
+    // Create a URL-friendly, lowercase version of the report name
+    final sanitizedName = reportName
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s+'), '_') // Replace spaces with underscores
+        .replaceAll(RegExp(r'[^a-z0-9_]'), ''); // Remove non-alphanumeric characters except underscore
+
+    // Get current timestamp
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+
+    // Combine them to create a unique code
+    setState(() {
+      _ucodeController.text = '${sanitizedName}_$timestamp';
+    });
+    print('UI: Generated Unique Code: ${_ucodeController.text}');
+  }
+
 
   void _toggleConfigPanel() {
     print('UI: Toggling config panel to show.');
@@ -100,8 +123,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
   }
 
   void _updateFieldConfigControllers(Map<String, dynamic>? field) {
-    // Check if the field passed is actually different from what's currently in controllers
-    // to avoid unnecessary updates and potential cursor jump.
     if (field == null) {
       if (_fieldNameController.text.isNotEmpty || _fieldLabelController.text.isNotEmpty) {
         _fieldNameController.clear();
@@ -112,7 +133,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
         print('UI: Cleared field config controllers (field is null).');
       }
     } else {
-      // Only update if the value is different
       if (_fieldNameController.text != (field['Field_name'] ?? '')) {
         _fieldNameController.text = field['Field_name'] ?? '';
       }
@@ -172,6 +192,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
               _reportNameController.clear();
               _reportLabelController.clear();
               _apiController.clear();
+              _ucodeController.clear(); // Clear the new field
               setState(() {
                 _selectedApi = null;
                 _showConfigPanel = false;
@@ -226,6 +247,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                     icon: Icons.description,
                                     onChanged: (value) {
                                       print('UI: Report Name input: $value');
+                                      _generateUniqueCode(value); // Auto-generate code
                                     },
                                   ),
                                 ),
@@ -269,7 +291,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                         print('UI: API selected: $selection');
                                       },
                                       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                                        // Sync internal controller with Autocomplete's controller
                                         if (controller.text.isEmpty && _apiController.text.isNotEmpty) {
                                           controller.text = _apiController.text;
                                         } else if (controller.text != _apiController.text && controller.text.isNotEmpty) {
@@ -281,7 +302,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                           label: 'API Name',
                                           icon: Icons.api,
                                           onChanged: (value) {
-                                            // Keep internal controller in sync
                                             _apiController.text = value;
                                             print('UI: API Name input: $value');
                                           },
@@ -318,6 +338,16 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                     ),
                                   ),
                                 ),
+                                // NEW: Unique Code Text Field
+                                const SizedBox(width: 16),
+                                Expanded(
+                                  child: _buildTextField(
+                                    controller: _ucodeController,
+                                    label: 'Unique Code',
+                                    icon: Icons.vpn_key,
+                                    readOnly: true, // This field is not user-editable
+                                  ),
+                                ),
                               ],
                             ),
                             const SizedBox(height: 20),
@@ -333,16 +363,17 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                     context.read<ReportMakerBloc>().add(FetchApiData(_selectedApi!));
                                   }
                                       : null,
-                                  icon: Icons.data_array, // More descriptive icon
+                                  icon: Icons.data_array,
                                 ),
                                 const SizedBox(width: 12),
                                 _buildButton(
-                                  text: 'Reset All', // Changed from 'Reset' to 'Reset All' for clarity
+                                  text: 'Reset All',
                                   color: Colors.redAccent,
                                   onPressed: () {
                                     _reportNameController.clear();
                                     _reportLabelController.clear();
                                     _apiController.clear();
+                                    _ucodeController.clear(); // Clear the new field
                                     setState(() {
                                       _selectedApi = null;
                                       _showConfigPanel = false;
@@ -367,7 +398,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         child: state.isLoading
                             ? const SubtleLoader()
-                            : state.fields.isEmpty && _selectedApi != null // show message if API selected but no fields
+                            : state.fields.isEmpty && _selectedApi != null
                             ? Center(
                           child: Text(
                             'No fields found for the selected API or API data is empty.',
@@ -375,7 +406,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                             textAlign: TextAlign.center,
                           ),
                         )
-                            : state.fields.isEmpty && _selectedApi == null // show initial message
+                            : state.fields.isEmpty && _selectedApi == null
                             ? Center(
                           child: Text(
                             'Select an API to load fields.',
@@ -396,11 +427,12 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         _buildButton(
-                          text: 'Save Report', // Changed from 'Save' for clarity
+                          text: 'Save Report',
                           color: Colors.green,
                           onPressed: () {
                             if (_reportNameController.text.isEmpty ||
                                 _reportLabelController.text.isEmpty ||
+                                _ucodeController.text.isEmpty || // Added validation for ucode
                                 _selectedApi == null ||
                                 state.selectedFields.isEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
@@ -417,8 +449,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                               return;
                             }
 
-                            // Ensure current field's sequence number is updated before saving
-                            // (this should be handled by onUpdateFieldConfig, but a last check is good)
                             if (state.currentField != null && _sequenceController.text.isNotEmpty) {
                               final parsed = int.tryParse(_sequenceController.text);
                               if (parsed != null && parsed > 0 && (state.currentField!['Sequence_no'] != parsed)) {
@@ -432,13 +462,13 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                               reportName: _reportNameController.text,
                               reportLabel: _reportLabelController.text,
                               apiName: _selectedApi!,
-                              parameter: 'default', // Using a default parameter string
+                              ucode: _ucodeController.text, // Pass the ucode
+                              parameter: 'default',
                             ));
                           },
                           icon: Icons.save,
                         ),
                         const SizedBox(width: 12),
-                        // Removed redundant Reset button here as one exists above
                       ],
                     ),
                   ],
@@ -451,7 +481,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     );
   }
 
-  // Helper widget builder for text fields
   Widget _buildTextField({
     required TextEditingController controller,
     String? label,
@@ -459,19 +488,21 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     TextInputType? keyboardType,
     Function(String)? onChanged,
     IconData? icon,
+    bool readOnly = false, // Added readOnly parameter
   }) {
     return TextField(
       controller: controller,
       focusNode: focusNode,
       keyboardType: keyboardType,
       onChanged: onChanged,
-      style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
+      readOnly: readOnly, // Use the parameter here
+      style: GoogleFonts.poppins(fontSize: 16, color: readOnly ? Colors.black54 : Colors.black87),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
         prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22) : null,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.9),
+        fillColor: readOnly ? Colors.grey.shade200 : Colors.white.withOpacity(0.9), // Different color when read-only
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey[500]!, width: 1),
@@ -490,7 +521,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
     );
   }
 
-  // Helper widget builder for buttons
   Widget _buildButton({
     required String text,
     required Color color,
@@ -581,7 +611,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
             const SizedBox(height: 24),
             Center(
               child: _buildButton(
-                text: 'Configure Selected Fields', // More descriptive text
+                text: 'Configure Selected Fields',
                 color: Colors.blueAccent,
                 onPressed: _toggleConfigPanel,
                 icon: Icons.arrow_forward,
@@ -638,7 +668,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                                   child: InkWell(
                                     borderRadius: BorderRadius.circular(10),
                                     onTap: () {
-                                      // Before switching current field, ensure current sequence is updated if changed
                                       if (_sequenceController.text.isNotEmpty) {
                                         final parsed = int.tryParse(_sequenceController.text);
                                         if (parsed != null && parsed > 0 && (state.currentField!['Sequence_no'] != parsed)) {
@@ -722,10 +751,10 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(Icons.arrow_back, color: Colors.white, size: 20), // Changed icon
+                            const Icon(Icons.arrow_back, color: Colors.white, size: 20),
                             const SizedBox(width: 8),
                             Text(
-                              'Back to Selection', // More descriptive text
+                              'Back to Selection',
                               style: GoogleFonts.poppins(
                                 color: Colors.white,
                                 fontWeight: FontWeight.w600,
@@ -775,7 +804,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
 
   List<Widget> _buildFieldConfigWidgets(BuildContext context, ReportMakerState state) {
     if (state.currentField == null) {
-      return []; // Should not happen if check above is correct, but defensive
+      return [];
     }
     return [
       _buildTextField(
@@ -808,7 +837,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           if (parsed != null && parsed > 0) {
             print('UI: Sequence No changed to: $parsed');
             context.read<ReportMakerBloc>().add(UpdateFieldConfig('Sequence_no', parsed));
-            // Keep controller text updated with parsed value
             _sequenceController.text = parsed.toString();
             _sequenceController.selection = TextSelection.fromPosition(
               TextPosition(offset: _sequenceController.text.length),
@@ -850,7 +878,6 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           context.read<ReportMakerBloc>().add(UpdateFieldConfig('Breakpoint', value!));
         },
       ),
-      // Conditional Subtotal checkbox
       if (state.currentField!['Total'] == true) ...[
         const SizedBox(height: 16),
         CheckboxListTile(
@@ -863,11 +890,10 @@ class _ReportMakerUIState extends State<ReportMakerUI> with SingleTickerProvider
           },
         ),
       ],
-      const SizedBox(height: 16), // Spacing before the new Image checkbox
-      // NEW: Image checkbox
+      const SizedBox(height: 16),
       CheckboxListTile(
         title: Text('Image', style: GoogleFonts.poppins()),
-        value: state.currentField!['image'] ?? false, // Default to false if null
+        value: state.currentField!['image'] ?? false,
         activeColor: Colors.blueAccent,
         onChanged: (value) {
           print('UI: Image checkbox changed to: $value');

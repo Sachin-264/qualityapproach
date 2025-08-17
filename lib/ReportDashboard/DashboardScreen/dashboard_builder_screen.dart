@@ -114,9 +114,26 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
       _selectedTemplateOption = DashboardTemplateOption.values.firstWhereOrNull(
             (e) => e.id == dashboard.templateConfig.id,
       ) ?? DashboardTemplateOption.classicClean;
+      context.read<DashboardBuilderBloc>().add(LoadDashboardBuilderData(dashboardToEdit: dashboard));
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _promptForDatabase());
     }
-    context.read<DashboardBuilderBloc>().add(LoadDashboardBuilderData(dashboardToEdit: widget.dashboardToEdit));
   }
+
+  Future<void> _promptForDatabase() async {
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _SelectDatabaseDialog(apiService: widget.apiService),
+    );
+
+    if (result != null && mounted) {
+      context.read<DashboardBuilderBloc>().add(InitializeNewDashboard(dbConnectionConfig: result));
+    } else if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
 
   @override
   void dispose() {
@@ -408,17 +425,33 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
             }
             if (state.message != null) _showSnackBar(state.message!);
             if (state.error != null) _showSnackBar(state.error!, isError: true);
-            if (state.message?.contains('successfully') == true) Navigator.pop(context, true);
+            if (state.message?.toLowerCase().contains('success') == true) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  Navigator.pop(context, true);
+                }
+              });
+            }
           } else if (state is DashboardBuilderErrorState) {
             _showSnackBar(state.message, isError: true);
           }
         },
         builder: (context, state) {
+          if (state is DashboardBuilderInitial) {
+            return const Center(child: Text("Please select a database to begin."));
+          }
           if (state is DashboardBuilderLoading) {
             return const Center(child: SubtleLoader());
           }
           if (state is DashboardBuilderLoaded) {
-            final currentDashboard = state.currentDashboard!;
+            // --- FIX IS HERE ---
+            // Ensure we have a dashboard to build. If not, show a loader.
+            // This prevents the null crash when the screen builds with a state
+            // from the listing screen (where currentDashboard is null).
+            final currentDashboard = state.currentDashboard;
+            if (currentDashboard == null) {
+              return const Center(child: SubtleLoader());
+            }
 
             return Stack(
               children: [
@@ -438,7 +471,6 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                           const SizedBox(height: 16),
                           ListTile(contentPadding: EdgeInsets.zero, title: Text('Accent Color', style: GoogleFonts.poppins()), trailing: CircleAvatar(backgroundColor: _currentAccentColor ?? theme.primaryColor, radius: 15), onTap: () async { final c = await showDialog<Color>(context: context, builder: (ctx) => ColorPickerDialog(initialColor: _currentAccentColor ?? theme.primaryColor)); if (c != null) { setState(() => _currentAccentColor = c); context.read<DashboardBuilderBloc>().add(UpdateDashboardInfo(accentColor: c)); } }),
 
-                          // --- UI REDESIGN: Section Header for Report Groups ---
                           Padding(
                             padding: const EdgeInsets.only(top: 24.0, bottom: 8.0),
                             child: Column(
@@ -453,7 +485,6 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                           if (currentDashboard.reportGroups.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 24.0), child: Center(child: Text("No report groups yet. Add one to begin.", style: TextStyle(color: Colors.grey[600])))),
 
                           ReorderableListView.builder(
-                            // --- BUG FIX: Disable default handles ---
                             buildDefaultDragHandles: false,
                             shrinkWrap: true,
                             physics: const NeverScrollableScrollPhysics(),
@@ -467,7 +498,6 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // --- UI REDESIGN: Direct Action Header ---
                                     Row(
                                       children: [
                                         Expanded(
@@ -513,7 +543,6 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
                                           : Column(
                                         children: [
                                           ReorderableListView.builder(
-                                            // --- BUG FIX: Disable default handles here too ---
                                             buildDefaultDragHandles: false,
                                             shrinkWrap: true,
                                             physics: const NeverScrollableScrollPhysics(),
@@ -604,6 +633,177 @@ class _DashboardBuilderScreenState extends State<DashboardBuilderScreen> {
           return const Center(child: Text("An unexpected error occurred."));
         },
       ),
+    );
+  }
+}
+
+// =========================================================================
+// == DIALOG WIDGET FOR INITIAL DATABASE SELECTION (No Changes)
+// =========================================================================
+class _SelectDatabaseDialog extends StatefulWidget {
+  final ReportAPIService apiService;
+
+  const _SelectDatabaseDialog({required this.apiService});
+
+  @override
+  _SelectDatabaseDialogState createState() => _SelectDatabaseDialogState();
+}
+
+class _SelectDatabaseDialogState extends State<_SelectDatabaseDialog> {
+  bool _isLoadingApis = true;
+  List<Map<String, dynamic>> _availableApis = [];
+  Map<String, dynamic>? _selectedApi;
+  final TextEditingController _serverController = TextEditingController();
+  final TextEditingController _userController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
+  bool _isFetchingDatabases = false;
+  List<String> _databaseList = [];
+  String? _selectedDatabase;
+  String _feedbackMessage = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadApiConnections();
+  }
+
+  @override
+  void dispose() {
+    _serverController.dispose();
+    _userController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadApiConnections() async {
+    try {
+      final allApiNames = await widget.apiService.getAvailableApis();
+      final List<Map<String, dynamic>> fullDetails = [];
+      for (var name in allApiNames) {
+        final details = await widget.apiService.getApiDetails(name);
+        details['APIName'] = name;
+        fullDetails.add(details);
+      }
+      if (mounted) setState(() { _availableApis = fullDetails; _isLoadingApis = false; });
+    } catch (e) {
+      if (mounted) {
+        setState(() { _isLoadingApis = false; _feedbackMessage = "Failed to load connections: $e"; });
+      }
+    }
+  }
+
+  Future<void> _fetchDatabases() async {
+    if (_serverController.text.isEmpty || _userController.text.isEmpty) {
+      setState(() { _feedbackMessage = "Server IP and User Name are required."; });
+      return;
+    }
+    setState(() { _isFetchingDatabases = true; _databaseList = []; _selectedDatabase = null; _feedbackMessage = ''; });
+    try {
+      final databases = await widget.apiService.fetchDatabases(
+        serverIP: _serverController.text, userName: _userController.text, password: _passwordController.text,
+      );
+      if (mounted) setState(() { _databaseList = databases; _isFetchingDatabases = false; });
+    } catch (e) {
+      if (mounted) { setState(() { _isFetchingDatabases = false; _feedbackMessage = "Error fetching databases: $e"; }); }
+    }
+  }
+
+  void _confirmSelection() {
+    final Map<String, dynamic> connectionDetails = {
+      'serverIP': _serverController.text,
+      'userName': _userController.text,
+      'password': _passwordController.text,
+      'database': _selectedDatabase,
+    };
+    Navigator.of(context).pop(connectionDetails);
+  }
+
+  Widget _buildSectionTitle(String number, String title) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        children: [
+          CircleAvatar( radius: 14, backgroundColor: Theme.of(context).primaryColor, child: Text(number, style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold))),
+          const SizedBox(width: 12),
+          Text(title, style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('Select Data Source', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+      content: SizedBox(
+        width: 450,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildSectionTitle('1', 'Choose Connection'),
+              if (_isLoadingApis) const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
+              else DropdownButtonFormField<Map<String, dynamic>>(
+                value: _selectedApi, hint: Text('Select saved connection...', style: GoogleFonts.poppins()), isExpanded: true,
+                items: _availableApis.map((api) => DropdownMenuItem(value: api, child: Text(api['APIName'] ?? 'Unknown', overflow: TextOverflow.ellipsis))).toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedApi = value;
+                    _serverController.text = value?['serverIP'] ?? '';
+                    _userController.text = value?['userName'] ?? '';
+                    _passwordController.text = value?['password'] ?? '';
+                    _databaseList = [];
+                    _selectedDatabase = null;
+                    _feedbackMessage = '';
+                  });
+                },
+                decoration: InputDecoration(filled: true, fillColor: Colors.grey.shade100, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+              ),
+              const Divider(height: 24),
+              _buildSectionTitle('2', 'Verify & Fetch Databases'),
+              TextField(controller: _serverController, decoration: const InputDecoration(labelText: 'Server IP')),
+              const SizedBox(height: 8),
+              TextField(controller: _userController, decoration: const InputDecoration(labelText: 'User Name')),
+              const SizedBox(height: 8),
+              TextField(controller: _passwordController, decoration: const InputDecoration(labelText: 'Password'), obscureText: true),
+              const SizedBox(height: 12),
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton.icon(
+                  onPressed: _isFetchingDatabases ? null : _fetchDatabases,
+                  icon: _isFetchingDatabases ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_sync_outlined),
+                  label: const Text("Fetch Databases"),
+                ),
+              ),
+              const Divider(height: 24),
+              _buildSectionTitle('3', 'Select Target Database'),
+              if (_isFetchingDatabases) const Center(child: Padding(padding: EdgeInsets.all(16.0), child: Text("Fetching...")))
+              else if (_databaseList.isEmpty) const Center(child: Padding(padding: EdgeInsets.all(8.0), child: Text("No databases found.", style: TextStyle(color: Colors.grey))))
+              else DropdownButtonFormField<String>(
+                  value: _selectedDatabase, hint: Text('Select target database...', style: GoogleFonts.poppins()), isExpanded: true,
+                  items: _databaseList.map((db) => DropdownMenuItem(value: db, child: Text(db, overflow: TextOverflow.ellipsis))).toList(),
+                  onChanged: (value) => setState(() => _selectedDatabase = value),
+                  decoration: InputDecoration(filled: true, fillColor: Colors.grey.shade100, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                ),
+              if (_feedbackMessage.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.only(top: 16), padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
+                  child: Row(children: [ const Icon(Icons.error_outline, color: Colors.red), const SizedBox(width: 10), Expanded(child: Text(_feedbackMessage, style: const TextStyle(color: Colors.red, fontSize: 13))) ],),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(null), child: const Text("Cancel")),
+        ElevatedButton(
+          onPressed: _selectedDatabase != null ? _confirmSelection : null,
+          child: const Text('Confirm Selection'),
+        ),
+      ],
     );
   }
 }

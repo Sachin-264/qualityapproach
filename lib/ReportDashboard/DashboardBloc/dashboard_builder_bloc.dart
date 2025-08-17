@@ -17,12 +17,27 @@ abstract class DashboardBuilderEvent extends Equatable {
   List<Object?> get props => [];
 }
 
+// Specifically for fetching the list of dashboards for the listing screen.
+class FetchDashboardList extends DashboardBuilderEvent {
+  const FetchDashboardList();
+}
+
+// This event is now ONLY for loading an existing dashboard to edit.
 class LoadDashboardBuilderData extends DashboardBuilderEvent {
-  final Dashboard? dashboardToEdit;
-  const LoadDashboardBuilderData({this.dashboardToEdit});
+  final Dashboard dashboardToEdit;
+  const LoadDashboardBuilderData({required this.dashboardToEdit});
   @override
   List<Object?> get props => [dashboardToEdit];
 }
+
+// Triggered after the user selects a database for a new dashboard.
+class InitializeNewDashboard extends DashboardBuilderEvent {
+  final Map<String, dynamic> dbConnectionConfig;
+  const InitializeNewDashboard({required this.dbConnectionConfig});
+  @override
+  List<Object?> get props => [dbConnectionConfig];
+}
+
 
 class UpdateDashboardInfo extends DashboardBuilderEvent {
   final String? dashboardName;
@@ -88,7 +103,6 @@ class RemoveReportFromDashboardEvent extends DashboardBuilderEvent {
   List<Object?> get props => [groupId, reportRecNo];
 }
 
-// --- MODIFIED EVENT ---
 class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
   final String groupId;
   final int reportRecNo;
@@ -97,7 +111,6 @@ class UpdateReportCardConfigEvent extends DashboardBuilderEvent {
   final IconData newIcon;
   final Color newColor;
   final String? newApiUrl;
-  // --- NEW PROPERTIES ---
   final bool newShowAsTile;
   final bool newShowAsGraph;
   final GraphType? newGraphType;
@@ -138,11 +151,15 @@ class DeleteDashboardEvent extends DashboardBuilderEvent {
   List<Object?> get props => [dashboardId];
 }
 
-// --- States (Unchanged) ---
+// --- States ---
 abstract class DashboardBuilderState extends Equatable {
   const DashboardBuilderState();
   @override
   List<Object?> get props => [];
+}
+
+class DashboardBuilderInitial extends DashboardBuilderState {
+  const DashboardBuilderInitial();
 }
 
 class DashboardBuilderLoading extends DashboardBuilderState {
@@ -205,8 +222,12 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
   final ReportAPIService apiService;
   final Uuid _uuid = const Uuid();
 
-  DashboardBuilderBloc(this.apiService) : super(const DashboardBuilderLoading()) {
+  DashboardBuilderBloc(this.apiService) : super(const DashboardBuilderInitial()) {
+    // THIS LINE WAS MISSING. IT IS NOW FIXED.
+    on<FetchDashboardList>(_onFetchDashboardList);
+
     on<LoadDashboardBuilderData>(_onLoadDashboardBuilderData);
+    on<InitializeNewDashboard>(_onInitializeNewDashboard);
     on<UpdateDashboardInfo>(_onUpdateDashboardInfo);
     on<AddReportGroupEvent>(_onAddReportGroup);
     on<UpdateReportGroupEvent>(_onUpdateReportGroup);
@@ -228,17 +249,39 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     return (null, null);
   }
 
-  Future<void> _onLoadDashboardBuilderData(
-      LoadDashboardBuilderData event,
+  // Handler for fetching the dashboard list.
+  Future<void> _onFetchDashboardList(
+      FetchDashboardList event,
       Emitter<DashboardBuilderState> emit,
       ) async {
     emit(const DashboardBuilderLoading());
     try {
-      final allReports = await apiService.fetchDemoTable();
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
 
-      Dashboard initialDashboard = event.dashboardToEdit ?? Dashboard(
+      emit(DashboardBuilderLoaded(
+        existingDashboards: allDashboards,
+        availableReports: const [], // Not needed for the listing screen
+        currentDashboard: null, // No dashboard is being edited
+      ));
+    } catch (e, stacktrace) {
+      debugPrint('Error in _onFetchDashboardList: $e\n$stacktrace');
+      emit(DashboardBuilderErrorState('Failed to load dashboard list: $e'));
+    }
+  }
+
+
+  Future<void> _onInitializeNewDashboard(
+      InitializeNewDashboard event,
+      Emitter<DashboardBuilderState> emit,
+      ) async {
+    emit(const DashboardBuilderLoading());
+    try {
+      final availableReports = await apiService.fetchDemoTable();
+      final allDashboardsData = await apiService.getDashboards();
+      final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
+
+      Dashboard initialDashboard = Dashboard(
         dashboardId: '',
         dashboardName: '',
         dashboardDescription: '',
@@ -248,19 +291,44 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
           accentColor: Colors.blue,
         ),
         reportGroups: [],
-        globalFiltersConfig: {},
+        globalFiltersConfig: {
+          'db_connection': event.dbConnectionConfig,
+        },
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
       emit(DashboardBuilderLoaded(
         currentDashboard: initialDashboard,
-        availableReports: allReports,
+        availableReports: availableReports,
+        existingDashboards: allDashboards,
+      ));
+    } catch (e, stacktrace) {
+      debugPrint('Error in _onInitializeNewDashboard: $e\n$stacktrace');
+      emit(DashboardBuilderErrorState('Failed to initialize new dashboard: $e'));
+    }
+  }
+
+  Future<void> _onLoadDashboardBuilderData(
+      LoadDashboardBuilderData event,
+      Emitter<DashboardBuilderState> emit,
+      ) async {
+    emit(const DashboardBuilderLoading());
+    try {
+      final dbConnectionConfig = event.dashboardToEdit.globalFiltersConfig['db_connection'];
+
+      final availableReports = await apiService.fetchDemoTable();
+      final allDashboardsData = await apiService.getDashboards();
+      final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
+
+      emit(DashboardBuilderLoaded(
+        currentDashboard: event.dashboardToEdit,
+        availableReports: availableReports,
         existingDashboards: allDashboards,
       ));
     } catch (e, stacktrace) {
       debugPrint('Error in _onLoadDashboardBuilderData: $e\n$stacktrace');
-      emit(DashboardBuilderErrorState('Failed to load dashboard data: $e'));
+      emit(DashboardBuilderErrorState('Failed to load dashboard data for editing: $e'));
     }
   }
 
@@ -384,7 +452,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       displayIcon: Icons.description,
       displayColor: currentDashboard.templateConfig.accentColor ?? Colors.blue,
       apiUrl: event.apiUrl,
-      // Default to showing as a tile only
       showAsTile: true,
       showAsGraph: false,
       graphType: null,
@@ -428,7 +495,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     ));
   }
 
-  // --- MODIFIED HANDLER ---
   void _onUpdateReportCardConfig(
       UpdateReportCardConfigEvent event,
       Emitter<DashboardBuilderState> emit,
@@ -497,7 +563,9 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) async {
     final (currentState, dashboardToSave) = _getCurrentStateAndDashboard();
     if (currentState == null || dashboardToSave == null) {
-      if (currentState != null) emit(currentState.copyWith(error: 'No dashboard to save.'));
+      if (state is DashboardBuilderLoaded) {
+        emit((state as DashboardBuilderLoaded).copyWith(error: 'No dashboard to save.'));
+      }
       return;
     }
 
@@ -521,7 +589,11 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
           dashboardId: newId,
           updatedAt: DateTime.now(),
         );
-        emit(currentState.copyWith(currentDashboard: savedDashboard, message: 'Dashboard saved successfully!'));
+        final previousState = (state as DashboardBuilderSaving).previousState;
+        emit(previousState.copyWith(
+            currentDashboard: savedDashboard,
+            message: 'Dashboard saved successfully!'
+        ));
       } else {
         await apiService.editDashboard(
           dashboardId: dashboardToSave.dashboardId,
@@ -531,10 +603,12 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
           layoutConfig: layoutConfigPayload,
           globalFiltersConfig: dashboardToSave.globalFiltersConfig,
         );
-        emit(currentState.copyWith(message: 'Dashboard updated successfully!'));
+        final previousState = (state as DashboardBuilderSaving).previousState;
+        emit(previousState.copyWith(message: 'Dashboard updated successfully!'));
       }
     } catch (e) {
-      emit(currentState.copyWith(error: 'Failed to save dashboard: $e'));
+      final previousState = (state as DashboardBuilderSaving).previousState;
+      emit(previousState.copyWith(error: 'Failed to save dashboard: $e'));
     }
   }
 

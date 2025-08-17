@@ -44,11 +44,13 @@ class SaveReport extends ReportMakerEvent {
   final String reportLabel;
   final String apiName;
   final String parameter;
+  final String ucode;
   SaveReport({
     required this.reportName,
     required this.reportLabel,
     required this.apiName,
     required this.parameter,
+    required this.ucode,
   });
 }
 
@@ -278,6 +280,7 @@ class ReportMakerBloc extends Bloc<ReportMakerEvent, ReportMakerState> {
         reportLabel: event.reportLabel,
         apiName: event.apiName,
         parameter: event.parameter,
+        ucode: event.ucode,
         fields: state.selectedFields,
         actions: const [],
         includePdfFooterDateTime: false,

@@ -16,6 +16,7 @@ class ReportAPIService {
 
   Completer<void>? _apiDetailsLoadingCompleter;
 
+  // This local counter is not used for saving reports anymore, but might be used elsewhere.
   static int _recNoCounter = 0;
 
   ReportAPIService() {
@@ -28,11 +29,12 @@ class ReportAPIService {
       'edit_demo_tables': '$_baseUrl?mode=edit_demo_tables',
       'delete_demo_tables': '$_baseUrl?mode=delete_demo_tables',
       'deploy_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
-      // Assuming the new function might eventually have its own endpoint
       'transfer_report': 'http://localhost/reportBuilder/deploy_report_to_client.php',
       'post_dashboard': '$_baseUrl?mode=post_dashboard',
       'edit_dashboard': '$_baseUrl?mode=edit_dashboard',
       'delete_dashboard': '$_baseUrl?mode=delete_dashboard',
+      // NEW ENDPOINT for the full dashboard transfer
+      'transfer_full_dashboard': 'http://localhost/reportBuilder/transfer_full_dashboard.php',
     };
 
     _getEndpoints = {
@@ -700,6 +702,7 @@ class ReportAPIService {
     required String reportLabel,
     required String apiName,
     required String parameter,
+    required String ucode,
     required List<Map<String, dynamic>> fields,
     List<Map<String, dynamic>> actions = const <Map<String, dynamic>>[],
     required bool includePdfFooterDateTime,
@@ -707,8 +710,8 @@ class ReportAPIService {
     final url = _postEndpoints['post_demo_table'];
     if (url == null) throw Exception('POST API not found');
 
-    final recNo = ++_recNoCounter;
-    final payload = {'RecNo': recNo, 'Report_name': reportName, 'Report_label': reportLabel, 'API_name': apiName, 'Parameter': parameter, 'actions_config': jsonEncode(actions), 'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0};
+    final payload = {'Report_name': reportName, 'Report_label': reportLabel, 'API_name': apiName, 'Parameter': parameter,
+      'ucode': ucode, 'actions_config': jsonEncode(actions), 'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0};
     try {
       final uri = Uri.parse(url);
       _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'saveReport');
@@ -724,7 +727,8 @@ class ReportAPIService {
         final jsonData = jsonDecode(response.body);
         if (jsonData['status'] != 'success') throw Exception('API returned error: ${jsonData['message']}');
         final backendRecNo = int.tryParse(jsonData['RecNo'].toString());
-        return backendRecNo ?? recNo;
+        if (backendRecNo == null) throw Exception('API did not return a valid RecNo.');
+        return backendRecNo;
       } on FormatException catch (e) {
         throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
       }
@@ -917,6 +921,7 @@ class ReportAPIService {
     required String reportLabel,
     required String apiName,
     required String parameter,
+    // required String ucode,
     required List<Map<String, dynamic>> fieldConfigs,
     required List<Map<String, dynamic>> actions,
     required bool includePdfFooterDateTime,
@@ -934,6 +939,7 @@ class ReportAPIService {
         'Report_label': reportLabel.trim(),
         'API_name': apiName.trim(),
         'Parameter': parameter.trim(),
+        // 'ucode': ucode,
         'actions_config': jsonEncode(actions),
         'pdf_footer_datetime': includePdfFooterDateTime ? 1 : 0,
       },
@@ -1641,6 +1647,180 @@ class ReportAPIService {
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> transferFullDashboard({
+    required Map<String, dynamic> dashboardData,
+    required String clientServerIP,
+    required String clientUserName,
+    required String clientPassword,
+    required String clientDatabaseName,
+  }) async {
+    // For pretty printing JSON in logs
+    const jsonEncoder = JsonEncoder.withIndent('  ');
+
+    debugPrint('\n\n======================================================');
+    debugPrint('====== START transferFullDashboard INVOCATION ======');
+    debugPrint('======================================================');
+
+    final url = _postEndpoints['transfer_full_dashboard'];
+    if (url == null) {
+      debugPrint('[FATAL ERROR] The URL for "transfer_full_dashboard" is not defined in the _postEndpoints map.');
+      throw Exception('POST API not found for full dashboard transfer.');
+    }
+    debugPrint('--- Step 1: Endpoint URL confirmed: $url');
+
+
+    // Step 2: Extract all unique report RecNo's from the dashboard layout
+    final Set<String> reportRecNos = {};
+    try {
+      dynamic layoutConfig = dashboardData['LayoutConfig'];
+      if (layoutConfig is String) {
+        layoutConfig = jsonDecode(layoutConfig);
+      }
+
+      if (layoutConfig != null && layoutConfig['report_groups'] is List) {
+        for (var group in (layoutConfig['report_groups'] as List)) {
+          if (group['reports'] is List) {
+            for (var report in (group['reports'] as List)) {
+              if (report['reportRecNo'] != null) {
+                reportRecNos.add(report['reportRecNo'].toString());
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[FATAL ERROR] Failed to parse dashboard LayoutConfig: $e');
+      throw Exception('Failed to parse dashboard LayoutConfig to find report dependencies: $e');
+    }
+
+    debugPrint('--- Step 2: Extracted ${reportRecNos.length} unique report dependencies: ${reportRecNos.toList()}');
+
+    // Step 3: Fetch the full data for each dependent report
+    final List<Map<String, dynamic>> fullReportsData = [];
+    debugPrint('--- Step 3a: Fetching all report metadata from the source (fetchDemoTable)...');
+    final List<Map<String, dynamic>> allSourceReports = await fetchDemoTable();
+    debugPrint('--- -> Found ${allSourceReports.length} total reports in the source system.');
+
+
+    for (String recNoStr in reportRecNos) {
+      debugPrint('--- Step 3b: Processing dependency for RecNo: $recNoStr');
+      final int recNo = int.parse(recNoStr);
+
+      final reportMetadata = allSourceReports.firstWhere(
+            (r) => r['RecNo'].toString() == recNoStr,
+        orElse: () {
+          debugPrint('[FATAL ERROR] Could not find report metadata for RecNo $recNo in the fetched list.');
+          throw Exception('Could not find report metadata for RecNo $recNo');
+        },
+      );
+      debugPrint('--- -> Found metadata for RecNo: $recNoStr');
+
+      final fieldConfigs = await fetchDemoTable2(recNoStr);
+      debugPrint('--- -> Found ${fieldConfigs.length} field configurations for RecNo: $recNoStr');
+
+      fullReportsData.add({
+        'report_metadata': reportMetadata,
+        'field_configs': fieldConfigs,
+      });
+    }
+    debugPrint('--- Step 3c: Successfully bundled all ${fullReportsData.length} reports with their field configs.');
+
+
+    // Step 4: Assemble the final payload for the API
+    final payload = {
+      'dashboard_data':dashboardData,
+      'reports':  fullReportsData,
+      'client_server': clientServerIP.trim(),
+      'client_user': clientUserName.trim(),
+      'client_password': clientPassword.trim(),
+      'client_database': clientDatabaseName.trim(),
+    };
+
+    debugPrint('--- Step 4: Final payload assembled. Preparing to send...');
+    // The _logRequest function will pretty-print the full payload.
+
+    // Step 5: Make the API call
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'transferFullDashboard (INTERNAL)');
+
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode(payload),
+      ).timeout(const Duration(seconds: 300));
+
+      debugPrint('\n--- Step 5: Received HTTP Response ---');
+      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('Response Headers:\n${jsonEncoder.convert(response.headers)}');
+      debugPrint('--- Full Raw Response Body ---\n${response.body}');
+      debugPrint('----------------------------------');
+
+      if (response.statusCode == 200) {
+        if (response.body.isEmpty) {
+          debugPrint('[ERROR] Transfer script returned an empty body with a 200 OK status. This is ambiguous.');
+          throw Exception('Empty response body from the transfer script.');
+        }
+        try {
+          final decodedResponse = jsonDecode(response.body);
+          debugPrint('--- Step 6: Successfully parsed JSON response.');
+          debugPrint('====================== TRANSFER END (SUCCESS) ======================');
+          return decodedResponse;
+        } on FormatException catch (e) {
+          debugPrint('[FATAL ERROR] The server response was not valid JSON.');
+          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
+        }
+      } else {
+        String errorMessage = 'Server error during transfer: ${response.statusCode}';
+        if (response.body.isNotEmpty) {
+          try {
+            final errorData = jsonDecode(response.body);
+            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
+              errorMessage += ' - ${errorData['message']}';
+            } else {
+              errorMessage += ' - Raw body: ${response.body}';
+            }
+          } catch (_) {
+            errorMessage += ' - Raw body: ${response.body}';
+          }
+        }
+        debugPrint('[ERROR] Server returned a non-200 status code. Final error message to be thrown: "$errorMessage"');
+        debugPrint('====================== TRANSFER END (SERVER ERROR) ======================');
+        throw Exception(errorMessage);
+      }
+    } catch (e) {
+      debugPrint('[FATAL CATCH BLOCK] An unexpected error occurred during the HTTP request.');
+      debugPrint('Error Type: ${e.runtimeType}');
+      debugPrint('Error: $e');
+      debugPrint('====================== TRANSFER END (CRITICAL ERROR) ======================');
+      // This is where the CORS ClientException is caught. We rethrow it so the UI can display the message.
+      rethrow;
+    }
+  }
+
+  // In your ReportAPIService class
+
+  Future<List<Map<String, dynamic>>> fetchReportsForApi(String apiName) async {
+    // IMPORTANT: The URL now includes a parameter for the api_name
+    final url = '$_baseUrl/DemoTables.php?mode=get_demo_table&api_name=${Uri.encodeComponent(apiName)}';
+
+    final uri = Uri.parse(url);
+    _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchReportsForApi');
+
+    final response = await http.get(uri);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      if (data is List) {
+        return data.cast<Map<String, dynamic>>();
+      } else {
+        throw Exception('API did not return a list for fetchReportsForApi.');
+      }
+    } else {
+      throw Exception('Failed to load reports for API: ${response.statusCode}');
     }
   }
 
