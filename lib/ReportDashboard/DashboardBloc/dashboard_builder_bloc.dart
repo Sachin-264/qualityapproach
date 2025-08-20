@@ -223,9 +223,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
   final Uuid _uuid = const Uuid();
 
   DashboardBuilderBloc(this.apiService) : super(const DashboardBuilderInitial()) {
-    // THIS LINE WAS MISSING. IT IS NOW FIXED.
     on<FetchDashboardList>(_onFetchDashboardList);
-
     on<LoadDashboardBuilderData>(_onLoadDashboardBuilderData);
     on<InitializeNewDashboard>(_onInitializeNewDashboard);
     on<UpdateDashboardInfo>(_onUpdateDashboardInfo);
@@ -249,7 +247,6 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     return (null, null);
   }
 
-  // Handler for fetching the dashboard list.
   Future<void> _onFetchDashboardList(
       FetchDashboardList event,
       Emitter<DashboardBuilderState> emit,
@@ -277,7 +274,13 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) async {
     emit(const DashboardBuilderLoading());
     try {
-      final availableReports = await apiService.fetchDemoTable();
+      final String? databaseName = event.dbConnectionConfig['database'];
+      if (databaseName == null || databaseName.isEmpty) {
+        throw Exception("Database name is missing from the connection configuration.");
+      }
+
+      // MODIFIED: Fetch reports only for the selected database.
+      final availableReports = await apiService.fetchReportsForApi(databaseName);
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
 
@@ -316,8 +319,17 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     emit(const DashboardBuilderLoading());
     try {
       final dbConnectionConfig = event.dashboardToEdit.globalFiltersConfig['db_connection'];
+      if (dbConnectionConfig is! Map<String, dynamic>) {
+        throw Exception("Invalid or missing database connection configuration in the saved dashboard.");
+      }
 
-      final availableReports = await apiService.fetchDemoTable();
+      final String? databaseName = dbConnectionConfig['database'];
+      if (databaseName == null || databaseName.isEmpty) {
+        throw Exception("Database name is missing from the dashboard's connection configuration.");
+      }
+
+      // MODIFIED: Fetch reports only for the database associated with the dashboard.
+      final availableReports = await apiService.fetchReportsForApi(databaseName);
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
 

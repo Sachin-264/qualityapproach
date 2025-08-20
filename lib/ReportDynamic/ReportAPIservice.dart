@@ -1801,27 +1801,45 @@ class ReportAPIService {
     }
   }
 
-  // In your ReportAPIService class
+  /// Fetches all reports that are associated with a specific database.
+  ///
+  /// It works by:
+  /// 1. Fetching all reports from `demo_table`.
+  /// 2. For each report, it looks up the details of its associated API.
+  /// 3. It then checks if the database name for that API matches the provided [databaseName].
+  /// 4. Returns a list of all matching reports.
+  Future<List<Map<String, dynamic>>> fetchReportsForApi(String databaseName) async {
+    _logRequest(httpMethod: 'INTERNAL', url: 'N/A', functionName: 'fetchReportsForApi(databaseName: $databaseName)');
+    try {
+      // Step 1: Fetch all reports from demo_table.
+      final List<Map<String, dynamic>> allReports = await fetchDemoTable();
+      final List<Map<String, dynamic>> matchedReports = [];
 
-  Future<List<Map<String, dynamic>>> fetchReportsForApi(String apiName) async {
-    // IMPORTANT: The URL now includes a parameter for the api_name
-    final url = '$_baseUrl/DemoTables.php?mode=get_demo_table&api_name=${Uri.encodeComponent(apiName)}';
+      // Step 2: Iterate through each report to check its database connection.
+      for (final report in allReports) {
+        final String? apiName = report['API_name']?.toString();
 
-    final uri = Uri.parse(url);
-    _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchReportsForApi');
+        if (apiName != null && apiName.isNotEmpty) {
+          try {
+            // Step 3: Get the details for the API linked to the report.
+            final apiDetails = await getApiDetails(apiName);
+            final String? apiDatabaseName = apiDetails['databaseName']?.toString();
 
-    final response = await http.get(uri);
-
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body);
-      if (data is List) {
-        return data.cast<Map<String, dynamic>>();
-      } else {
-        throw Exception('API did not return a list for fetchReportsForApi.');
+            // Step 4: Compare the database name and add to collection if it matches.
+            if (apiDatabaseName == databaseName) {
+              matchedReports.add(report);
+            }
+          } catch (e) {
+            // This catch block handles cases where a report in demo_table
+            // references an API_name that no longer exists in demotable1.
+            debugPrint('Could not retrieve details for API \'$apiName\'. It might be misconfigured or deleted. Skipping report \'${report['Report_name']}\'. Error: $e');
+          }
+        }
       }
-    } else {
-      throw Exception('Failed to load reports for API: ${response.statusCode}');
+      return matchedReports;
+    } catch (e) {
+      debugPrint('An error occurred in fetchReportsForApi: $e');
+      rethrow; // Rethrow the error to be handled by the caller.
     }
   }
-
 }

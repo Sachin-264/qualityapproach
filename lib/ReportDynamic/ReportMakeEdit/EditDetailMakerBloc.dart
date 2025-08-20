@@ -1,3 +1,5 @@
+// lib/Report/EditDetailMakerBloc.dart
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
@@ -162,7 +164,6 @@ class ToggleIncludePdfFooterDateTime extends EditDetailMakerEvent {
 }
 
 // ======== State ========
-// (No changes to state)
 class EditDetailMakerState {
   final List<String> fields;
   final List<Map<String, dynamic>> selectedFields;
@@ -185,6 +186,8 @@ class EditDetailMakerState {
   final int? initialRecNo;
   final String? initialApiName;
   final bool includePdfFooterDateTime;
+  // MODIFIED: Added ucode property
+  final String? ucode;
 
   EditDetailMakerState({
     this.fields = const <String>[],
@@ -208,6 +211,8 @@ class EditDetailMakerState {
     this.initialRecNo,
     this.initialApiName,
     this.includePdfFooterDateTime = false,
+    // MODIFIED: Added ucode to constructor
+    this.ucode,
   });
 
   EditDetailMakerState copyWith({
@@ -232,6 +237,8 @@ class EditDetailMakerState {
     int? initialRecNo,
     String? initialApiName,
     bool? includePdfFooterDateTime,
+    // MODIFIED: Added ucode to copyWith
+    String? ucode,
   }) {
     return EditDetailMakerState(
       fields: fields ?? this.fields,
@@ -255,6 +262,8 @@ class EditDetailMakerState {
       initialRecNo: initialRecNo ?? this.initialRecNo,
       initialApiName: initialApiName ?? this.initialApiName,
       includePdfFooterDateTime: includePdfFooterDateTime ?? this.includePdfFooterDateTime,
+      // MODIFIED: Handle ucode in copyWith
+      ucode: ucode ?? this.ucode,
     );
   }
 }
@@ -294,41 +303,6 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     on<ToggleIncludePdfFooterDateTime>(_onToggleIncludePdfFooterDateTime);
   }
 
-// ... (All other methods remain the same) ...
-
-  void _onAddAction(AddAction event, Emitter<EditDetailMakerState> emit) {
-    if (state.actions.length >= 5) {
-      emit(state.copyWith(error: 'Maximum 5 actions allowed.'));
-      return;
-    }
-    if (event.type == 'form' && state.actions.any((a) => a['type'] == 'form')) {
-      emit(state.copyWith(error: 'Only one Form action is allowed.'));
-      return;
-    }
-
-    final name = '${event.type.toCapitalized()} ${state.actions.length + 1}';
-    Map<String, dynamic> newAction;
-
-// MODIFIED: Replaced ternary with if/else if/else to support 'graph'
-    if (event.type == 'print') {
-      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'params': <Map<String, dynamic>>[], 'printTemplate': 'premium', 'printColor': 'Blue'};
-    } else if (event.type == 'graph') {
-      newAction = {
-        'id': event.id,
-        'type': 'graph',
-        'name': name,
-        'graphType': 'Line Chart', // Default value as requested
-        'xAxisField': '',
-        'yAxisField': '',
-      };
-    } else { // Covers 'form' and 'table'
-      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'reportLabel': '', 'apiName_resolved': '', 'recNo_resolved': '', 'params': <Map<String, dynamic>>[]};
-    }
-
-    emit(state.copyWith(actions: [...state.actions, newAction], error: null));
-  }
-
-// ... (The rest of the BLoC file is unchanged) ...
   Future<void> _onLoadPreselectedFields(LoadPreselectedFields event, Emitter<EditDetailMakerState> emit) async {
     emit(state.copyWith(
       isLoading: true,
@@ -398,6 +372,9 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
 
       final currentReportEntry = allReports.firstWhere((r) => r['RecNo'].toString() == event.recNo.toString(), orElse: () => <String, dynamic>{});
 
+      // MODIFIED: Fetch the ucode
+      final String? ucode = currentReportEntry['ucode']?.toString();
+
       List<Map<String, dynamic>> actions = <Map<String, dynamic>>[];
       if (currentReportEntry.isNotEmpty && currentReportEntry['actions_config'] != null) {
         final dynamic actionsConfigRaw = currentReportEntry['actions_config'];
@@ -434,6 +411,8 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
         reportDetailsMap: reportDetailsMap,
         allApisDetails: allApisDetails,
         includePdfFooterDateTime: _parseBoolFromApi(currentReportEntry['pdf_footer_datetime']),
+        // MODIFIED: Store the ucode in the state
+        ucode: ucode,
       ));
 
     } catch (e, stackTrace) {
@@ -442,6 +421,39 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
     }
   }
 
+  void _onAddAction(AddAction event, Emitter<EditDetailMakerState> emit) {
+    if (state.actions.length >= 5) {
+      emit(state.copyWith(error: 'Maximum 5 actions allowed.'));
+      return;
+    }
+    if (event.type == 'form' && state.actions.any((a) => a['type'] == 'form')) {
+      emit(state.copyWith(error: 'Only one Form action is allowed.'));
+      return;
+    }
+
+    final name = '${event.type.toCapitalized()} ${state.actions.length + 1}';
+    Map<String, dynamic> newAction;
+
+    if (event.type == 'print') {
+      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'params': <Map<String, dynamic>>[], 'printTemplate': 'premium', 'printColor': 'Blue'};
+    } else if (event.type == 'graph') {
+      newAction = {
+        'id': event.id,
+        'type': 'graph',
+        'name': name,
+        'graphType': 'Line Chart',
+        'xAxisField': '',
+        'yAxisField': '',
+      };
+    } else {
+      newAction = {'id': event.id, 'type': event.type, 'name': name, 'api': '', 'reportLabel': '', 'apiName_resolved': '', 'recNo_resolved': '', 'params': <Map<String, dynamic>>[]};
+    }
+
+    emit(state.copyWith(actions: [...state.actions, newAction], error: null));
+  }
+
+  // ... (All other BLoC methods remain unchanged)
+  // ...
   bool _parseBoolFromApi(dynamic value) {
     if (value == null) return false;
     if (value is bool) return value;
@@ -807,6 +819,7 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 }
 
+// Keep the extension at the bottom as it's a utility
 extension StringCasingExtension on String {
   String toCapitalized() => length > 0 ? '${this[0].toUpperCase()}${substring(1).toLowerCase()}' : '';
 }
