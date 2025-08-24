@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'APIgenerator/api_generator.dart';
+import 'AttendenceSalesman/attendence_form/attendence_bloc.dart';
+import 'AttendenceSalesman/attendence_form/attendence_screen.dart';
 import 'ReportDashboard/DashboardBloc/dashboard_builder_bloc.dart';
 import 'ReportDashboard/DashboardScreen/dashboard_listing_screen.dart';
 import 'ReportDynamic/ReportAPIService.dart';
@@ -209,6 +211,22 @@ class ComplaintPage extends StatelessWidget {
                       builder: (context) => BlocProvider.value(
                         value: context.read<ReportAdminBloc>(),
                         child: ReportAdminUI(),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              _createDrawerItem(
+                icon: Icons.point_of_sale_sharp,
+                text: 'Attendence Salesman',
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => BlocProvider.value(
+                        value: context.read<AttendanceBloc>(),
+                        child: AttendanceView(),
                       ),
                     ),
                   );

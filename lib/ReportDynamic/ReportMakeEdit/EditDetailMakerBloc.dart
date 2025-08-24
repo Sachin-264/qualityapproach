@@ -672,10 +672,27 @@ class EditDetailMakerBloc extends Bloc<EditDetailMakerEvent, EditDetailMakerStat
   }
 
   Future<void> _onSaveReport(SaveReport event, Emitter<EditDetailMakerState> emit) async {
-    if (state.selectedFields.isEmpty) { emit(state.copyWith(error: 'No fields selected to save.')); return; }
+    if (state.selectedFields.isEmpty) {
+      emit(state.copyWith(error: 'No fields selected to save.'));
+      return;
+    }
+    if (state.ucode == null) {
+      emit(state.copyWith(error: 'Unique code (ucode) is required.'));
+      return;
+    }
     emit(state.copyWith(isLoading: true));
     try {
-      await apiService.editDemoTables(recNo: event.recNo, reportName: event.reportName, reportLabel: event.reportLabel, apiName: event.apiName, parameter: event.parameter, fieldConfigs: state.selectedFields, actions: event.needsAction ? state.actions : [], includePdfFooterDateTime: event.includePdfFooterDateTime);
+      await apiService.editDemoTables(
+        recNo: event.recNo,
+        reportName: event.reportName,
+        reportLabel: event.reportLabel,
+        apiName: event.apiName,
+        parameter: event.parameter,
+        fieldConfigs: state.selectedFields,
+        actions: event.needsAction ? state.actions : [],
+        includePdfFooterDateTime: event.includePdfFooterDateTime,
+        ucode: state.ucode!, // NEW: Pass ucode from state
+      );
       emit(state.copyWith(isLoading: false, saveSuccess: true));
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to save: $e'));

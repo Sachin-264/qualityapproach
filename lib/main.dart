@@ -1,7 +1,10 @@
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:provider/provider.dart'; // <--- NEW: Import the provider package
+import 'package:provider/provider.dart';
+import 'package:qualityapproach/AttendenceSalesman/attendence_form/attendence_bloc.dart';
+import 'package:qualityapproach/AttendenceSalesman/attendence_form/attendence_screen.dart';
 import 'package:qualityapproach/SetupScreen/setup_bloc.dart';
 
 // Your existing Bloc imports
@@ -20,17 +23,26 @@ import 'ReportDynamic/ReportMakeEdit/EditReportMaker.dart';
 import 'ReportDynamic/Report_MakeBLoc.dart';
 import 'SaleVsTarget/sale_TargetBloc.dart';
 import 'SparePart/spare_bloc.dart';
-
-
 import 'complaint_page.dart';
 
-void main() {
-  // Create a single instance of ReportAPIService to be shared across BLoCs AND widgets
+// A global list to hold the available cameras, initialized before the app runs.
+List<CameraDescription> cameras = [];
+
+Future<void> main() async {
+  try {
+    // Ensure that plugin services are initialized so that `availableCameras()` can be called.
+    WidgetsFlutterBinding.ensureInitialized();
+    // Obtain a list of the available cameras on the device.
+    cameras = await availableCameras();
+  } on CameraException catch (e) {
+    debugPrint('FATAL ERROR: Could not get available cameras: $e');
+  }
+
+  // Your existing setup
   final ReportAPIService apiService = ReportAPIService();
 
   runApp(
-    // NEW: Provide ReportAPIService using a Provider
-    Provider<ReportAPIService>.value( // Use .value to provide an existing instance
+    Provider<ReportAPIService>.value(
       value: apiService,
       child: MultiBlocProvider(
         providers: [
@@ -42,25 +54,14 @@ void main() {
           BlocProvider<SparePartBloc>(create: (context) => SparePartBloc()),
           BlocProvider<EditSpareBloc>(create: (context) => EditSpareBloc()),
           BlocProvider<SaleTargetBloc>(create: (context) => SaleTargetBloc()),
-
-          // DashboardBuilderBloc now correctly receives the apiService instance
           BlocProvider<DashboardBuilderBloc>(create: (context) => DashboardBuilderBloc(apiService)),
-
-          // Ensure other BLoCs that need ReportAPIService are updated
-          BlocProvider<ReportMakerBloc>(
-            create: (context) => ReportMakerBloc(apiService),
-          ),
+          BlocProvider<ReportMakerBloc>(create: (context) => ReportMakerBloc(apiService)),
           BlocProvider<ReportBlocGenerate>(create: (context) => ReportBlocGenerate(apiService)),
           BlocProvider<ReportAdminBloc>(create: (context) => ReportAdminBloc(apiService)),
           BlocProvider<EditDetailMakerBloc>(create: (context) => EditDetailMakerBloc(apiService)),
           BlocProvider<EditReportMakerBloc>(create: (context) => EditReportMakerBloc(apiService)),
-          BlocProvider<SetupBloc>(create: (context) => SetupBloc(apiService))
-
-
-
-
-
-          ,
+          BlocProvider<SetupBloc>(create: (context) => SetupBloc(apiService)),
+          BlocProvider<AttendanceBloc>(create: (context) => AttendanceBloc()),
         ],
         child: const MyApp(),
       ),
@@ -81,7 +82,9 @@ class MyApp extends StatelessWidget {
         visualDensity: VisualDensity.adaptivePlatformDensity,
         fontFamily: GoogleFonts.poppins().fontFamily,
       ),
-      home: ComplaintPage(),
+      // IMPORTANT: Set to AttendanceView for testing the camera fix.
+      // Remember to change this back to `ComplaintPage()` when you're done.
+      home:  ComplaintPage(),
     );
   }
 }
