@@ -101,10 +101,14 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
   final Map<String, Map<String, TextEditingController>> _actionParamValueControllers = {};
   final Uuid _uuid = const Uuid();
   final Map<String, GlobalKey> _autocompleteFieldKeys = {};
-  Map<String, dynamic>? _previousCurrentField;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  // --- State Management Fixes ---
+  Timer? _debounce;
+  String? _currentConfiguredFieldName;
+  // --- End of Fixes ---
 
   @override
   void initState() {
@@ -128,6 +132,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
 
   @override
   void dispose() {
+    _debounce?.cancel(); // Cancel debounce timer
     _reportNameController.dispose();
     _reportLabelController.dispose();
     _apiController.dispose();
@@ -192,8 +197,23 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
     }
   });
 
+  /// --- MODIFIED FUNCTION ---
+  /// This function now only updates the text controllers if the user selects a
+  /// *different* field to configure. It no longer resets the text during typing,
+  /// which was the cause of the lag and cursor jumping.
   void _updateFieldConfigControllers(Map<String, dynamic>? field) {
-    if (_previousCurrentField == field && field != null) return;
+    final newFieldName = field?['Field_name'] as String?;
+
+    // If the field being configured hasn't changed, DO NOTHING.
+    // This is the core of the fix. It prevents the UI from resetting the
+    // controller while the user is typing.
+    if (_currentConfiguredFieldName == newFieldName && field != null) {
+      return;
+    }
+
+    _currentConfiguredFieldName = newFieldName;
+
+    // If we're here, it means a new field was selected, so we must populate the controllers.
     if (field == null) {
       _fieldNameController.clear();
       _fieldLabelController.clear();
@@ -232,8 +252,8 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
         }
       }
     }
-    _previousCurrentField = field;
   }
+
 
   void _updateActionControllers(List<Map<String, dynamic>> actions) {
     if (actions.isNotEmpty && !_actionNameControllers.keys.contains(_currentActionId)) {
@@ -348,6 +368,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
               setState(() {
                 _selectedApi = null;
                 _showConfigPanel = false;
+                _currentConfiguredFieldName = null; // Reset for next report
               });
               context.read<ReportMakerBloc>().add(ResetFields());
               _animationController.reset();
@@ -546,6 +567,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
                 setState(() {
                   _selectedApi = null;
                   _showConfigPanel = false;
+                  _currentConfiguredFieldName = null; // Reset on clear
                 });
                 context.read<ReportMakerBloc>().add(ResetFields());
                 _animationController.reset();
@@ -622,7 +644,7 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
+          SizedBox(
             width: 250,
             child: Column(
               children: [
@@ -689,6 +711,18 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
     );
   }
 
+  /// --- NEW HELPER FUNCTION ---
+  /// This function debounces input changes. It waits for 400ms of inactivity
+  /// before sending an update to the BLoC, preventing state updates on every keystroke.
+  void _onFieldConfigChanged(String key, dynamic value) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) {
+        context.read<ReportMakerBloc>().add(UpdateFieldConfig(key, value));
+      }
+    });
+  }
+
   List<Widget> _buildAdvancedFieldConfigWidgets(BuildContext context, ReportMakerState state) {
     if (state.currentField == null) return [];
     final bool isApiDriven = state.currentField!['is_api_driven'] ?? false;
@@ -721,23 +755,55 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
     return [
       TextField(controller: _fieldNameController, readOnly: true, decoration: _buildInputDecoration(label: 'Field Name', icon: Icons.text_fields)),
       const SizedBox(height: 16),
-      TextField(controller: _fieldLabelController, decoration: _buildInputDecoration(label: 'Field Label', icon: Icons.label_outline), onChanged: (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('Field_label', v))),
+      // --- MODIFIED TEXTFIELD ---
+      TextField(
+        controller: _fieldLabelController,
+        decoration: _buildInputDecoration(label: 'Field Label', icon: Icons.label_outline),
+        onChanged: (v) => _onFieldConfigChanged('Field_label', v),
+      ),
       const SizedBox(height: 16),
       buildCheckbox('Is API Driven?', isApiDriven, isUserFilling ? (v){} : (v) => context.read<ReportMakerBloc>().add(ToggleFieldApiDriven(v!))),
       if (isApiDriven) ...[
         const SizedBox(height: 8),
-        TextField(controller: _apiDrivenUrlController, decoration: _buildInputDecoration(label: 'API URL', icon: Icons.link), onChanged: (v) { context.read<ReportMakerBloc>().add(UpdateFieldApiUrl(v)); if (v.isNotEmpty) { context.read<ReportMakerBloc>().add(ExtractFieldParametersFromUrl(state.currentField!['Field_name'], v)); } }),
+        // --- MODIFIED TEXTFIELD ---
+        TextField(
+          controller: _apiDrivenUrlController,
+          decoration: _buildInputDecoration(label: 'API URL', icon: Icons.link),
+          onChanged: (v) {
+            _onFieldConfigChanged('api_url', v);
+            if (v.isNotEmpty) {
+              context.read<ReportMakerBloc>().add(ExtractFieldParametersFromUrl(state.currentField!['Field_name'], v));
+            }
+          },
+        ),
       ],
       const SizedBox(height: 8),
       buildCheckbox('Is User Filling?', isUserFilling, isApiDriven ? (v){} : (v) => context.read<ReportMakerBloc>().add(ToggleFieldUserFilling(v!))),
       if (isUserFilling) ...[
         const SizedBox(height: 8),
-        TextField(controller: _userFillingUrlController, decoration: _buildInputDecoration(label: 'Updated URL', icon: Icons.link), onChanged: (v) => context.read<ReportMakerBloc>().add(UpdateFieldUserFillingUrl(v))),
+        // --- MODIFIED TEXTFIELD ---
+        TextField(
+          controller: _userFillingUrlController,
+          decoration: _buildInputDecoration(label: 'Updated URL', icon: Icons.link),
+          onChanged: (v) => _onFieldConfigChanged('updated_url', v),
+        ),
       ] else if (!isApiDriven && !isUserFilling) ...[
         const SizedBox(height: 16),
-        TextField(controller: _sequenceController, decoration: _buildInputDecoration(label: 'Sequence No', icon: Icons.sort), keyboardType: TextInputType.number, onChanged: (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('Sequence_no', int.tryParse(v) ?? 0))),
+        // --- MODIFIED TEXTFIELD ---
+        TextField(
+          controller: _sequenceController,
+          decoration: _buildInputDecoration(label: 'Sequence No', icon: Icons.sort),
+          keyboardType: TextInputType.number,
+          onChanged: (v) => _onFieldConfigChanged('Sequence_no', int.tryParse(v) ?? 0),
+        ),
         const SizedBox(height: 16),
-        TextField(controller: _widthController, decoration: _buildInputDecoration(label: 'Width', icon: Icons.width_normal), keyboardType: TextInputType.number, onChanged: (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('width', int.tryParse(v) ?? 100))),
+        // --- MODIFIED TEXTFIELD ---
+        TextField(
+          controller: _widthController,
+          decoration: _buildInputDecoration(label: 'Width', icon: Icons.width_normal),
+          keyboardType: TextInputType.number,
+          onChanged: (v) => _onFieldConfigChanged('width', int.tryParse(v) ?? 100),
+        ),
         const SizedBox(height: 16),
         buildCheckbox('Total', state.currentField!['Total'] ?? false, (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('Total', v!))),
         if (state.currentField!['Total'] == true) buildCheckbox('Subtotal', state.currentField!['SubTotal'] ?? false, (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('SubTotal', v!))),
@@ -755,7 +821,13 @@ class _ReportMakerUIState extends State<ReportMakerUI> with TickerProviderStateM
         const SizedBox(height: 16),
         buildCheckbox('Indian Number Format', state.currentField!['num_format'] ?? false, (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('num_format', v!)), subtitle: 'Example: 12,34,567'),
         const SizedBox(height: 16),
-        TextField(controller: _decimalPointsController, decoration: _buildInputDecoration(label: 'Decimal Points', icon: Icons.numbers), keyboardType: TextInputType.number, onChanged: (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('decimal_points', int.tryParse(v) ?? 0))),
+        // --- MODIFIED TEXTFIELD ---
+        TextField(
+          controller: _decimalPointsController,
+          decoration: _buildInputDecoration(label: 'Decimal Points', icon: Icons.numbers),
+          keyboardType: TextInputType.number,
+          onChanged: (v) => _onFieldConfigChanged('decimal_points', int.tryParse(v) ?? 0),
+        ),
         if (state.currentField!['Field_name'].toString().toLowerCase().contains('date')) ...[
           const SizedBox(height: 8),
           buildCheckbox('Show Time', state.currentField!['time'] ?? false, (v) => context.read<ReportMakerBloc>().add(UpdateFieldConfig('time', v!))),
