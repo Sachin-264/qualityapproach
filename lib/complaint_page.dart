@@ -216,22 +216,22 @@ class ComplaintPage extends StatelessWidget {
                   );
                 },
               ),
-              _createDrawerItem(
-                icon: Icons.point_of_sale_sharp,
-                text: 'Attendence Salesman',
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => BlocProvider.value(
-                        value: context.read<AttendanceBloc>(),
-                        child: AttendanceView(),
-                      ),
-                    ),
-                  );
-                },
-              ),
+              // _createDrawerItem(
+              //   icon: Icons.point_of_sale_sharp,
+              //   text: 'Attendence Salesman',
+              //   onTap: () {
+              //     Navigator.pop(context);
+              //     Navigator.push(
+              //       context,
+              //       MaterialPageRoute(
+              //         builder: (context) => BlocProvider.value(
+              //           value: context.read<AttendanceBloc>(),
+              //           child: AttendanceView(),
+              //         ),
+              //       ),
+              //     );
+              //   },
+              // ),
               // --- NEW: Setup Option ---
               const Divider(), // A visual separator
               _createDrawerItem(

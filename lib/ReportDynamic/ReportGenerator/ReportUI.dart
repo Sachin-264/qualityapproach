@@ -230,39 +230,39 @@ class _ReportUIState extends State<ReportUI> {
   Widget _buildContent(BuildContext context) {
     return Scaffold(
       appBar: AppBarWidget(title: _isPreloadedMode ? 'Filter Report' : 'Report Selection', onBackPress: () => Navigator.pop(context)),
-    body: BlocListener<ReportBlocGenerate, ReportState>(
-    listener: (context, state) {
-    // --- Handle Error Message ---
-    if (state.error != null) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(state.error!),
-    backgroundColor: Colors.redAccent,
-    behavior: SnackBarBehavior.floating,
-    margin: const EdgeInsets.all(16),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ));
-    // MODIFICATION: Use addPostFrameCallback to clear the error.
-    // This ensures the message is cleared only AFTER the current frame has finished building,
-    // preventing race conditions.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    context.read<ReportBlocGenerate>().emit(state.copyWith(error: null));
-    });
-    }
+      body: BlocListener<ReportBlocGenerate, ReportState>(
+        listener: (context, state) {
+          // --- Handle Error Message ---
+          if (state.error != null) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(state.error!),
+              backgroundColor: Colors.redAccent,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ));
+            // MODIFICATION: Use addPostFrameCallback to clear the error.
+            // This ensures the message is cleared only AFTER the current frame has finished building,
+            // preventing race conditions.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<ReportBlocGenerate>().emit(state.copyWith(error: null));
+            });
+          }
 
-    // --- Handle Success Message ---
-    if (state.successMessage != null) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(state.successMessage!),
-    backgroundColor: Colors.green,
-    behavior: SnackBarBehavior.floating,
-    margin: const EdgeInsets.all(16),
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ));
-    // MODIFICATION: Use addPostFrameCallback here as well for consistency and reliability.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-    context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null));
-    });
-    }
+          // --- Handle Success Message ---
+          if (state.successMessage != null) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(state.successMessage!),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.all(16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ));
+            // MODIFICATION: Use addPostFrameCallback here as well for consistency and reliability.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null));
+            });
+          }
           if (state.successMessage != null) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.successMessage!), backgroundColor: Colors.green, behavior: SnackBarBehavior.floating, margin: const EdgeInsets.all(16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)))); WidgetsBinding.instance.addPostFrameCallback((_) { context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null)); }); }
         },
         child: BlocBuilder<ReportBlocGenerate, ReportState>(
