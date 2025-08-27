@@ -82,7 +82,7 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Widget _buildTextField({
     required TextEditingController controller,
-    String? label,
+    String? hintText, // Changed from label to hintText
     IconData? icon,
     bool obscureText = false,
   }) {
@@ -91,15 +91,15 @@ class _SetupScreenState extends State<SetupScreen> {
       obscureText: obscureText,
       style: GoogleFonts.poppins(fontSize: 16, color: Colors.black87),
       decoration: InputDecoration(
-        labelText: label,
-        labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
-        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22) : null,
+        hintText: hintText, // Using hintText
+        hintStyle: GoogleFonts.poppins(color: Colors.grey[500]), // Style for hintText
+        prefixIcon: icon != null ? Icon(icon, color: Colors.grey[600], size: 22) : null,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.9),
+        fillColor: Colors.grey.withOpacity(0.05), // Subtle fill color
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[400]!, width: 1)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!, width: 1)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)), // Bolder focus
+        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20), // Adjusted padding
       ),
     );
   }
@@ -111,6 +111,7 @@ class _SetupScreenState extends State<SetupScreen> {
     String? label,
     IconData? icon,
   }) {
+    // This decoration is updated to match the modern text field style
     return DropdownButtonFormField<String>(
       value: value != null && items.contains(value) ? value : null,
       onChanged: onChanged,
@@ -121,13 +122,13 @@ class _SetupScreenState extends State<SetupScreen> {
       decoration: InputDecoration(
         labelText: label,
         labelStyle: GoogleFonts.poppins(color: Colors.grey[700], fontSize: 15, fontWeight: FontWeight.w600),
-        prefixIcon: icon != null ? Icon(icon, color: Colors.blueAccent, size: 22.0) : null,
+        prefixIcon: icon != null ? Icon(icon, color: Colors.grey[600], size: 22.0) : null,
         filled: true,
-        fillColor: Colors.white.withOpacity(0.9),
+        fillColor: Colors.grey.withOpacity(0.05), // Subtle fill color
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[400]!, width: 1)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 1.5)),
-        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey[300]!, width: 1)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+        contentPadding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20), // Adjusted padding
       ),
     );
   }
@@ -205,6 +206,7 @@ class _SetupScreenState extends State<SetupScreen> {
     return BlocProvider(
       create: (context) => _bloc,
       child: Scaffold(
+        backgroundColor: Colors.white, // Set page background to white
         appBar: AppBarWidget(
           title: 'Database Setup',
           onBackPress: () => Navigator.pop(context),
@@ -235,24 +237,26 @@ class _SetupScreenState extends State<SetupScreen> {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(16.0),
                     child: Card(
-                      elevation: 6,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 4, // Slightly reduced elevation
+                      shadowColor: Colors.black.withOpacity(0.1), // Softer shadow
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), // More rounded corners
+                      color: Colors.white, // Set card background to white
                       child: Padding(
                         padding: const EdgeInsets.all(20.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            _buildTextField(controller: _configNameController, label: 'Configuration Name', icon: Icons.label_important),
+                            _buildTextField(controller: _configNameController, hintText: 'Configuration Name', icon: Icons.label_important),
                             const SizedBox(height: 16),
-                            _buildTextField(controller: _serverIPController, label: 'Server IP', icon: Icons.dns),
+                            _buildTextField(controller: _serverIPController, hintText: 'Server IP', icon: Icons.dns),
                             const SizedBox(height: 16),
-                            _buildTextField(controller: _userNameController, label: 'Username', icon: Icons.person),
+                            _buildTextField(controller: _userNameController, hintText: 'Username', icon: Icons.person),
                             const SizedBox(height: 16),
-                            _buildTextField(controller: _passwordController, label: 'Password', icon: Icons.lock, obscureText: true),
+                            _buildTextField(controller: _passwordController, hintText: 'Password', icon: Icons.lock, obscureText: true),
                             const SizedBox(height: 16),
 
                             // NEW: Connection String TextField
-                            _buildTextField(controller: _connectionStringController, label: 'Database Connection String(Encrypted)', icon: Icons.settings_ethernet),
+                            _buildTextField(controller: _connectionStringController, hintText: 'Database Connection String (Encrypted)', icon: Icons.settings_ethernet),
                             const SizedBox(height: 16),
 
                             if (state.status == SetupStatus.loadingDatabases)

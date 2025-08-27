@@ -49,27 +49,34 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
   @override
   void initState() {
     super.initState();
+    debugPrint('[DashboardView] initState: Kicking off initial load.');
     _loadDashboardAndReports();
   }
 
   Future<void> _loadDashboardAndReports() async {
+    debugPrint('[DashboardView] --- Starting _loadDashboardAndReports ---');
     if (mounted) {
       setState(() {
-        _dashboardFuture = null;
+        _dashboardFuture = null; // Set to null to show loading indicator on refresh
       });
     }
     try {
       _allReportDefinitions = await widget.apiService.fetchDemoTable();
-      debugPrint('[DashboardView] Loaded ${_allReportDefinitions.length} total report definitions.');
+      debugPrint('[DashboardView] -> Successfully loaded ${_allReportDefinitions.length} total report definitions.');
 
       final dashboardsJson = await widget.apiService.getDashboards();
+      debugPrint('[DashboardView] -> Successfully loaded ${dashboardsJson.length} total dashboards from API.');
+
 
       final dashboardJson = dashboardsJson.firstWhere(
             (dash) => dash['DashboardID']?.toString() == widget.dashboardId,
         orElse: () => throw Exception('Dashboard with ID ${widget.dashboardId} not found.'),
       );
+      debugPrint('[DashboardView] -> Found matching dashboard JSON for ID: ${widget.dashboardId}');
 
       final dashboard = Dashboard.fromJson(dashboardJson);
+      debugPrint('[DashboardView] -> Successfully parsed dashboard: "${dashboard.dashboardName}"');
+
 
       if (mounted) {
         setState(() {
@@ -81,28 +88,35 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
         setState(() {
           _dashboardFuture = Future.error(e, stacktrace);
         });
-        debugPrint('[DashboardView] Error loading dashboard or reports: $e\n$stacktrace');
+        debugPrint('[DashboardView] !!! ERROR loading dashboard or reports: $e\n$stacktrace');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to load dashboard: ${e.toString()}'), backgroundColor: Colors.red),
         );
       }
     }
+    debugPrint('[DashboardView] --- Finished _loadDashboardAndReports ---');
   }
 
   Map<String, dynamic>? _getReportDefinition(int recNo) {
     try {
-      return _allReportDefinitions.firstWhere(
+      debugPrint('[DashboardView] Searching for report definition with RecNo: $recNo');
+      final report = _allReportDefinitions.firstWhere(
             (report) => report['RecNo']?.toString() == recNo.toString(),
       );
+      debugPrint('[DashboardView] -> Found match for RecNo $recNo: "${report['Report_label']}"');
+      return report;
     } catch (e) {
-      debugPrint('[DashboardView] FAILED to find a match for RecNo $recNo.');
+      debugPrint('[DashboardView] !!! FAILED to find a match for RecNo $recNo.');
       return null;
     }
   }
 
   void _navigateToReport(DashboardReportCardConfig cardConfig) {
+    debugPrint('\n--- [DashboardView] Navigating to report ---');
+    debugPrint('Tapped card: "${cardConfig.displayTitle}" (RecNo: ${cardConfig.reportRecNo})');
     final reportDef = _getReportDefinition(cardConfig.reportRecNo);
     if (reportDef == null || reportDef.isEmpty) {
+      debugPrint('Navigation FAILED: Report definition was not found.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Could not find the definition for report: ${cardConfig.displayTitle}'), backgroundColor: Colors.red),
@@ -111,6 +125,7 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
       return;
     }
     if (reportDef['API_name'] == null || reportDef['API_name'].toString().isEmpty) {
+      debugPrint('Navigation FAILED: API name is missing in the report definition.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Configuration error: API name is missing for this report.'), backgroundColor: Colors.red),
@@ -118,6 +133,8 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
       }
       return;
     }
+
+    debugPrint('Checks passed. Navigating to PreSelectedReportLoader with report: "${reportDef['Report_label']}"');
     if (mounted) {
       Navigator.push(
         context,
@@ -132,6 +149,7 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
   }
 
   void _navigateToEditScreen(Dashboard dashboard) async {
+    debugPrint('[DashboardView] Navigating to edit screen for dashboard: "${dashboard.dashboardName}"');
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -146,7 +164,10 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
     );
 
     if (result == true && mounted) {
+      debugPrint('[DashboardView] Returned from edit screen with "true" result. Refreshing dashboard...');
       _loadDashboardAndReports();
+    } else {
+      debugPrint('[DashboardView] Returned from edit screen. No refresh needed.');
     }
   }
 
@@ -196,7 +217,6 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
                 : _DashboardTemplateRenderer(
               dashboard: dashboard,
               onReportCardTap: _navigateToReport,
-              // --- CHANGE: Pass the apiService down ---
               apiService: widget.apiService,
             ),
           );
@@ -209,7 +229,6 @@ class _DashboardViewScreenState extends State<DashboardViewScreen> {
 class _DashboardTemplateRenderer extends StatelessWidget {
   final Dashboard dashboard;
   final Function(DashboardReportCardConfig) onReportCardTap;
-  // --- CHANGE: Accept the apiService ---
   final ReportAPIService apiService;
 
   const _DashboardTemplateRenderer({
@@ -221,22 +240,33 @@ class _DashboardTemplateRenderer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('\n--- [DashboardTemplateRenderer] Rendering Dashboard ---');
+    debugPrint('Dashboard Name: "${dashboard.dashboardName}"');
+    debugPrint('Template ID from config: "${dashboard.templateConfig.id}"');
+
     final DashboardTemplateEnum template = DashboardTemplateEnum.values.firstWhere(
           (e) => e.id == dashboard.templateConfig.id,
-      orElse: () => DashboardTemplateEnum.classicClean,
+      orElse: () {
+        debugPrint('-> Template ID not found or invalid. Falling back to default: classicClean');
+        return DashboardTemplateEnum.classicClean;
+      },
     );
+
+    debugPrint('Selected Template Enum: $template');
 
     switch (template) {
       case DashboardTemplateEnum.classicClean:
+        debugPrint('--> Rendering with: ClassicCleanTemplate');
         return ClassicCleanTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
       case DashboardTemplateEnum.modernMinimal:
-      // --- CHANGE: Pass the apiService to the template ---
+        debugPrint('--> Rendering with: ModernMinimalTemplate');
         return ModernMinimalTemplate(
           dashboard: dashboard,
           onReportCardTap: onReportCardTap,
           apiService: apiService,
         );
       case DashboardTemplateEnum.vibrantBold:
+        debugPrint('--> Rendering with: VibrantBoldTemplate');
         return VibrantBoldTemplate(dashboard: dashboard, onReportCardTap: onReportCardTap);
     }
   }

@@ -33,6 +33,7 @@ class _ReportUIState extends State<ReportUI> {
   final Map<String, TextEditingController> _paramControllers = {};
   final Map<String, FocusNode> _paramFocusNodes = {};
 
+// List of date formats to try when parsing a date string.
   final List<DateFormat> _dateFormatsToTry = [
     DateFormat('dd-MM-yyyy'),
     DateFormat('dd-MMM-yyyy'),
@@ -63,7 +64,7 @@ class _ReportUIState extends State<ReportUI> {
   void _handlePrimaryAction(BuildContext context, ReportState state) {
     if (_selectedReport == null) return;
     final bloc = context.read<ReportBlocGenerate>();
-    debugPrint('\n=============================================\n==== "${_isPreloadedMode ? "APPLY FILTERS" : "SHOW"}" CLICKED ====\nReport: ${_selectedReport!['Report_label']}\n--- CURRENT PARAMETER VALUES ---\n${state.userParameterValues.entries.map((e) => '  ${e.key}: "${e.value}"').join('\n')}\n=============================================\n');
+    debugPrint('\n=============================================\n==== "${_isPreloadedMode ? "APPLY FILTERS" : "SHOW"}" CLICKED ====\nReport: ${_selectedReport?['Report_label']}\nParameters:\n${state.userParameterValues.entries.map((e) => '  ${e.key}: "${e.value}"').join('\n')}\n=============================================\n');
     if (!context.mounted) return;
     if (_isPreloadedMode) {
       Navigator.pop(context, true);
@@ -81,6 +82,8 @@ class _ReportUIState extends State<ReportUI> {
     }
   }
 
+  /// Tries to parse a date string with multiple formats.
+  /// Returns the parsed DateTime and the format that was used.
   (DateTime?, DateFormat?) _parseDateSmartly(String dateString) {
     if (dateString.isEmpty) return (null, null);
     for (var format in _dateFormatsToTry) {
@@ -88,7 +91,7 @@ class _ReportUIState extends State<ReportUI> {
         final dateTime = format.parseStrict(dateString);
         return (dateTime, format);
       } catch (e) {
-        // continue
+// Ignore and try the next format.
       }
     }
     return (null, null);
@@ -188,9 +191,9 @@ class _ReportUIState extends State<ReportUI> {
     ]);
   }
 
-  // =========================================================================
-  // == START: NEW ADVANCED DIALOG FOR DATABASE TRANSFER
-  // =========================================================================
+// =========================================================================
+// == START: NEW ADVANCED DIALOG FOR DATABASE TRANSFER
+// =========================================================================
   void _showTransferDialog(BuildContext context) {
     final bloc = context.read<ReportBlocGenerate>();
     final currentState = bloc.state;
@@ -210,11 +213,11 @@ class _ReportUIState extends State<ReportUI> {
         );
       },
     );
-  }
-  // =========================================================================
-  // == END: NEW DIALOG
-  // =========================================================================
 
+  }
+// =========================================================================
+// == END: NEW DIALOG
+// =========================================================================
 
   @override
   Widget build(BuildContext context) {
@@ -229,217 +232,320 @@ class _ReportUIState extends State<ReportUI> {
 
   Widget _buildContent(BuildContext context) {
     return Scaffold(
-      appBar: AppBarWidget(title: _isPreloadedMode ? 'Filter Report' : 'Report Selection', onBackPress: () => Navigator.pop(context)),
-      body: BlocListener<ReportBlocGenerate, ReportState>(
-        listener: (context, state) {
-          // --- Handle Error Message ---
-          if (state.error != null) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(state.error!),
-              backgroundColor: Colors.redAccent,
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ));
-            // MODIFICATION: Use addPostFrameCallback to clear the error.
-            // This ensures the message is cleared only AFTER the current frame has finished building,
-            // preventing race conditions.
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.read<ReportBlocGenerate>().emit(state.copyWith(error: null));
-            });
-          }
-
-          // --- Handle Success Message ---
-          if (state.successMessage != null) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(state.successMessage!),
-              backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.all(16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ));
-            // MODIFICATION: Use addPostFrameCallback here as well for consistency and reliability.
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null));
-            });
-          }
-          if (state.successMessage != null) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(state.successMessage!), backgroundColor: Colors.green, behavior: SnackBarBehavior.floating, margin: const EdgeInsets.all(16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)))); WidgetsBinding.instance.addPostFrameCallback((_) { context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null)); }); }
-        },
-        child: BlocBuilder<ReportBlocGenerate, ReportState>(
-          builder: (context, state) {
-            String? clientApiName;
-            final bool isReportSelected = _selectedReport != null;
-            final bool areFieldConfigsLoaded = state.fieldConfigs.isNotEmpty;
-
-            if (isReportSelected) {
-              clientApiName = _selectedReport!['API_name']?.toString();
-            }
-            final bool isClientApiNameValid = clientApiName != null && clientApiName.isNotEmpty;
-            final bool canDeploy = isReportSelected && areFieldConfigsLoaded && isClientApiNameValid;
-
-            final textInputParams = state.selectedApiParameters.where((p) { final configType = p['config_type']?.toString().toLowerCase() ?? ''; return p['show'] == true && !['radio', 'checkbox'].contains(configType); }).toList();
-            for (var param in textInputParams) {
-              final paramName = param['name'].toString();
-              if (!_paramControllers.containsKey(paramName)) { _paramControllers[paramName] = TextEditingController(); _paramFocusNodes[paramName] = FocusNode(); }
-              final isPicker = (param['config_type']?.toString().toLowerCase() == 'database') && (param['master_table']?.toString().isNotEmpty == true);
-              final currentApiValue = state.userParameterValues[paramName] ?? '';
-              String displayValue = currentApiValue;
-              if (isPicker && state.pickerOptions.containsKey(paramName) && currentApiValue.isNotEmpty) { displayValue = state.pickerOptions[paramName]!.firstWhere((o) => o['value'] == currentApiValue, orElse: () => {'label': currentApiValue})['label']!; }
-              if (_paramControllers[paramName]!.text != displayValue) { _paramControllers[paramName]!.text = displayValue; }
+        appBar: AppBarWidget(title: _isPreloadedMode ? 'Filter Report' : 'Report Selection', onBackPress: () => Navigator.pop(context)),
+        body: BlocListener<ReportBlocGenerate, ReportState>(
+          listener: (context, state) {
+// --- Handle Error Message ---
+            if (state.error != null) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(state.error!),
+                backgroundColor: Colors.redAccent,
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ));
+// Use addPostFrameCallback to clear the error after the frame is built.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                context.read<ReportBlocGenerate>().emit(state.copyWith(error: null));
+              });
             }
 
-            final Widget reportSelectionWidget;
-            if (_isPreloadedMode) {
-              reportSelectionWidget = _buildTextField(controller: _reportLabelDisplayController, label: 'Report Name', readOnly: true, icon: Icons.label_important);
-            } else {
-              reportSelectionWidget = Autocomplete<Map<String, dynamic>>(
-                initialValue: TextEditingValue(text: _reportLabelDisplayController.text),
-                optionsBuilder: (textEditingValue) { if (textEditingValue.text.isEmpty && _selectedReport != null) { WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); }); } return state.reports.where((r) => r['Report_label'].toString().toLowerCase().contains(textEditingValue.text.toLowerCase())).toList()..sort((a, b) => (a['Report_label']?.toString() ?? '').compareTo(b['Report_label']?.toString() ?? '')); },
-                displayStringForOption: (option) => option['Report_label'],
-                onSelected: (selection) {
-                  final bloc = context.read<ReportBlocGenerate>();
-                  bloc.add(ResetReports());
-                  setState(() {
-                    _selectedReport = selection;
-                    _reportLabelDisplayController.text = selection['Report_label'];
-                  });
+// --- Handle Success Message ---
+            if (state.successMessage != null) {
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(state.successMessage!),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                margin: const EdgeInsets.all(16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ));
+// Use addPostFrameCallback for consistency.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                context.read<ReportBlocGenerate>().emit(state.copyWith(successMessage: null));
+              });
+            }
+          },
+          child: BlocBuilder<ReportBlocGenerate, ReportState>(
+            builder: (context, state) {
+              String? clientApiName;
+              final bool isReportSelected = _selectedReport != null;
+              final bool areFieldConfigsLoaded = state.fieldConfigs.isNotEmpty;
 
-                  final actionsRaw = selection['actions_config'];
-                  List<Map<String, dynamic>> actionsConfig = [];
-                  if (actionsRaw is List) {
-                    actionsConfig = List.from(actionsRaw);
-                  } else if (actionsRaw is String && actionsRaw.isNotEmpty) {
-                    try { actionsConfig = List.from(jsonDecode(actionsRaw)); } catch (e) {
-                      debugPrint('Error decoding actions_config from selection: $e');
+              if (isReportSelected) {
+                clientApiName = _selectedReport!['API_name']?.toString();
+              }
+              final bool isClientApiNameValid = clientApiName != null && clientApiName.isNotEmpty;
+              final bool canDeploy = isReportSelected && areFieldConfigsLoaded && isClientApiNameValid;
+
+              final textInputParams = state.selectedApiParameters.where((p) { final configType = p['config_type']?.toString().toLowerCase() ?? ''; return p['show'] == true && !['radio', 'checkbox'].contains(configType); }).toList();
+              for (var param in textInputParams) {
+                final paramName = param['name'].toString();
+                if (!_paramControllers.containsKey(paramName)) { _paramControllers[paramName] = TextEditingController(); _paramFocusNodes[paramName] = FocusNode(); }
+                final isPicker = (param['config_type']?.toString().toLowerCase() == 'database') && (param['master_table']?.toString().isNotEmpty == true);
+                final currentApiValue = state.userParameterValues[paramName] ?? '';
+                String displayValue = currentApiValue;
+                if (isPicker && state.pickerOptions.containsKey(paramName) && currentApiValue.isNotEmpty) { displayValue = state.pickerOptions[paramName]!.firstWhere((o) => o['value'] == currentApiValue, orElse: () => {'label': currentApiValue})['label']!; }
+                if (_paramControllers[paramName]!.text != displayValue) { _paramControllers[paramName]!.text = displayValue; }
+              }
+
+              final Widget reportSelectionWidget;
+              if (_isPreloadedMode) {
+                reportSelectionWidget = _buildTextField(controller: _reportLabelDisplayController, label: 'Report Name', readOnly: true, icon: Icons.label_important);
+              } else {
+                reportSelectionWidget = Autocomplete<Map<String, dynamic>>(
+                  initialValue: TextEditingValue(text: _reportLabelDisplayController.text),
+                  // =========== MODIFICATION STARTS HERE ===========
+                  optionsBuilder: (textEditingValue) {
+                    if (textEditingValue.text.isEmpty && _selectedReport != null) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); });
                     }
-                  }
-                  final includePdfFooter = selection['pdf_footer_datetime'] == true;
+                    final query = textEditingValue.text.toLowerCase();
+                    if (query.isEmpty) {
+                      return state.reports..sort((a, b) => (a['Report_label']?.toString() ?? '').compareTo(b['Report_label']?.toString() ?? ''));
+                    }
+                    // Search by both report label and database name
+                    return state.reports.where((r) {
+                      final label = r['Report_label']?.toString().toLowerCase() ?? '';
+                      final dbName = r['DatabaseName']?.toString().toLowerCase() ?? '';
+                      return label.contains(query) || dbName.contains(query);
+                    }).toList()..sort((a, b) => (a['Report_label']?.toString() ?? '').compareTo(b['Report_label']?.toString() ?? ''));
+                  },
+                  // Define how the selected option is displayed in the text field
+                  displayStringForOption: (option) {
+                    final label = option['Report_label'] ?? 'Unknown Report';
+                    final dbName = option['DatabaseName'];
+                    if (dbName != null && dbName.toString().isNotEmpty) {
+                      return '$label ($dbName)';
+                    }
+                    return label;
+                  },
+                  onSelected: (selection) {
+                    final bloc = context.read<ReportBlocGenerate>();
+                    bloc.add(ResetReports());
+                    setState(() {
+                      _selectedReport = selection;
+                      // Set the text field to the combined display string
+                      final displayString = (selection['DatabaseName'] != null && selection['DatabaseName'].toString().isNotEmpty)
+                          ? '${selection['Report_label']} (${selection['DatabaseName']})'
+                          : selection['Report_label'] as String;
+                      _reportLabelDisplayController.text = displayString;
+                      debugPrint("UI: Selected report '$displayString'");
+                    });
 
-                  bloc.add(FetchApiDetails(
-                    selection['API_name'],
-                    actionsConfig,
-                    includePdfFooterDateTimeFromReportMetadata: includePdfFooter,
-                    reportSelectionPayload: selection,
-                  ));
-                },
-                fieldViewBuilder: (c, tc, fn, ofs) => _buildTextField(controller: tc, focusNode: fn, label: 'Report Label', icon: Icons.label, enableClearButton: true, onClear: () { _resetAllFields(context); tc.clear(); }, onChanged: (v) { _reportLabelDisplayController.text = v; if (v.isEmpty) WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); }); }),
-                optionsViewBuilder: (c, onSel, opts) => Align(alignment: Alignment.topLeft, child: Material(elevation: 4, child: SizedBox(width: 300, height: opts.length > 5 ? 250 : null, child: ListView.builder(itemCount: opts.length, itemBuilder: (ctx, i) => ListTile(title: Text(opts.elementAt(i)['Report_label']), onTap: () => onSel(opts.elementAt(i))))))),
-              );
-            }
+                    final actionsRaw = selection['actions_config'];
+                    List<Map<String, dynamic>> actionsConfig = [];
+                    if (actionsRaw is List) {
+                      actionsConfig = List.from(actionsRaw);
+                    } else if (actionsRaw is String && actionsRaw.isNotEmpty) {
+                      try { actionsConfig = List.from(jsonDecode(actionsRaw)); } catch (e) {
+                        debugPrint('Error decoding actions_config from selection: $e');
+                      }
+                    }
+                    final includePdfFooter = selection['pdf_footer_datetime'] == true;
 
-            return Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    children: [
-                      Card(
-                        color: Colors.white, elevation: 6, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              reportSelectionWidget,
-                              const SizedBox(height: 20),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: Wrap(
-                                  spacing: 12.0,
-                                  runSpacing: 12.0,
-                                  alignment: WrapAlignment.end,
-                                  children: [
-                                    _buildButton(text: _isPreloadedMode ? 'Apply Filters' : 'Show', color: Colors.blueAccent, onPressed: _selectedReport != null ? () => _handlePrimaryAction(context, state) : null, icon: _isPreloadedMode ? Icons.check_circle_outline : Icons.visibility),
-                                    if (!_isPreloadedMode) ...[
-                                      _buildButton(
-                                          text: 'Send to Client',
-                                          color: Colors.purple,
-                                          onPressed: canDeploy ? () {
-                                            debugPrint('UI: "Send to Client" clicked. Dispatching DeployReportToClient event.');
-                                            context.read<ReportBlocGenerate>().add(
-                                              DeployReportToClient(
-                                                reportMetadata: _selectedReport!,
-                                                fieldConfigs: state.fieldConfigs,
-                                                clientApiName: clientApiName!,
-                                              ),
-                                            );
-                                          } : null,
-                                          icon: Icons.cloud_upload
-                                      ),
-                                      _buildButton(
-                                        text: 'Transfer',
-                                        color: Colors.teal,
-                                        onPressed: canDeploy ? () => _showTransferDialog(context) : null,
-                                        icon: Icons.sync_alt,
-                                      ),
-                                    ],
-                                    _buildButton(text: 'Reset', color: Colors.redAccent, onPressed: () => _resetAllFields(context), icon: Icons.refresh),
-                                  ],
-                                ),
-                              ),
-                              if (state.selectedApiParameters.isNotEmpty) ...[
-                                const Divider(height: 40),
-                                Text('Parameters', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black87)),
-                                const SizedBox(height: 16),
-                                ConstrainedBox(
-                                  constraints: BoxConstraints(
-                                    maxHeight: MediaQuery.of(context).size.height * 0.45,
-                                  ),
-                                  child: SingleChildScrollView(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: state.selectedApiParameters.where((param) => param['show'] == true).map((param) {
-                                        final paramName = param['name'].toString();
-                                        final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
-                                        final configType = param['config_type']?.toString().toLowerCase() ?? '';
-                                        final isDatabasePicker = (configType == 'database') && (param['master_table']?.toString().isNotEmpty == true);
-                                        final isDateField = (configType == 'date') || (configType != 'radio' && configType != 'checkbox' && !isDatabasePicker && paramName.toLowerCase().contains('date') && state.userParameterValues.containsKey(paramName) && state.userParameterValues[paramName]!.isNotEmpty && _parseDateSmartly(state.userParameterValues[paramName]!).$1 != null);
+                    bloc.add(FetchApiDetails(
+                      selection['API_name'],
+                      actionsConfig,
+                      includePdfFooterDateTimeFromReportMetadata: includePdfFooter,
+                      reportSelectionPayload: selection,
+                    ));
+                  },
+                  fieldViewBuilder: (c, tc, fn, ofs) => _buildTextField(controller: tc, focusNode: fn, label: 'Report Label', icon: Icons.label, enableClearButton: true, onClear: () { _resetAllFields(context); tc.clear(); }, onChanged: (v) { _reportLabelDisplayController.text = v; if (v.isEmpty) WidgetsBinding.instance.addPostFrameCallback((_) { _resetAllFields(context); }); }),
+                  // Define the visual layout for the dropdown options
+                  optionsViewBuilder: (c, onSel, opts) => Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                      elevation: 4,
+                      child: SizedBox(
+                        width: 350, // Increased width to accommodate subtitle
+                        height: opts.length > 5 ? 250 : null,
+                        child: ListView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: opts.length,
+                          itemBuilder: (ctx, i) {
+                            final option = opts.elementAt(i);
+                            final label = option['Report_label']?.toString() ?? 'Unknown Report';
+                            final dbName = option['DatabaseName']?.toString();
 
-                                        if (configType == 'radio') {
-                                          return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildRadioParameter(param: param, currentValue: state.userParameterValues[paramName] ?? '', onChanged: (newValue) { context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue)); }));
-                                        }
-                                        if (configType == 'checkbox') {
-                                          return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildCheckboxParameter(param: param, currentValue: state.userParameterValues[paramName] ?? '', onChanged: (newValue) { context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue)); }));
-                                        }
-                                        if (isDatabasePicker) {
-                                          final controller = _paramControllers[paramName]!;
-                                          return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Autocomplete<Map<String, String>>(optionsBuilder: (v) { if (!state.pickerOptions.containsKey(paramName) && state.serverIP != null) { context.read<ReportBlocGenerate>().add(FetchPickerOptions(paramName: paramName, serverIP: state.serverIP!, userName: state.userName!, password: state.password!, databaseName: state.databaseName!, masterTable: param['master_table'].toString(), masterField: param['master_field'].toString(), displayField: param['display_field'].toString())); } final opts = state.pickerOptions[paramName] ?? []; return v.text.isEmpty ? opts : opts.where((o) => o['label']!.toLowerCase().contains(v.text.toLowerCase())); }, displayStringForOption: (o) => o['label']!, onSelected: (s) { controller.text = s['label']!; context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, s['value']!)); }, fieldViewBuilder: (c, tc, fn, ofs) { if (tc.text != controller.text) { tc.text = controller.text; } return _buildTextField(controller: tc, focusNode: fn, label: paramLabel, enableClearButton: true, onClear: () { tc.clear(); context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, '')); }, onChanged: (val) => context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, val))); }, optionsViewBuilder: (c, onSel, opts) => Align(alignment: Alignment.topLeft, child: Material(elevation: 4, child: SizedBox(width: 300, height: opts.length > 5 ? 250 : null, child: ListView.builder(itemCount: opts.length, itemBuilder: (ctx, i) => ListTile(title: Text(opts.elementAt(i)['label']!), onTap: () => onSel(opts.elementAt(i)))))))));
-                                        }
-                                        if (isDateField) {
-                                          final controller = _paramControllers[paramName]!;
-                                          return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildTextField(label: paramLabel, controller: controller, icon: Icons.calendar_today, readOnly: true, enableClearButton: true, onClear: () { controller.clear(); context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, '')); },
-                                              onTap: () async {
-                                                final parseResult = _parseDateSmartly(controller.text);
-                                                final DateFormat detectedFormat = parseResult.$2 ?? _dateFormatsToTry.first;
-                                                final pickedDate = await showDatePicker(context: context, initialDate: parseResult.$1 ?? DateTime.now(), firstDate: DateTime(2000), lastDate: DateTime(2100), builder: (context, child) => Theme(data: ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: Colors.blueAccent, onPrimary: Colors.white, surface: Colors.white, onSurface: Colors.black87), dialogBackgroundColor: Colors.white, textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: Colors.blueAccent, textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600)))), child: child!));
-                                                if (pickedDate != null) {
-                                                  final formattedDate = detectedFormat.format(pickedDate);
-                                                  context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, formattedDate));
-                                                }
-                                              }
-                                          ));
-                                        }
-                                        return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildTextField(controller: _paramControllers[paramName]!, focusNode: _paramFocusNodes[paramName]!, label: paramLabel, icon: Icons.text_fields, enableClearButton: true, onClear: () { _paramControllers[paramName]!.clear(); context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, '')); }, onChanged: (value) => context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, value))));
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                            // Added log as requested
+                            if (i == 0) {
+                              debugPrint("UI: Building autocomplete list. First option's DB is '$dbName'");
+                            }
+
+                            return ListTile(
+                              title: Text(label, style: GoogleFonts.poppins(fontSize: 14)),
+                              subtitle: dbName != null && dbName.isNotEmpty
+                                  ? Text(
+                                dbName,
+                                style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[600]),
+                              )
+                                  : null,
+                              onTap: () => onSel(option),
+                            );
+                          },
                         ),
                       ),
-                    ],
+                    ),
                   ),
-                ),
-                if (state.isLoading) const Positioned.fill(child: SubtleLoader()),
-                if (state.reports.isEmpty && !state.isLoading && !_isPreloadedMode) const Center(child: Text('No reports available.')),
-              ],
-            );
-          },
-        ),
-      ),
-    );
+                  // =========== MODIFICATION ENDS HERE ===========
+                );
+              }
+
+              return Stack(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      children: [
+                        Card(
+                          color: Colors.white, elevation: 6, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: Padding(
+                            padding: const EdgeInsets.all(20.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                reportSelectionWidget,
+                                const SizedBox(height: 20),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Wrap(
+                                    spacing: 12.0,
+                                    runSpacing: 12.0,
+                                    alignment: WrapAlignment.end,
+                                    children: [
+                                      _buildButton(text: _isPreloadedMode ? 'Apply Filters' : 'Show', color: Colors.blueAccent, onPressed: _selectedReport != null ? () => _handlePrimaryAction(context, state) : null, icon: _isPreloadedMode ? Icons.check_circle_outline : Icons.visibility),
+                                      if (!_isPreloadedMode) ...[
+                                        _buildButton(
+                                            text: 'Send to Client',
+                                            color: Colors.purple,
+                                            onPressed: canDeploy ? () {
+                                              debugPrint('UI: "Send to Client" clicked. Dispatching DeployReportToClient event.');
+                                              context.read<ReportBlocGenerate>().add(
+                                                DeployReportToClient(
+                                                  reportMetadata: _selectedReport!,
+                                                  fieldConfigs: state.fieldConfigs,
+                                                  clientApiName: clientApiName!,
+                                                ),
+                                              );
+                                            } : null,
+                                            icon: Icons.cloud_upload
+                                        ),
+                                        _buildButton(
+                                          text: 'Transfer',
+                                          color: Colors.teal,
+                                          onPressed: canDeploy ? () => _showTransferDialog(context) : null,
+                                          icon: Icons.sync_alt,
+                                        ),
+                                      ],
+                                      _buildButton(text: 'Reset', color: Colors.redAccent, onPressed: () => _resetAllFields(context), icon: Icons.refresh),
+                                    ],
+                                  ),
+                                ),
+                                if (state.selectedApiParameters.isNotEmpty) ...[
+                                  const Divider(height: 40),
+                                  Text('Parameters', style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: Colors.black87)),
+                                  const SizedBox(height: 16),
+                                  ConstrainedBox(
+                                    constraints: BoxConstraints(
+                                      maxHeight: MediaQuery.of(context).size.height * 0.45,
+                                    ),
+                                    child: SingleChildScrollView(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: state.selectedApiParameters.where((param) => param['show'] == true).map((param) {
+                                          final paramName = param['name'].toString();
+                                          final paramLabel = param['field_label']?.isNotEmpty == true ? param['field_label'] : paramName;
+                                          final configType = param['config_type']?.toString().toLowerCase() ?? '';
+                                          final isDatabasePicker = (configType == 'database') && (param['master_table']?.toString().isNotEmpty == true);
+
+                                          final isDateField = configType == 'date' ||
+                                              (!['radio', 'checkbox'].contains(configType) &&
+                                                  !isDatabasePicker &&
+                                                  (paramName.toLowerCase().contains('date') || paramLabel.toLowerCase().contains('date')));
+
+                                          if (configType == 'radio') {
+                                            return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildRadioParameter(param: param, currentValue: state.userParameterValues[paramName] ?? '', onChanged: (newValue) { context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue)); }));
+                                          }
+                                          if (configType == 'checkbox') {
+                                            return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildCheckboxParameter(param: param, currentValue: state.userParameterValues[paramName] ?? '', onChanged: (newValue) { context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, newValue)); }));
+                                          }
+                                          if (isDatabasePicker) {
+                                            final controller = _paramControllers[paramName]!;
+                                            return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: Autocomplete<Map<String, String>>(optionsBuilder: (v) { if (!state.pickerOptions.containsKey(paramName) && state.serverIP != null) { context.read<ReportBlocGenerate>().add(FetchPickerOptions(paramName: paramName, serverIP: state.serverIP!, userName: state.userName!, password: state.password!, databaseName: state.databaseName!, masterTable: param['master_table'].toString(), masterField: param['master_field'].toString(), displayField: param['display_field'].toString())); } final opts = state.pickerOptions[paramName] ?? []; return v.text.isEmpty ? opts : opts.where((o) => o['label']!.toLowerCase().contains(v.text.toLowerCase())); }, displayStringForOption: (o) => o['label']!, onSelected: (s) { controller.text = s['label']!; context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, s['value']!)); }, fieldViewBuilder: (c, tc, fn, ofs) { if (tc.text != controller.text) { tc.text = controller.text; } return _buildTextField(controller: tc, focusNode: fn, label: paramLabel, enableClearButton: true, onClear: () { tc.clear(); context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, '')); }, onChanged: (val) => context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, val))); }, optionsViewBuilder: (c, onSel, opts) => Align(alignment: Alignment.topLeft, child: Material(elevation: 4, child: SizedBox(width: 300, height: opts.length > 5 ? 250 : null, child: ListView.builder(itemCount: opts.length, itemBuilder: (ctx, i) => ListTile(title: Text(opts.elementAt(i)['label']!), onTap: () => onSel(opts.elementAt(i)))))))));
+                                          }
+// START: Date Picker Implementation
+                                          if (isDateField) {
+                                            final controller = _paramControllers[paramName]!;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 16.0),
+                                              child: _buildTextField(
+                                                label: paramLabel,
+                                                controller: controller,
+                                                icon: Icons.calendar_today,
+                                                readOnly: true,
+                                                enableClearButton: true,
+                                                onClear: () {
+                                                  controller.clear();
+                                                  context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, ''));
+                                                },
+                                                onTap: () async {
+                                                  final parseResult = _parseDateSmartly(controller.text);
+// Default to the first format if current text is not a valid date
+                                                  final DateFormat detectedFormat = parseResult.$2 ?? _dateFormatsToTry.first;
+                                                  final pickedDate = await showDatePicker(
+                                                    context: context,
+                                                    initialDate: parseResult.$1 ?? DateTime.now(),
+                                                    firstDate: DateTime(2000),
+                                                    lastDate: DateTime(2100),
+                                                    builder: (context, child) => Theme(
+                                                      data: ThemeData.light().copyWith(
+                                                        colorScheme: const ColorScheme.light(
+                                                          primary: Colors.blueAccent,
+                                                          onPrimary: Colors.white,
+                                                          surface: Colors.white,
+                                                          onSurface: Colors.black87,
+                                                        ),
+                                                        dialogBackgroundColor: Colors.white,
+                                                        textButtonTheme: TextButtonThemeData(
+                                                          style: TextButton.styleFrom(
+                                                            foregroundColor: Colors.blueAccent,
+                                                            textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      child: child!,
+                                                    ),
+                                                  );
+                                                  if (pickedDate != null) {
+// Format the picked date back using the detected format
+                                                    final formattedDate = detectedFormat.format(pickedDate);
+                                                    context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, formattedDate));
+                                                  }
+                                                },
+                                              ),
+                                            );
+                                          }
+// END: Date Picker Implementation
+                                          return Padding(padding: const EdgeInsets.only(bottom: 16.0), child: _buildTextField(controller: _paramControllers[paramName]!, focusNode: _paramFocusNodes[paramName]!, label: paramLabel, icon: Icons.text_fields, enableClearButton: true, onClear: () { _paramControllers[paramName]!.clear(); context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, '')); }, onChanged: (value) => context.read<ReportBlocGenerate>().add(UpdateParameter(paramName, value))));
+                                        }).toList(),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (state.isLoading) const Positioned.fill(child: SubtleLoader()),
+                  if (state.reports.isEmpty && !state.isLoading && !_isPreloadedMode) const Center(child: Text('No reports available.')),
+                ],
+              );
+            },
+          ),
+        ));
   }
 }
 
@@ -466,7 +572,7 @@ class __TransferDialogContentState extends State<_TransferDialogContent> {
   final TextEditingController _serverController = TextEditingController();
   final TextEditingController _userController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
+  final TextEditingController _connectionStringController = TextEditingController();
   bool _isFetchingDatabases = false;
   List<String> _databaseList = [];
   String? _selectedDatabase;
@@ -486,6 +592,7 @@ class __TransferDialogContentState extends State<_TransferDialogContent> {
     _serverController.dispose();
     _userController.dispose();
     _passwordController.dispose();
+    _connectionStringController.dispose();
     _errorClearTimer?.cancel();
     super.dispose();
   }
@@ -539,6 +646,7 @@ class __TransferDialogContentState extends State<_TransferDialogContent> {
       targetUserName: _userController.text,
       targetPassword: _passwordController.text,
       targetDatabaseName: _selectedDatabase!,
+      targetConnectionString: _connectionStringController.text,
     ));
   }
 
@@ -645,6 +753,7 @@ class __TransferDialogContentState extends State<_TransferDialogContent> {
                         _serverController.text = value?['serverIP'] ?? '';
                         _userController.text = value?['userName'] ?? '';
                         _passwordController.text = value?['password'] ?? '';
+                        _connectionStringController.text = value?['connectionString'] ?? '';
                         _databaseList = [];
                         _selectedDatabase = null;
                         _error = null;
@@ -663,6 +772,7 @@ class __TransferDialogContentState extends State<_TransferDialogContent> {
                 _buildModernTextField(controller: _serverController, label: "Server IP", icon: Icons.dns_outlined),
                 _buildModernTextField(controller: _userController, label: "User Name", icon: Icons.person_outline),
                 _buildModernTextField(controller: _passwordController, label: "Password", icon: Icons.password_outlined, obscureText: true),
+                _buildModernTextField(controller: _connectionStringController, label: "Connection String", icon: Icons.link),
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerRight,

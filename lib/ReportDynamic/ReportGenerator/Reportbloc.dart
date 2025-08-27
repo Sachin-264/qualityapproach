@@ -115,6 +115,7 @@ class TransferReportToDatabase extends ReportEvent {
   final String targetUserName;
   final String targetPassword;
   final String targetDatabaseName;
+  final String targetConnectionString;
 
   TransferReportToDatabase({
     required this.reportMetadata,
@@ -123,6 +124,7 @@ class TransferReportToDatabase extends ReportEvent {
     required this.targetUserName,
     required this.targetPassword,
     required this.targetDatabaseName,
+    required this.targetConnectionString,
   });
 }
 // =========================================================================
@@ -267,17 +269,81 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     ));
   }
 
+  // =========== MODIFICATION STARTS HERE: Corrected logic with extensive logging ===========
   Future<void> _onLoadReports(LoadReports event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
     try {
+      // 1. Fetch the initial list of reports.
       final reports = await apiService.fetchDemoTable();
-      emit(state.copyWith(isLoading: false, reports: reports));
-      debugPrint('Bloc: Loaded ${reports.length} reports for selection.');
+      if (reports.isEmpty) {
+        emit(state.copyWith(isLoading: false, reports: []));
+        debugPrint('Bloc: No reports found.');
+        return;
+      }
+
+      // 2. Get a unique list of API names from the reports to avoid duplicate calls.
+      final Set<String> apiNames = reports
+          .map((report) => report['API_name']?.toString())
+          .whereType<String>()
+          .where((apiName) => apiName.isNotEmpty)
+          .toSet();
+
+      debugPrint('Bloc: Found ${apiNames.length} unique API names to fetch details for: $apiNames');
+
+      // 3. Fetch all API details concurrently.
+      // We map each name to a future that will return a map containing BOTH the original name and its details.
+      final apiDetailsFutures = apiNames.map((name) async {
+        try {
+          final details = await apiService.getApiDetails(name);
+          // IMPORTANT: Combine the original name with the fetched details to avoid losing the link.
+          return {'originalApiName': name, ...details};
+        } catch (e) {
+          debugPrint("Bloc: Could not fetch details for '$name', it will be skipped. Error: $e");
+          // Return at least the name on error so we know which one failed.
+          return {'originalApiName': name};
+        }
+      });
+      final allApiDetailsList = await Future.wait(apiDetailsFutures);
+
+      // 4. Create a lookup map from API name to Database name.
+      debugPrint('Bloc: Building API-to-Database map...');
+      final Map<String, String> apiToDbNameMap = {};
+      for (var details in allApiDetailsList) {
+        // Use the original name we explicitly saved.
+        final apiName = details['originalApiName']?.toString();
+        final dbName = details['databaseName']?.toString();
+
+        if (apiName != null && dbName != null) {
+          apiToDbNameMap[apiName] = dbName;
+          debugPrint("Bloc: Mapped '$apiName' -> '$dbName'");
+        } else {
+          debugPrint("Bloc: Could not create mapping for '$apiName' (DB name was null).");
+        }
+      }
+      debugPrint('Bloc: Finished building map. Mapped ${apiToDbNameMap.length} items.');
+
+      // 5. Enrich the original reports list with the database name.
+      final List<Map<String, dynamic>> enrichedReports = reports.map((report) {
+        final apiName = report['API_name']?.toString();
+        // Look up using the report's API name.
+        final dbName = apiToDbNameMap[apiName];
+        // Return a new map with the added DatabaseName key. It will be null if not found.
+        return {...report, 'DatabaseName': dbName};
+      }).toList();
+
+      if (enrichedReports.isNotEmpty) {
+        debugPrint("Bloc: Sample of first enriched report: ${jsonEncode(enrichedReports.first)}");
+      }
+
+      emit(state.copyWith(isLoading: false, reports: enrichedReports));
+      debugPrint('Bloc: Loaded and enriched ${enrichedReports.length} reports with database names.');
     } catch (e) {
       emit(state.copyWith(isLoading: false, error: 'Failed to load reports: $e'));
       debugPrint('Bloc: LoadReports error: $e');
     }
   }
+  // =========== MODIFICATION ENDS HERE ===========
+
 
   Future<void> _onFetchApiDetails(FetchApiDetails event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null));
@@ -313,6 +379,37 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
           initialUserParameterValues[paramName] = paramValue;
         }
       }
+
+      // ========== START: FIX FOR MISSING PICKER OPTIONS ==========
+      // Proactively fetch picker options as soon as the parameters and DB details are known.
+      // This solves the problem where ResetReports clears pickerOptions and they aren't re-fetched.
+      debugPrint('Bloc: [_onFetchApiDetails] - Proactively checking for and fetching picker options...');
+      if (serverIP != null && userName != null && password != null && databaseName != null) {
+        for (var param in fetchedParameters) {
+          final String paramName = param['name']?.toString() ?? '';
+          final String configType = param['config_type']?.toString().toLowerCase() ?? '';
+          final String? masterTable = param['master_table']?.toString();
+
+          if (configType == 'database' && masterTable != null && masterTable.isNotEmpty) {
+            debugPrint('Bloc: -> Found database picker for "$paramName". Dispatching FetchPickerOptions.');
+            // 'add' dispatches a new event for the BLoC to process.
+            add(FetchPickerOptions(
+              paramName: paramName,
+              serverIP: serverIP,
+              userName: userName,
+              password: password,
+              databaseName: databaseName,
+              masterTable: masterTable,
+              masterField: param['master_field'].toString(),
+              displayField: param['display_field'].toString(),
+            ));
+          }
+        }
+      } else {
+        debugPrint('Bloc: [_onFetchApiDetails] - Skipping picker options fetch because database connection details are missing.');
+      }
+      // ========== END: FIX FOR MISSING PICKER OPTIONS ==========
+
 
       if (event.chainPayload != null) {
         initialUserParameterValues.addAll(event.chainPayload!.initialParameters);
@@ -493,14 +590,14 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       debugPrint('Bloc: Picker options for ${event.paramName} already loaded. Skipping re-fetch.');
       return;
     }
-    emit(state.copyWith(isLoading: true, error: null, successMessage: null));
+    // Note: Do not emit isLoading: true here, as it's a background task that shouldn't block the whole UI
     try {
       debugPrint('Bloc: Fetching picker values for param: ${event.paramName}, masterTable: ${event.masterTable}, masterField: ${event.masterField}, displayField: ${event.displayField}');
       final List<Map<String, dynamic>> fetchedData = await apiService.fetchPickerData(
-        server: event.serverIP!,
-        UID: event.userName!,
-        PWD: event.password!,
-        database: event.databaseName!,
+        server: event.serverIP,
+        UID: event.userName,
+        PWD: event.password,
+        database: event.databaseName,
         masterTable: event.masterTable,
         masterField: event.masterField,
         displayField: event.displayField,
@@ -513,10 +610,10 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
       }).toList();
       final updatedPickerOptions = Map<String, List<Map<String, String>>>.from(state.pickerOptions);
       updatedPickerOptions[event.paramName] = mappedOptions;
-      emit(state.copyWith(isLoading: false, pickerOptions: updatedPickerOptions, error: null));
+      emit(state.copyWith(pickerOptions: updatedPickerOptions, error: null));
       debugPrint('Bloc: FetchPickerOptions success for ${event.paramName}.');
     } catch (e) {
-      emit(state.copyWith(isLoading: false, error: 'Failed to load options for ${event.paramName}: $e'));
+      emit(state.copyWith(error: 'Failed to load options for ${event.paramName}: $e'));
       debugPrint('Bloc: Error fetching picker options for ${event.paramName}: $e');
     }
   }
@@ -620,6 +717,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         targetUserName: event.targetUserName,
         targetPassword: event.targetPassword,
         targetDatabaseName: event.targetDatabaseName,
+        targetConnectionString: event.targetConnectionString,
       );
 
       if (response['status'] == 'success') {

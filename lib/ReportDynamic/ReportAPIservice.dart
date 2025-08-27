@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class ReportAPIService {
-  final String _baseUrl = 'https://aquare.co.in/mobileAPI/DemoTables.php';
+  final String _baseUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DemoTables.php';
   final String _databaseFetchUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseFetch.php';
   final String _databaseFieldUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseField.php';
   final String _setupApiUrl = 'http://localhost/reportBuilder/DatabaseSetup.php';
@@ -392,6 +392,31 @@ class ReportAPIService {
 
                 if (!uniqueApis.contains(item['APIName'])) {
                   uniqueApis.add(item['APIName']);
+
+                  // =========================================================================
+                  // == START: MODIFIED LOGIC TO EXTRACT CONNECTION STRING
+                  // =========================================================================
+                  String? connectionString;
+                  final rawParameters = item['Parameter'];
+
+                  if (rawParameters != null && rawParameters.toString().isNotEmpty) {
+                    try {
+                      final List<dynamic> decodedParams = jsonDecode(rawParameters);
+                      if (decodedParams.isNotEmpty) {
+                        final lastParam = decodedParams.last;
+                        if (lastParam is Map<String, dynamic> && lastParam.containsKey('value')) {
+                          connectionString = lastParam['value']?.toString();
+                        }
+                      }
+                    } catch (e) {
+                      // Could not parse parameters, connectionString remains null.
+                      debugPrint('Could not parse parameters for ${item['APIName']}: $e');
+                    }
+                  }
+                  // =========================================================================
+                  // == END: MODIFIED LOGIC
+                  // =========================================================================
+
                   _apiDetails[item['APIName']] = {
                     'url': item['APIServerURl'],
                     'parameters': item['Parameter'] != null && item['Parameter'].toString().isNotEmpty ? jsonDecode(item['Parameter']) : <dynamic>[],
@@ -402,6 +427,7 @@ class ReportAPIService {
                     'id': item['id'],
                     'IsDashboard': isDashboard,
                     'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
+                    'connectionString': connectionString, // MODIFIED: Store the extracted string
                   };
                 }
               }
@@ -1131,6 +1157,8 @@ class ReportAPIService {
     }
   }
 
+// Add this new function to your ReportAPIService class
+
   Future<Map<String, dynamic>> transferReportToDatabase({
     required Map<String, dynamic> reportMetadata,
     required List<Map<String, dynamic>> fieldConfigs,
@@ -1138,6 +1166,7 @@ class ReportAPIService {
     required String targetUserName,
     required String targetPassword,
     required String targetDatabaseName,
+    required String targetConnectionString, // The new parameter
   }) async {
     const jsonEncoder = JsonEncoder.withIndent('  ');
 
@@ -1145,38 +1174,41 @@ class ReportAPIService {
     debugPrint('====== START transferReportToDatabase INVOCATION ======');
     debugPrint('======================================================');
 
+    // Use a different endpoint key for the transfer operation
     final url = _postEndpoints['transfer_report'];
     if (url == null) {
       debugPrint('[FATAL ERROR] Transfer URL ("transfer_report") is not defined in _postEndpoints map.');
       debugPrint('====================== TRANSFER END ======================');
-      throw Exception('POST API not found for report transfer.');
+      throw Exception('POST API not found for transfer.');
     }
 
     debugPrint('Step 1: Transfer URL confirmed: $url');
 
     try {
-      // Log the raw data received
+      // Log the raw data received from the BLoC
       debugPrint('\n--- Step 2: Logging Raw Input Data ---');
       debugPrint('Target Server IP: "$targetServerIP"');
       debugPrint('Target User Name: "$targetUserName"');
       debugPrint('Target Password: "${targetPassword.isNotEmpty ? "********" : "EMPTY"}"');
       debugPrint('Target Database Name: "$targetDatabaseName"');
-      debugPrint('--- Raw Report Metadata ---');
+      debugPrint('Target Connection String: "$targetConnectionString"'); // Log the new string
+      debugPrint('--- Raw Report Metadata (from BLoC) ---');
       debugPrint(jsonEncoder.convert(reportMetadata));
-      debugPrint('--- Raw Field Configs ---');
+      debugPrint('--- Raw Field Configs (from BLoC) ---');
       debugPrint('Field Configs Count: ${fieldConfigs.length}');
       debugPrint(jsonEncoder.convert(fieldConfigs));
       debugPrint('----------------------------------------');
 
-      // Prepare payload and log it
+      // Prepare payload with "target_" prefixed keys and the new connection string
       debugPrint('\n--- Step 3: Preparing Payload for HTTP POST ---');
       final payload = {
         'report_metadata': jsonEncode(reportMetadata),
         'field_configs': jsonEncode(fieldConfigs),
-        'client_server': targetServerIP.trim(),       // WAS: 'target_server'
-        'client_user': targetUserName.trim(),       // WAS: 'target_user'
-        'client_password': targetPassword.trim(),     // WAS: 'target_password'
-        'client_database': targetDatabaseName.trim()
+        'client_server': targetServerIP.trim(),
+        'client_user': targetUserName.trim(),
+        'client_password': targetPassword.trim(),
+        'client_database': targetDatabaseName.trim(),
+        'targetconnectionstring': targetConnectionString.trim(), // Add new field to payload
       };
 
       debugPrint('--- Final Payload being sent to the server ---');
@@ -1241,13 +1273,11 @@ class ReportAPIService {
         throw Exception(errorMessage);
       }
     } catch (e) {
-      debugPrint('[FATAL CATCH BLOCK] An unexpected error occurred during the transfer process.');
+      debugPrint('[FATAL CATCH BLOCK] An unexpected error occurred during transfer process.');
       debugPrint('Error Type: ${e.runtimeType}');
       debugPrint('Error: $e');
-      debugPrint('====================== DEPLOYMENT END (ERROR) ======================');
-      // **** MODIFICATION HERE ****
-      // Instead of rethrowing a raw ClientException, throw a clean, readable Exception.
-      throw Exception('Network Error: Could not connect to the deployment server. Please check the server address and your network connection.');
+      debugPrint('====================== TRANSFER END (ERROR) ======================');
+      rethrow;
     }
   }
 

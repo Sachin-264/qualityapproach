@@ -216,6 +216,69 @@ class ReportMainUI extends StatelessWidget {
     });
   }
 
+  // =========== NEW WIDGET TO DISPLAY FILTERS ===========
+  Widget _buildFilterChips(BuildContext context) {
+    // Filter out parameters with empty or null values before displaying
+    final activeFilters = Map.fromEntries(
+        displayParameterValues.entries.where((entry) => entry.value.isNotEmpty)
+    );
+
+    if (activeFilters.isEmpty) {
+      return const SizedBox.shrink(); // Don't show anything if no filters are active
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+      margin: const EdgeInsets.only(bottom: 12.0),
+      decoration: BoxDecoration(
+        color: Colors.blueAccent.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12.0),
+        border: Border.all(color: Colors.blueAccent.withOpacity(0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 10.0, // Horizontal space between chips
+            runSpacing: 8.0, // Vertical space between lines of chips
+            children: activeFilters.entries.map((entry) {
+              return Chip(
+                backgroundColor: Colors.white,
+                side: BorderSide(color: Colors.grey.shade300),
+                avatar: Icon(Icons.check_circle_outline, color: Colors.blueAccent, size: 18),
+                label: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '${entry.key}: ',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black.withOpacity(0.8),
+                        ),
+                      ),
+                      TextSpan(
+                        text: entry.value,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.normal,
+                          color: Colors.black.withOpacity(0.65),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+  // =========== END OF NEW WIDGET ===========
+
 
   @override
   Widget build(BuildContext context) {
@@ -293,7 +356,7 @@ class ReportMainUI extends StatelessWidget {
     debugPrint('State error: ${state.error}');
     debugPrint('State fieldConfigs count: ${state.fieldConfigs.length}');
     debugPrint('State reportData count: ${state.reportData.length}');
-
+    debugPrint("the companyCode we are sending is $companyName");
     if (state.isLoading) {
       return const Center(child: SubtleLoader());
     }
@@ -508,6 +571,8 @@ class ReportMainUI extends StatelessWidget {
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
+          // =========== UI PLACEMENT MODIFICATION ===========
+          _buildFilterChips(context),
           ExportWidget(
             columns: columns,
             plutoRows: finalRows,

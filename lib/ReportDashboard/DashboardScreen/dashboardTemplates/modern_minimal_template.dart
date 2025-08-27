@@ -1,5 +1,7 @@
+// lib/ReportDashboard/DashboardScreen/dashboardTemplates/modern_minimal_template.dart
 
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +12,8 @@ import '../../../ReportUtils/subtleloader.dart';
 import '../../DashboardModel/dashboard_model.dart';
 
 const double _sideNavWidth = 280.0;
+
+// (No changes to the top part of the file, it is included for completeness)
 
 class ModernMinimalTemplate extends StatefulWidget {
   final Dashboard dashboard;
@@ -79,6 +83,7 @@ class _ModernMinimalTemplateState extends State<ModernMinimalTemplate> {
   }
 }
 
+// ... _SideNavigationBar and _NavigationItem are unchanged ...
 class _SideNavigationBar extends StatelessWidget {
   final String dashboardName;
   final List<DashboardReportGroup> groups;
@@ -212,7 +217,11 @@ class _NavigationItem extends StatelessWidget {
   }
 }
 
+
+// --- START: MODIFIED WIDGETS ---
+
 class _ContentArea extends StatelessWidget {
+  // ... (properties are unchanged)
   final DashboardReportGroup? selectedGroup;
   final List<DashboardReportGroup> allGroups;
   final Color accentColor;
@@ -236,7 +245,12 @@ class _ContentArea extends StatelessWidget {
   Widget build(BuildContext context) {
     final bool isHomeView = selectedGroup == null;
     final String title = isHomeView ? 'Home' : selectedGroup!.groupName;
-    final reportsSource = isHomeView ? allGroups.expand((g) => g.reports) : selectedGroup!.reports;
+    final reportsSource = isHomeView ? allGroups.expand((g) => g.reports).toList() : selectedGroup!.reports;
+
+    // --- NEW LOGGING ---
+    debugPrint('[ContentArea] Building content for "$title".');
+    debugPrint('[ContentArea] Number of reports to display: ${reportsSource.length}');
+    // --- END NEW LOGGING ---
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,6 +297,7 @@ class _ContentArea extends StatelessWidget {
 }
 
 class _DashboardReportItem extends StatelessWidget {
+  // ... (properties are unchanged)
   final DashboardReportCardConfig cardConfig;
   final Color accentColor;
   final Function(DashboardReportCardConfig) onReportCardTap;
@@ -295,9 +310,19 @@ class _DashboardReportItem extends StatelessWidget {
     required this.apiService,
   });
 
+
   @override
   Widget build(BuildContext context) {
     final bool hasBoth = cardConfig.showAsTile && cardConfig.showAsGraph;
+
+    // --- NEW LOGGING ---
+    debugPrint('\n--- [DashboardReportItem] Building Item ---');
+    debugPrint('  - Title: "${cardConfig.displayTitle}" (RecNo: ${cardConfig.reportRecNo})');
+    debugPrint('  - Show as Tile?: ${cardConfig.showAsTile}');
+    debugPrint('  - Show as Graph?: ${cardConfig.showAsGraph}'); // This is the key value to check!
+    debugPrint('  - Has Both?: $hasBoth');
+    // --- END NEW LOGGING ---
+
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 24.0),
@@ -329,6 +354,10 @@ class _DashboardReportItem extends StatelessWidget {
   }
 }
 
+// --- END: MODIFIED WIDGETS ---
+
+
+// ... (The rest of the file, _VisualConnector, _DashedLinePainter, _MinimalistTileCard, _GraphCardWidget etc., is unchanged from your last version with its existing logs)
 class _VisualConnector extends StatelessWidget {
   const _VisualConnector();
 
@@ -487,11 +516,14 @@ class _GraphCardWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final bool showViewButton = !cardConfig.showAsTile;
 
-    debugPrint('--- [Building Graph Card: ${cardConfig.displayTitle}] ---');
-    debugPrint('   - Graph Type: ${cardConfig.graphType}');
-    debugPrint('   - API URL: ${cardConfig.apiUrl}');
+    // --- GRAPH LOGGING: START ---
+    debugPrint('\n--- [GRAPH] Building Graph Card: "${cardConfig.displayTitle}" ---');
+    debugPrint('[GRAPH]   - Configured Graph Type: ${cardConfig.graphType}');
+    debugPrint('[GRAPH]   - Configured API URL: ${cardConfig.apiUrl}');
+    // --- GRAPH LOGGING: END ---
 
     if (cardConfig.apiUrl == null || cardConfig.apiUrl!.isEmpty) {
+      debugPrint('[GRAPH]   - RENDERING ERROR: No API URL is configured.');
       return SizedBox(
         height: showViewButton ? 350 : 300,
         child: Card(
@@ -534,32 +566,49 @@ class _GraphCardWidget extends StatelessWidget {
                       future: apiService.getReportData(cardConfig.apiUrl),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState == ConnectionState.waiting) {
+                          debugPrint('[GRAPH]   - API State: Waiting for data...');
                           return const Center(child: SubtleLoader());
                         }
                         if (snapshot.hasError || !snapshot.hasData) {
+                          debugPrint('[GRAPH]   - API State: FAILED. Error: ${snapshot.error}');
                           return _ErrorDisplay(error: snapshot.error?.toString() ?? 'Failed to load data');
                         }
 
                         final data = snapshot.data;
+                        debugPrint('[GRAPH]   - API State: SUCCESS. Data received.');
+                        debugPrint('[GRAPH]   - Data Type: ${data.runtimeType}');
+                        // Log a snippet of the data for debugging
+                        try {
+                          debugPrint('[GRAPH]   - Data Snippet: ${jsonEncode(data).substring(0, (jsonEncode(data).length < 200) ? jsonEncode(data).length : 200)}...');
+                        } catch (e) {
+                          debugPrint('[GRAPH]   - Could not serialize data for logging.');
+                        }
+
+
                         Widget chartWidget;
 
                         switch (cardConfig.graphType) {
                           case GraphType.bar:
                           case GraphType.line:
+                            debugPrint('[GRAPH]   - Chart Selection: Bar or Line.');
                             chartWidget = (data is Map)
                                 ? (cardConfig.graphType == GraphType.bar ? _buildBarChart(Map<String, dynamic>.from(data), context) : _buildLineChart(Map<String, dynamic>.from(data), context))
                                 : const _ErrorDisplay(error: 'This chart type requires single object data (JSON Object).');
                             break;
                           case GraphType.pie:
+                            debugPrint('[GRAPH]   - Chart Selection: Pie.');
                             if (data is List) {
+                              debugPrint('[GRAPH]     -> Data is a List. Using _buildPieChartFromList.');
                               chartWidget = _buildPieChartFromList(data, context);
                             } else if (data is Map) {
+                              debugPrint('[GRAPH]     -> Data is a Map. Using _buildPieChartFromMap.');
                               chartWidget = _buildPieChartFromMap(Map<String, dynamic>.from(data), context);
                             } else {
                               chartWidget = const _ErrorDisplay(error: 'Pie Chart requires either a JSON Object or Array.');
                             }
                             break;
                           default:
+                            debugPrint('[GRAPH]   - Chart Selection: Unsupported graph type.');
                             chartWidget = const Center(child: Text("Unsupported graph type."));
                         }
 
@@ -602,6 +651,7 @@ class _GraphCardWidget extends StatelessWidget {
   }
 
   Widget _buildBarChart(Map<String, dynamic> data, BuildContext context) {
+    debugPrint('[GRAPH]     -> Rendering Bar Chart with data: $data');
     final numberFormat = NumberFormat.compact(locale: 'en_IN');
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     final List<_YearlySalesData> chartData = [
@@ -609,6 +659,7 @@ class _GraphCardWidget extends StatelessWidget {
       _YearlySalesData(data['PreviousYearSaleLabel'], data['PreviousYearSaleValue'], accentColor.withOpacity(0.7)),
       _YearlySalesData(data['CurrentYearSaleLabel'], data['CurrentYearSaleValue'], accentColor),
     ];
+    debugPrint('[GRAPH]     -> Parsed Bar Chart data points: ${chartData.length}');
     return SfCartesianChart(
       primaryXAxis: const CategoryAxis(majorGridLines: MajorGridLines(width: 0)),
       primaryYAxis: NumericAxis(
@@ -633,6 +684,7 @@ class _GraphCardWidget extends StatelessWidget {
   }
 
   Widget _buildLineChart(Map<String, dynamic> data, BuildContext context) {
+    debugPrint('[GRAPH]     -> Rendering Line Chart with data: $data');
     final numberFormat = NumberFormat.compact(locale: 'en_IN');
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     final List<_YearlySalesData> chartData = [
@@ -640,6 +692,7 @@ class _GraphCardWidget extends StatelessWidget {
       _YearlySalesData(data['PreviousYearSaleLabel'], data['PreviousYearSaleValue'], accentColor),
       _YearlySalesData(data['CurrentYearSaleLabel'], data['CurrentYearSaleValue'], accentColor),
     ];
+    debugPrint('[GRAPH]     -> Parsed Line Chart data points: ${chartData.length}');
     return SfCartesianChart(
       primaryXAxis: const CategoryAxis(
         majorGridLines: MajorGridLines(width: 0),
@@ -675,6 +728,7 @@ class _GraphCardWidget extends StatelessWidget {
   }
 
   Widget _buildPieChartFromMap(Map<String, dynamic> data, BuildContext context) {
+    debugPrint('[GRAPH]     -> Converting Map data to List for Pie Chart.');
     final List<Map<String, dynamic>> listData = [
       {'ItemGroupName': data['PreviousToPreviousYearSaleLabel'], 'SaleValue': data['PreviousToPreviousYearSaleValue']},
       {'ItemGroupName': data['PreviousYearSaleLabel'], 'SaleValue': data['PreviousYearSaleValue']},
@@ -684,14 +738,15 @@ class _GraphCardWidget extends StatelessWidget {
   }
 
   Widget _buildPieChartFromList(List<dynamic> data, BuildContext context) {
+    debugPrint('[GRAPH]     -> Rendering Pie Chart from a List with ${data.length} items.');
     final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
     List<_ItemGroupSalesData> chartData;
     try {
       final typedData = data.cast<Map<String, dynamic>>();
-      final totalValue = typedData.fold<double>(0.0, (sum, item) => sum + (item['SaleValue'] ?? 0.0));
+      final totalValue = typedData.fold<double>(0.0, (sum, item) => sum + (double.tryParse(item['SaleValue']?.toString() ?? '0.0') ?? 0.0));
       chartData = typedData.map((item) {
-        final value = item['SaleValue']?.toDouble() ?? 0.0;
+        final value = double.tryParse(item['SaleValue']?.toString() ?? '0.0') ?? 0.0;
         final percentage = totalValue > 0 ? (value / totalValue) * 100 : 0.0;
         return _ItemGroupSalesData(
           item['ItemGroupName'] ?? 'Unknown',
@@ -699,8 +754,9 @@ class _GraphCardWidget extends StatelessWidget {
           '${percentage.toStringAsFixed(1)}%',
         );
       }).toList();
+      debugPrint('[GRAPH]     -> Successfully parsed Pie Chart data for ${chartData.length} slices.');
     } catch (e) {
-      debugPrint("Error parsing Pie Chart data from list: $e");
+      debugPrint("[GRAPH]     -> !!! ERROR parsing Pie Chart data from list: $e");
       return _ErrorDisplay(error: "Data for Pie Chart is a list, but contains invalid items.");
     }
 

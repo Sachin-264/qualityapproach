@@ -15,8 +15,6 @@ int? _safeParseInt(dynamic value) {
   return null;
 }
 
-// REMOVED CardDisplayType enum
-
 enum GraphType {
   pie,
   line,
@@ -40,7 +38,7 @@ enum GraphType {
 }
 
 
-// --- MODIFIED CLASS: Replaced displayType with two booleans ---
+// --- MODIFIED & CORRECTED CLASS ---
 class DashboardReportCardConfig extends Equatable {
   final int reportRecNo;
   final String displayTitle;
@@ -48,7 +46,6 @@ class DashboardReportCardConfig extends Equatable {
   final IconData? displayIcon;
   final Color? displayColor;
   final String? apiUrl;
-  // --- NEW PROPERTIES ---
   final bool showAsTile;
   final bool showAsGraph;
   final GraphType? graphType;
@@ -60,8 +57,8 @@ class DashboardReportCardConfig extends Equatable {
     this.displayIcon,
     this.displayColor,
     this.apiUrl,
-    this.showAsTile = true, // Default to true
-    this.showAsGraph = false, // Default to false
+    this.showAsTile = true,
+    this.showAsGraph = false,
     this.graphType,
   });
 
@@ -89,26 +86,41 @@ class DashboardReportCardConfig extends Equatable {
     );
   }
 
+  // ========== START: CORRECTED SERIALIZATION LOGIC ==========
+
   factory DashboardReportCardConfig.fromJson(Map<String, dynamic> json) {
     final int? recNo = _safeParseInt(json['reportRecNo']);
     if (recNo == null) {
       throw FormatException("Invalid or missing 'reportRecNo' in JSON data: ${json['reportRecNo']}");
     }
-    final int? iconCodePoint = _safeParseInt(json['displayIcon']);
-    IconData? parsedIcon = iconCodePoint != null ? IconData(iconCodePoint, fontFamily: 'MaterialIcons') : null;
-    final int? colorValue = _safeParseInt(json['displayColor']);
-    Color? parsedColor = colorValue != null ? Color(colorValue) : null;
 
-    // --- Backward compatibility logic ---
+    // FIX #1: Read icon data using corrected keys that match toJson().
+    IconData? parsedIcon;
+    if (json['displayIcon_codePoint'] != null) {
+      parsedIcon = IconData(
+          _safeParseInt(json['displayIcon_codePoint'])!,
+          fontFamily: json['displayIcon_fontFamily'] ?? 'MaterialIcons'
+      );
+    }
+
+    // FIX #2: Read color data using corrected key that matches toJson().
+    Color? parsedColor;
+    if (json['displayColor_value'] != null) {
+      parsedColor = Color(_safeParseInt(json['displayColor_value'])!);
+    }
+
+
+    // Backward compatibility logic to handle old data format
     bool showTile, showGraph;
     if (json.containsKey('showAsTile') || json.containsKey('showAsGraph')) {
+      // New format is present
       showTile = json['showAsTile'] ?? false;
       showGraph = json['showAsGraph'] ?? false;
     } else {
-      // Fallback to old 'displayType' field
+      // Fallback to old 'displayType' field if new keys are missing
       final oldDisplayType = json['displayType'];
       showGraph = oldDisplayType == 'graph';
-      showTile = oldDisplayType == 'tile' || oldDisplayType == null;
+      showTile = oldDisplayType == 'tile' || oldDisplayType == null; // Tiles were the default
     }
 
     return DashboardReportCardConfig(
@@ -129,14 +141,24 @@ class DashboardReportCardConfig extends Equatable {
       'reportRecNo': reportRecNo,
       'displayTitle': displayTitle,
       'displaySubtitle': displaySubtitle,
-      'displayIcon': displayIcon?.codePoint,
-      'displayColor': displayColor?.value,
+
+      // FIX #1: Write icon data using distinct keys to avoid ambiguity.
+      'displayIcon_codePoint': displayIcon?.codePoint,
+      'displayIcon_fontFamily': displayIcon?.fontFamily,
+
+      // FIX #2: Write color data using a distinct key.
+      'displayColor_value': displayColor?.value,
+
       'apiUrl': apiUrl,
+
+      // These were correct, but are included for completeness.
       'showAsTile': showAsTile,
       'showAsGraph': showAsGraph,
       'graphType': graphType?.name,
     };
   }
+
+  // ========== END: CORRECTED SERIALIZATION LOGIC ==========
 
   @override
   List<Object?> get props => [

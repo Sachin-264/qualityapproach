@@ -262,7 +262,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
         currentDashboard: null, // No dashboard is being edited
       ));
     } catch (e, stacktrace) {
-      debugPrint('Error in _onFetchDashboardList: $e\n$stacktrace');
+      debugPrint('[DashboardBuilderBloc] Error in _onFetchDashboardList: $e\n$stacktrace');
       emit(DashboardBuilderErrorState('Failed to load dashboard list: $e'));
     }
   }
@@ -272,17 +272,19 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       InitializeNewDashboard event,
       Emitter<DashboardBuilderState> emit,
       ) async {
+    debugPrint('[DashboardBuilderBloc] Initializing new dashboard...');
     emit(const DashboardBuilderLoading());
     try {
       final String? databaseName = event.dbConnectionConfig['database'];
+      debugPrint('[DashboardBuilderBloc] -> For database: $databaseName');
       if (databaseName == null || databaseName.isEmpty) {
         throw Exception("Database name is missing from the connection configuration.");
       }
 
-      // MODIFIED: Fetch reports only for the selected database.
       final availableReports = await apiService.fetchReportsForApi(databaseName);
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
+      debugPrint('[DashboardBuilderBloc] -> Fetched ${availableReports.length} available reports and ${allDashboards.length} existing dashboards.');
 
       Dashboard initialDashboard = Dashboard(
         dashboardId: '',
@@ -307,7 +309,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
         existingDashboards: allDashboards,
       ));
     } catch (e, stacktrace) {
-      debugPrint('Error in _onInitializeNewDashboard: $e\n$stacktrace');
+      debugPrint('[DashboardBuilderBloc] Error in _onInitializeNewDashboard: $e\n$stacktrace');
       emit(DashboardBuilderErrorState('Failed to initialize new dashboard: $e'));
     }
   }
@@ -316,6 +318,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       LoadDashboardBuilderData event,
       Emitter<DashboardBuilderState> emit,
       ) async {
+    debugPrint('[DashboardBuilderBloc] Loading existing dashboard for editing: "${event.dashboardToEdit.dashboardName}" (ID: ${event.dashboardToEdit.dashboardId})');
     emit(const DashboardBuilderLoading());
     try {
       final dbConnectionConfig = event.dashboardToEdit.globalFiltersConfig['db_connection'];
@@ -324,14 +327,16 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       }
 
       final String? databaseName = dbConnectionConfig['database'];
+      debugPrint('[DashboardBuilderBloc] -> Associated database: $databaseName');
       if (databaseName == null || databaseName.isEmpty) {
         throw Exception("Database name is missing from the dashboard's connection configuration.");
       }
 
-      // MODIFIED: Fetch reports only for the database associated with the dashboard.
       final availableReports = await apiService.fetchReportsForApi(databaseName);
       final allDashboardsData = await apiService.getDashboards();
       final allDashboards = allDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
+      debugPrint('[DashboardBuilderBloc] -> Fetched ${availableReports.length} available reports and ${allDashboards.length} existing dashboards.');
+
 
       emit(DashboardBuilderLoaded(
         currentDashboard: event.dashboardToEdit,
@@ -339,7 +344,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
         existingDashboards: allDashboards,
       ));
     } catch (e, stacktrace) {
-      debugPrint('Error in _onLoadDashboardBuilderData: $e\n$stacktrace');
+      debugPrint('[DashboardBuilderBloc] Error in _onLoadDashboardBuilderData: $e\n$stacktrace');
       emit(DashboardBuilderErrorState('Failed to load dashboard data for editing: $e'));
     }
   }
@@ -350,6 +355,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) {
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
+
+    debugPrint('[DashboardBuilderBloc] Updating dashboard info: name=${event.dashboardName}, template=${event.templateId}');
 
     String templateName = currentDashboard.templateConfig.name;
     if (event.templateId != null) {
@@ -374,6 +381,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
 
+    debugPrint('[DashboardBuilderBloc] Adding new report group: "${event.groupName}"');
+
     final newGroup = DashboardReportGroup(
       groupId: _uuid.v4(),
       groupName: event.groupName,
@@ -393,6 +402,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
 
+    debugPrint('[DashboardBuilderBloc] Updating group "${event.groupId}" to name "${event.newName}"');
+
     final updatedGroups = currentDashboard.reportGroups.map((group) {
       if (group.groupId == event.groupId) {
         return group.copyWith(
@@ -411,6 +422,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
   void _onRemoveReportGroup(RemoveReportGroupEvent event, Emitter<DashboardBuilderState> emit) {
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
+
+    debugPrint('[DashboardBuilderBloc] Removing group: "${event.groupId}"');
 
     final updatedGroups = List<DashboardReportGroup>.from(currentDashboard.reportGroups)
       ..removeWhere((group) => group.groupId == event.groupId);
@@ -447,12 +460,17 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
     if (currentState == null || currentDashboard == null) return;
 
     final int? recNo = _safeParseInt(event.reportDefinition['RecNo']);
-    if (recNo == null) return;
+    debugPrint('[DashboardBuilderBloc] Attempting to add report RecNo: $recNo to group: ${event.groupId}');
+    if (recNo == null) {
+      debugPrint('[DashboardBuilderBloc] -> FAILED: RecNo is null.');
+      return;
+    }
 
     final bool alreadyExists = currentDashboard.reportGroups
         .any((group) => group.reports.any((report) => report.reportRecNo == recNo));
 
     if (alreadyExists) {
+      debugPrint('[DashboardBuilderBloc] -> FAILED: Report already exists in the dashboard.');
       emit(currentState.copyWith(error: 'Report already added to dashboard.', clearMessage: true));
       return;
     }
@@ -477,6 +495,7 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       return group;
     }).toList();
 
+    debugPrint('[DashboardBuilderBloc] -> SUCCESS: Report card added.');
     emit(currentState.copyWith(
       currentDashboard: currentDashboard.copyWith(reportGroups: updatedGroups, updatedAt: DateTime.now()),
       message: 'Report added.',
@@ -490,6 +509,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) {
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
+
+    debugPrint('[DashboardBuilderBloc] Removing report RecNo: ${event.reportRecNo} from group ${event.groupId}');
 
     final updatedGroups = currentDashboard.reportGroups.map((group) {
       if (group.groupId == event.groupId) {
@@ -513,6 +534,8 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) {
     final (currentState, currentDashboard) = _getCurrentStateAndDashboard();
     if (currentState == null || currentDashboard == null) return;
+
+    debugPrint('[DashboardBuilderBloc] Updating card config for RecNo ${event.reportRecNo}. New settings: showAsGraph=${event.newShowAsGraph}, graphType=${event.newGraphType}');
 
     final updatedGroups = currentDashboard.reportGroups.map((group) {
       if (group.groupId == event.groupId) {
@@ -575,28 +598,39 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) async {
     final (currentState, dashboardToSave) = _getCurrentStateAndDashboard();
     if (currentState == null || dashboardToSave == null) {
+      debugPrint('[DashboardBuilderBloc] Save aborted: Current state is invalid.');
       if (state is DashboardBuilderLoaded) {
         emit((state as DashboardBuilderLoaded).copyWith(error: 'No dashboard to save.'));
       }
       return;
     }
+    debugPrint('[DashboardBuilderBloc] Attempting to save dashboard: "${dashboardToSave.dashboardName}"');
 
     if (dashboardToSave.dashboardName.isEmpty) {
+      debugPrint('[DashboardBuilderBloc] -> FAILED: Dashboard name is empty.');
       emit(currentState.copyWith(error: 'Dashboard name cannot be empty.'));
       return;
     }
     emit(DashboardBuilderSaving(currentState));
     try {
       final layoutConfigPayload = {'report_groups': dashboardToSave.reportGroups.map((g) => g.toJson()).toList()};
+      final templateConfigPayload = jsonEncode(dashboardToSave.templateConfig.toJson());
+
+      debugPrint('[DashboardBuilderBloc] -> Is new dashboard? ${dashboardToSave.dashboardId.isEmpty}');
+      debugPrint('[DashboardBuilderBloc] -> Payload (Template): $templateConfigPayload');
+      debugPrint('[DashboardBuilderBloc] -> Payload (Layout): ${jsonEncode(layoutConfigPayload)}');
+
 
       if (dashboardToSave.dashboardId.isEmpty) {
+        // Saving a NEW dashboard
         final String newId = await apiService.saveDashboard(
           dashboardName: dashboardToSave.dashboardName,
           dashboardDescription: dashboardToSave.dashboardDescription,
-          templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
+          templateId: templateConfigPayload, // Sending full template config
           layoutConfig: layoutConfigPayload,
           globalFiltersConfig: dashboardToSave.globalFiltersConfig,
         );
+        debugPrint('[DashboardBuilderBloc] -> SUCCESS: New dashboard created with ID: $newId');
         final savedDashboard = dashboardToSave.copyWith(
           dashboardId: newId,
           updatedAt: DateTime.now(),
@@ -607,18 +641,21 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
             message: 'Dashboard saved successfully!'
         ));
       } else {
+        // Editing an EXISTING dashboard
         await apiService.editDashboard(
           dashboardId: dashboardToSave.dashboardId,
           dashboardName: dashboardToSave.dashboardName,
           dashboardDescription: dashboardToSave.dashboardDescription,
-          templateId: jsonEncode(dashboardToSave.templateConfig.toJson()),
+          templateId: templateConfigPayload, // Sending full template config
           layoutConfig: layoutConfigPayload,
           globalFiltersConfig: dashboardToSave.globalFiltersConfig,
         );
+        debugPrint('[DashboardBuilderBloc] -> SUCCESS: Dashboard updated.');
         final previousState = (state as DashboardBuilderSaving).previousState;
         emit(previousState.copyWith(message: 'Dashboard updated successfully!'));
       }
-    } catch (e) {
+    } catch (e, stacktrace) {
+      debugPrint('[DashboardBuilderBloc] !!! FAILED to save dashboard: $e\n$stacktrace');
       final previousState = (state as DashboardBuilderSaving).previousState;
       emit(previousState.copyWith(error: 'Failed to save dashboard: $e'));
     }
@@ -630,13 +667,16 @@ class DashboardBuilderBloc extends Bloc<DashboardBuilderEvent, DashboardBuilderS
       ) async {
     final (currentState, _) = _getCurrentStateAndDashboard();
     if (currentState == null) return;
+    debugPrint('[DashboardBuilderBloc] Deleting dashboard with ID: ${event.dashboardId}');
 
     try {
       await apiService.deleteDashboard(dashboardId: event.dashboardId);
       final updatedDashboardsData = await apiService.getDashboards();
       final updatedDashboards = updatedDashboardsData.map((item) => Dashboard.fromJson(item)).toList();
       emit(currentState.copyWith(existingDashboards: updatedDashboards, message: 'Dashboard deleted.'));
-    } catch (e) {
+      debugPrint('[DashboardBuilderBloc] -> SUCCESS: Dashboard deleted.');
+    } catch (e, stacktrace) {
+      debugPrint('[DashboardBuilderBloc] !!! FAILED to delete dashboard: $e\n$stacktrace');
       emit(currentState.copyWith(error: 'Failed to delete dashboard: $e'));
     }
   }
