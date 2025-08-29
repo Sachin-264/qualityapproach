@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class ReportAPIService {
-  final String _baseUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DemoTables.php';
+  final String _baseUrl = 'http://localhost/reportBuilder/DemoTables.php';
   final String _databaseFetchUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseFetch.php';
   final String _databaseFieldUrl = 'https://aquare.co.in/mobileAPI/sachin/reportBuilder/DatabaseField.php';
   final String _setupApiUrl = 'http://localhost/reportBuilder/DatabaseSetup.php';
@@ -12,12 +12,9 @@ class ReportAPIService {
   late final Map<String, String> _postEndpoints;
   late final Map<String, String> _getEndpoints;
 
+  // Cache for API connection details
   Map<String, Map<String, dynamic>> _apiDetails = {};
-
   Completer<void>? _apiDetailsLoadingCompleter;
-
-  // This local counter is not used for saving reports anymore, but might be used elsewhere.
-  static int _recNoCounter = 0;
 
   ReportAPIService() {
     _postEndpoints = {
@@ -33,7 +30,6 @@ class ReportAPIService {
       'post_dashboard': '$_baseUrl?mode=post_dashboard',
       'edit_dashboard': '$_baseUrl?mode=edit_dashboard',
       'delete_dashboard': '$_baseUrl?mode=delete_dashboard',
-      // NEW ENDPOINT for the full dashboard transfer
       'transfer_full_dashboard': 'http://localhost/reportBuilder/transfer_full_dashboard.php',
     };
 
@@ -47,6 +43,7 @@ class ReportAPIService {
     };
   }
 
+  // A standardized logging utility
   void _logRequest({
     required String httpMethod,
     required String url,
@@ -77,25 +74,311 @@ class ReportAPIService {
     debugPrint('ReportAPIService: API details cache cleared.');
   }
 
+  /// Ensures that the API details from the `DatabaseServerMaster` table are loaded and cached.
+  /// This prevents multiple unnecessary fetches.
   Future<void> _ensureApiDetailsCacheLoaded() async {
+    // If a load is already in progress, wait for it to complete.
     if (_apiDetailsLoadingCompleter != null && !_apiDetailsLoadingCompleter!.isCompleted) {
       debugPrint('ReportAPIService: API details cache load in progress. Waiting...');
       return _apiDetailsLoadingCompleter!.future;
     }
 
+    // If the cache is empty, start a new load operation.
     if (_apiDetails.isEmpty) {
       _apiDetailsLoadingCompleter = Completer<void>();
       debugPrint('ReportAPIService: Initiating new API details cache load.');
       try {
+        // The getAvailableApis method populates the cache.
         await getAvailableApis();
         _apiDetailsLoadingCompleter!.complete();
       } catch (e) {
         _apiDetailsLoadingCompleter!.completeError(e);
-        debugPrint('ReportAPIService: Error during API details cache load: $e');
-        rethrow;
+        debugPrint('ReportAPIService: [CRITICAL] Error during API details cache load: $e');
+        rethrow; // Rethrow so the caller knows it failed.
       } finally {
         _apiDetailsLoadingCompleter = null;
       }
+    }
+  }
+
+
+  Future<List<String>> getAvailableApis() async {
+    final url = _getEndpoints['get_database_server'];
+    if (url == null) throw Exception('GET API not found for get_database_server');
+
+    debugPrint('\n\n✅ =======================================================');
+    debugPrint('✅ STARTING DIAGNOSTIC FETCH: getAvailableApis');
+    debugPrint('✅ This function fetches data from your DatabaseServerMaster table.');
+    debugPrint('✅ =======================================================\n');
+
+    try {
+      final uri = Uri.parse(url);
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getAvailableApis');
+
+      debugPrint('STEP 1: Making HTTP GET request to the server...');
+      final response = await http.get(uri);
+      debugPrint('STEP 2: Received response from server with Status Code: ${response.statusCode}');
+
+      debugPrint('\n--- 🔍 START: RAW RESPONSE BODY FROM SERVER 🔍 ---');
+      debugPrint(response.body);
+      debugPrint('--- 🔍 END: RAW RESPONSE BODY FROM SERVER 🔍 ---\n');
+
+      if (response.statusCode != 200) {
+        throw Exception('Request failed with non-200 status code. See RAW RESPONSE above for server error message.');
+      }
+
+      if (response.body.isEmpty) {
+        debugPrint('⚠️ WARNING: Response body is empty. The server returned no data.');
+        return <String>[];
+      }
+
+      dynamic jsonData;
+      try {
+        debugPrint('STEP 3: Attempting to parse the raw response body as JSON...');
+        jsonData = jsonDecode(response.body);
+        debugPrint('STEP 4: Successfully parsed JSON. Checking "status" key...');
+      } on FormatException catch (e, stackTrace) {
+        debugPrint('[FATAL] Failed to parse response JSON. The RAW RESPONSE above is not valid JSON.');
+        debugPrint('Error: $e');
+        debugPrint('Stack Trace: $stackTrace');
+        throw Exception('Failed to parse response JSON: $e.');
+      }
+
+      if (jsonData is! Map<String, dynamic> || jsonData['status'] != 'success') {
+        throw Exception('API returned status="${jsonData['status']}", message: ${jsonData['message']}');
+      }
+
+      debugPrint('STEP 5: JSON status is "success". Clearing old cache and processing new data...');
+      _apiDetails = {}; // Clear previous cache
+      final uniqueApis = <String>{};
+
+      final List<dynamic> dataList = jsonData['data'] ?? [];
+      debugPrint(' -> Found ${dataList.length} items in the "data" array.');
+
+      for (var item in dataList) {
+        if (item is! Map<String, dynamic>) {
+          debugPrint('   -> ⚠️ SKIPPED item because it was not a valid map.');
+          continue;
+        }
+
+        final String? apiName = item['APIName']?.toString();
+        if (apiName == null || apiName.isEmpty) {
+          debugPrint('   -> ⚠️ SKIPPED item because its APIName is null or empty. Item data: $item');
+          continue;
+        }
+
+        debugPrint('   -> Processing item with APIName: "$apiName"');
+        if (uniqueApis.contains(apiName)) {
+          debugPrint('      ⚠️ SKIPPED duplicate APIName: "$apiName"');
+          continue;
+        }
+
+        List<dynamic> parsedParameters = [];
+        try {
+          // ========== FIX #2 HERE ==========
+          final rawParams = item['parameters']; // Changed from 'Parameter' to match JSON
+          if (rawParams is String && rawParams.isNotEmpty) {
+            parsedParameters = jsonDecode(rawParams);
+          } else if (rawParams is List) { // Also handle if it's already a list
+            parsedParameters = rawParams;
+          }
+        } catch (e) {
+          debugPrint('      [WARNING] Could not parse "parameters" JSON for $apiName: $e. Defaulting to empty list.');
+        }
+
+        List<dynamic> parsedActions = [];
+        try {
+          final rawActions = item['actions_config'];
+          if (rawActions is String && rawActions.isNotEmpty) {
+            parsedActions = jsonDecode(rawActions);
+          } else if (rawActions is List) {
+            parsedActions = rawActions;
+          }
+        } catch(e) {
+          debugPrint('      [WARNING] Could not parse "actions_config" JSON for $apiName: $e. Defaulting to empty list.');
+        }
+
+        uniqueApis.add(apiName);
+        _apiDetails[apiName] = {
+          // ========== FIX #1 HERE ==========
+          'url': item['url']?.toString() ?? '', // Changed 'APIServerURl' to 'url'
+          // ===================================
+          'parameters': parsedParameters,
+          'serverIP': item['ServerIP']?.toString() ?? '',
+          'userName': item['UserName']?.toString() ?? '',
+          'password': item['Password']?.toString() ?? '',
+          'databaseName': item['DatabaseName']?.toString() ?? '',
+          'id': item['id']?.toString() ?? '',
+          'IsDashboard': item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true,
+          'actions_config': parsedActions,
+          'connectionString': item['connectionString']?.toString(),
+        };
+
+        debugPrint('      ✅ CACHED details for "$apiName"');
+      }
+      debugPrint('\nSTEP 6: Finished processing. Total unique APIs cached: ${uniqueApis.length}');
+      return uniqueApis.toList();
+
+    } catch (e, stackTrace) {
+      debugPrint('\n❌ =======================================================');
+      debugPrint('❌ CRITICAL ERROR in getAvailableApis');
+      debugPrint('❌ Error Type: ${e.runtimeType}');
+      debugPrint('❌ Error: $e');
+      debugPrint('❌ StackTrace: $stackTrace');
+      debugPrint('❌ =======================================================\n');
+      rethrow;
+    } finally {
+      debugPrint('\n🏁 =======================================================');
+      debugPrint('🏁 FINISHED DIAGNOSTIC FETCH: getAvailableApis');
+      debugPrint('🏁 =======================================================\n');
+    }
+  }
+
+
+  Future<Map<String, dynamic>> getApiDetails(String apiName) async {
+    await _ensureApiDetailsCacheLoaded();
+    final details = _apiDetails[apiName];
+    if (details != null) {
+      return details;
+    } else {
+      // This provides a more helpful error message if an API name is requested but not found.
+      debugPrint('[FATAL] API details not found for "$apiName". Available APIs are: ${_apiDetails.keys.toList()}');
+      throw Exception('API details not found for "$apiName".');
+    }
+  }
+
+  // --- START: FULLY REVAMPED fetchApiDataWithParams with ROBUST LOGGING AND ERROR HANDLING ---
+  Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams, {String? actionApiUrlTemplate}) async {
+    String effectiveBaseUrl;
+    Map<String, String> finalQueryParams = {};
+
+    debugPrint('--- [fetchApiDataWithParams] Preparing API call for "$apiName" ---');
+
+    try {
+      if (actionApiUrlTemplate != null && actionApiUrlTemplate.isNotEmpty) {
+        effectiveBaseUrl = actionApiUrlTemplate;
+        debugPrint(' -> Using provided actionApiUrlTemplate: $effectiveBaseUrl');
+        final Uri tempUri = Uri.parse(effectiveBaseUrl);
+        finalQueryParams.addAll(tempUri.queryParameters);
+      } else {
+        await _ensureApiDetailsCacheLoaded();
+        final apiDetail = await getApiDetails(apiName);
+        effectiveBaseUrl = apiDetail['url'] ?? '';
+        if (effectiveBaseUrl.isEmpty) {
+          throw Exception('API URL is missing for "$apiName" in cached details.');
+        }
+        debugPrint(' -> Using cached API URL: $effectiveBaseUrl');
+        final Uri tempUri = Uri.parse(effectiveBaseUrl);
+        finalQueryParams.addAll(tempUri.queryParameters);
+
+        // Safely add default parameters from cache
+        (apiDetail['parameters'] as List<dynamic>?)?.forEach((param) {
+          if (param is Map) {
+            final paramName = param['name']?.toString();
+            // IMPORTANT: Safely get the value, defaulting to empty string if null
+            final paramValue = param['value']?.toString() ?? '';
+            if (paramName != null && paramName.isNotEmpty) {
+              finalQueryParams[paramName] = paramValue;
+            }
+          }
+        });
+      }
+
+      // Override with user-provided parameters
+      finalQueryParams.addAll(userParams);
+      debugPrint(' -> Final combined query parameters: $finalQueryParams');
+
+      final Uri baseUriNoQuery = Uri.parse(effectiveBaseUrl).removeFragment().replace(query: '');
+      final uri = baseUriNoQuery.replace(queryParameters: finalQueryParams);
+
+      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchApiDataWithParams');
+      final response = await http.get(uri).timeout(const Duration(seconds: 180));
+
+      debugPrint(' -> Received response with status code: ${response.statusCode}');
+      debugPrint(' -> Raw response body:\n${response.body}');
+
+      final parsedData = _parseApiResponse(response);
+      return {'status': response.statusCode, 'data': parsedData, 'error': null};
+    } catch (e, stackTrace) {
+      // THIS IS THE CRITICAL LOGGING YOU NEEDED
+      debugPrint('--- [fetchApiDataWithParams] CRITICAL ERROR CAUGHT ---');
+      debugPrint(' -> Error Type: ${e.runtimeType}');
+      debugPrint(' -> Error Message: $e');
+      debugPrint(' -> Stack Trace:\n$stackTrace');
+      debugPrint('----------------------------------------------------');
+      // Return a structured error so the BLoC can display it
+      return {'status': 500, 'data': <Map<String, dynamic>>[], 'error': 'Failed to fetch data: $e'};
+    }
+  }
+  // --- END: FULLY REVAMPED fetchApiDataWithParams ---
+
+  // --- START: FULLY REVAMPED _parseApiResponse with ROBUST LOGGING AND NULL SAFETY ---
+  List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
+    debugPrint("--- [_parseApiResponse] Starting to parse response (Status: ${response.statusCode}) ---");
+    if (response.body.trim().isEmpty) {
+      if (response.statusCode == 200) {
+        debugPrint(" -> Response body is empty but status is 200. Returning empty list.");
+        return <Map<String, dynamic>>[];
+      } else {
+        throw Exception('API Error: Empty response body with status code ${response.statusCode}');
+      }
+    }
+
+    try {
+      final dynamic jsonData = jsonDecode(response.body);
+      debugPrint(" -> Successfully decoded JSON. Detected type: ${jsonData.runtimeType}");
+
+      // Case 1: The entire response is a JSON array
+      if (jsonData is List) {
+        debugPrint(" -> JSON is a List. Processing as a direct data array.");
+        // Ensure all elements are of the correct type before returning
+        return jsonData.whereType<Map<String, dynamic>>().toList();
+      }
+      // Case 2: The response is a JSON object (most common)
+      else if (jsonData is Map<String, dynamic>) {
+        debugPrint(" -> JSON is a Map. Looking for 'status' and 'data' keys.");
+        final status = jsonData['status'];
+        final isSuccess = status == 'success' || status == 200 || status == '200';
+
+        if (isSuccess && jsonData.containsKey('data')) {
+          final data = jsonData['data'];
+          debugPrint(" -> Status is 'success' and 'data' key exists. Data type is: ${data.runtimeType}");
+          if (data is List) {
+            return data.whereType<Map<String, dynamic>>().toList();
+          }
+          if (data is Map<String, dynamic>) {
+            return [Map<String, dynamic>.from(data)];
+          }
+          // Handle case where 'data' is null or not a List/Map
+          if (data == null) {
+            debugPrint(" -> 'data' key was found, but its value is null. Returning empty list.");
+            return [];
+          }
+          throw Exception("'data' field was found but is not a List or Map. It is: ${data.runtimeType}");
+
+        } else if (!isSuccess && jsonData.containsKey('message')) {
+          final errorMessage = jsonData['message']?.toString() ?? 'Unknown API Error';
+          throw Exception('API returned an error: $errorMessage');
+        } else {
+          // This can happen for APIs that return a single JSON object without a status wrapper
+          debugPrint(" -> No 'status'/'data' wrapper found. Treating the whole map as a single data item.");
+          return [jsonData];
+        }
+      }
+      // Case 3: Unexpected JSON format
+      else {
+        throw Exception('Invalid response format: Expected a JSON List or Map, but got ${jsonData.runtimeType}');
+      }
+    } on FormatException catch (e, stackTrace) {
+      debugPrint('[FATAL] Failed to parse response JSON. See raw body in previous log.');
+      debugPrint('Error: $e');
+      debugPrint('StackTrace: $stackTrace');
+      throw Exception('Failed to parse response JSON: $e.');
+    } catch (e, stackTrace) {
+      debugPrint('[FATAL] An unexpected error occurred during API response parsing.');
+      debugPrint('Error: $e');
+      debugPrint('StackTrace: $stackTrace');
+      rethrow;
     }
   }
 
@@ -370,104 +653,6 @@ class ReportAPIService {
     }
   }
 
-  Future<List<String>> getAvailableApis() async {
-    final url = _getEndpoints['get_database_server'];
-    if (url == null) throw Exception('GET API not found');
-
-    try {
-      final uri = Uri.parse(url);
-      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'getAvailableApis');
-
-      final response = await http.get(uri);
-      if (response.statusCode == 200) {
-        if (response.body.isEmpty) return <String>[];
-        try {
-          final jsonData = jsonDecode(response.body);
-          if (jsonData['status'] == 'success') {
-            _apiDetails = {};
-            final uniqueApis = <String>{};
-            for (var item in jsonData['data']) {
-              if (item is Map<String, dynamic> && item['APIName'] != null) {
-                final bool isDashboard = (item['IsDashboard'] == 1 || item['IsDashboard'] == '1' || item['IsDashboard'] == true);
-
-                if (!uniqueApis.contains(item['APIName'])) {
-                  uniqueApis.add(item['APIName']);
-
-                  // =========================================================================
-                  // == START: MODIFIED LOGIC TO EXTRACT CONNECTION STRING
-                  // =========================================================================
-                  String? connectionString;
-                  final rawParameters = item['Parameter'];
-
-                  if (rawParameters != null && rawParameters.toString().isNotEmpty) {
-                    try {
-                      final List<dynamic> decodedParams = jsonDecode(rawParameters);
-                      if (decodedParams.isNotEmpty) {
-                        final lastParam = decodedParams.last;
-                        if (lastParam is Map<String, dynamic> && lastParam.containsKey('value')) {
-                          connectionString = lastParam['value']?.toString();
-                        }
-                      }
-                    } catch (e) {
-                      // Could not parse parameters, connectionString remains null.
-                      debugPrint('Could not parse parameters for ${item['APIName']}: $e');
-                    }
-                  }
-                  // =========================================================================
-                  // == END: MODIFIED LOGIC
-                  // =========================================================================
-
-                  _apiDetails[item['APIName']] = {
-                    'url': item['APIServerURl'],
-                    'parameters': item['Parameter'] != null && item['Parameter'].toString().isNotEmpty ? jsonDecode(item['Parameter']) : <dynamic>[],
-                    'serverIP': item['ServerIP'],
-                    'userName': item['UserName'],
-                    'password': item['Password'],
-                    'databaseName': item['DatabaseName'],
-                    'id': item['id'],
-                    'IsDashboard': isDashboard,
-                    'actions_config': item['actions_config'] != null && item['actions_config'].toString().isNotEmpty ? jsonDecode(item['actions_config']) : <dynamic>[],
-                    'connectionString': connectionString, // MODIFIED: Store the extracted string
-                  };
-                }
-              }
-            }
-            return uniqueApis.toList();
-          } else {
-            throw Exception('API returned error: ${jsonData['message']}');
-          }
-        } on FormatException catch (e) {
-          throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
-        }
-      } else {
-        String errorMessage = 'Failed to load APIs: ${response.statusCode}';
-        if (response.body.isNotEmpty) {
-          try {
-            final errorData = jsonDecode(response.body);
-            if (errorData is Map<String, dynamic> && errorData.containsKey('message')) {
-              errorMessage += ' - ${errorData['message']}';
-            } else {
-              errorMessage += ' - Raw body: ${response.body}';
-            }
-          } catch (_) {
-            errorMessage += ' - Raw body: ${response.body}';
-          }
-        }
-        throw Exception(errorMessage);
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  Future<Map<String, dynamic>> getApiDetails(String apiName) async {
-    await _ensureApiDetailsCacheLoaded();
-    if (_apiDetails.containsKey(apiName)) {
-      return _apiDetails[apiName]!;
-    } else {
-      throw Exception('API details not found for "$apiName".');
-    }
-  }
 
   Future<List<Map<String, dynamic>>> fetchApiData(String apiName) async {
     final apiDetail = await getApiDetails(apiName);
@@ -535,80 +720,6 @@ class ReportAPIService {
     }
   }
 
-  Future<Map<String, dynamic>> fetchApiDataWithParams(String apiName, Map<String, String> userParams, {String? actionApiUrlTemplate}) async {
-    String effectiveBaseUrl;
-    Map<String, String> finalQueryParams = {};
-
-    if (actionApiUrlTemplate != null && actionApiUrlTemplate.isNotEmpty) {
-      effectiveBaseUrl = actionApiUrlTemplate;
-      final Uri tempUri = Uri.parse(effectiveBaseUrl);
-      finalQueryParams.addAll(tempUri.queryParameters);
-    } else {
-      await _ensureApiDetailsCacheLoaded();
-      final apiDetail = await getApiDetails(apiName);
-      effectiveBaseUrl = apiDetail['url'];
-      final Uri tempUri = Uri.parse(effectiveBaseUrl);
-      finalQueryParams.addAll(tempUri.queryParameters);
-      (apiDetail['parameters'] as List<dynamic>?)?.forEach((param) {
-        if (param is Map) {
-          final paramName = param['name']?.toString();
-          final paramValue = param['value']?.toString();
-          if (paramName != null && paramName.isNotEmpty) finalQueryParams[paramName] = paramValue ?? '';
-        }
-      });
-    }
-
-    finalQueryParams.addAll(userParams);
-    final Uri baseUriNoQuery = Uri.parse(effectiveBaseUrl).removeFragment().replace(query: '');
-    final uri = baseUriNoQuery.replace(queryParameters: finalQueryParams);
-
-    try {
-      _logRequest(httpMethod: 'GET', url: uri.toString(), functionName: 'fetchApiDataWithParams');
-      final response = await http.get(uri).timeout(const Duration(seconds: 180));
-      final parsedData = _parseApiResponse(response);
-      return {'status': response.statusCode, 'data': parsedData, 'error': response.statusCode != 200 ? 'Failed to load data: ${response.statusCode}' : null};
-    } catch (e) {
-      return {'status': null, 'data': <Map<String, dynamic>>[], 'error': 'Failed to fetch data: $e'};
-    }
-  }
-
-  List<Map<String, dynamic>> _parseApiResponse(http.Response response) {
-    try {
-      if (response.body.trim().isEmpty) {
-        return response.statusCode == 200 ? <Map<String, dynamic>>[] : throw Exception('Empty response body: ${response.statusCode}');
-      }
-      try {
-        final dynamic jsonData = jsonDecode(response.body);
-        if (jsonData is List) {
-          if (jsonData.isNotEmpty) {
-            if (jsonData[0] is List) return (jsonData[0] as List).whereType<Map<String, dynamic>>().toList();
-            if (jsonData[0] is Map<String, dynamic>) return jsonData.whereType<Map<String, dynamic>>().toList();
-            throw Exception('List contains unexpected element type: ${jsonData[0].runtimeType}');
-          }
-          return <Map<String, dynamic>>[];
-        } else if (jsonData is Map<String, dynamic>) {
-          final status = jsonData['status'];
-          final isSuccess = status == 'success' || status == 200 || status == '200';
-          if (isSuccess && jsonData.containsKey('data')) {
-            final data = jsonData['data'];
-            if (data is List) return data.whereType<Map<String, dynamic>>().toList();
-            if (data is Map<String, dynamic>) return [Map<String, dynamic>.from(data)];
-            throw Exception('Data field must be a list or a map');
-          } else if (!isSuccess && jsonData.containsKey('message')) {
-            throw Exception('API returned error: ${jsonData['message']}');
-          } else {
-            throw Exception('Unexpected response format: ${response.body}');
-          }
-        } else {
-          throw Exception('Invalid outermost response format: ${response.body}');
-        }
-      } on FormatException catch (e) {
-        throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
-      }
-    } catch (e) {
-      rethrow;
-    }
-  }
 
   Future<List<Map<String, dynamic>>> fetchDemoTable() async {
     final url = _getEndpoints['get_demo_table'];
@@ -668,9 +779,10 @@ class ReportAPIService {
     }
   }
 
+
   Future<List<Map<String, dynamic>>> fetchDemoTable2(String recNo) async {
     final url = _getEndpoints['get_demo_table2'];
-    if (url == null) throw Exception('GET API not found');
+    if (url == null) throw Exception('GET API not found for get_demo_table2');
 
     final fullUrl = '$url&RecNo=$recNo';
     try {
@@ -683,15 +795,47 @@ class ReportAPIService {
           final jsonData = jsonDecode(response.body);
           if (jsonData['status'] == 'success') {
             List<Map<String, dynamic>> fields = [];
+            if (jsonData['data'] is! List) {
+              throw Exception('API response for demo_table_2 did not contain a list in the "data" key.');
+            }
             for (var item in (jsonData['data'] as List)) {
               if (item is Map<String, dynamic>) {
                 Map<String, dynamic> fieldItem = Map.from(item);
+
                 fieldItem['is_api_driven'] = item['is_api_driven'] == '1' || item['is_api_driven'] == true;
                 fieldItem['api_url'] = item['api_url']?.toString() ?? '';
-                fieldItem['field_params'] = item['field_params'] is String && item['field_params'].isNotEmpty ? (jsonDecode(item['field_params']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+
+                try {
+                  final fieldParamsValue = item['field_params'];
+                  if (fieldParamsValue is String && fieldParamsValue.isNotEmpty) {
+                    fieldItem['field_params'] = (jsonDecode(fieldParamsValue) as List).cast<Map<String, dynamic>>();
+                  } else if (fieldParamsValue is List) {
+                    fieldItem['field_params'] = fieldParamsValue.cast<Map<String, dynamic>>();
+                  } else {
+                    fieldItem['field_params'] = <Map<String, dynamic>>[];
+                  }
+                } catch (e) {
+                  debugPrint('Could not parse field_params for RecNo $recNo: $e. Defaulting to empty list.');
+                  fieldItem['field_params'] = <Map<String, dynamic>>[];
+                }
+
                 fieldItem['is_user_filling'] = item['is_user_filling'] == '1' || item['is_user_filling'] == true;
                 fieldItem['updated_url'] = item['updated_url']?.toString() ?? '';
-                fieldItem['payload_structure'] = item['payload_structure'] is String && item['payload_structure'].isNotEmpty ? (jsonDecode(item['payload_structure']) as List).cast<Map<String, dynamic>>() : <Map<String, dynamic>>[];
+
+                try {
+                  final payloadStructureValue = item['payload_structure'];
+                  if (payloadStructureValue is String && payloadStructureValue.isNotEmpty) {
+                    fieldItem['payload_structure'] = (jsonDecode(payloadStructureValue) as List).cast<Map<String, dynamic>>();
+                  } else if (payloadStructureValue is List) {
+                    fieldItem['payload_structure'] = payloadStructureValue.cast<Map<String, dynamic>>();
+                  } else {
+                    fieldItem['payload_structure'] = <Map<String, dynamic>>[];
+                  }
+                } catch (e) {
+                  debugPrint('Could not parse payload_structure for RecNo $recNo: $e. Defaulting to empty list.');
+                  fieldItem['payload_structure'] = <Map<String, dynamic>>[];
+                }
+
                 fields.add(fieldItem);
               }
             }
@@ -703,7 +847,7 @@ class ReportAPIService {
           throw Exception('Failed to parse response JSON: $e. Raw response: "${response.body}".');
         }
       } else {
-        String errorMessage = 'Failed to load data: ${response.statusCode}';
+        String errorMessage = 'Failed to load data from demo_table_2: ${response.statusCode}';
         if (response.body.isNotEmpty) {
           try {
             final errorData = jsonDecode(response.body);
@@ -719,6 +863,7 @@ class ReportAPIService {
         throw Exception(errorMessage);
       }
     } catch (e) {
+      debugPrint('Critical error in fetchDemoTable2 for RecNo $recNo: $e');
       rethrow;
     }
   }
@@ -1063,7 +1208,6 @@ class ReportAPIService {
     debugPrint('Step 1: Deployment URL confirmed: $url');
 
     try {
-      // Log the raw data received from the BLoC
       debugPrint('\n--- Step 2: Logging Raw Input Data ---');
       debugPrint('Client Server IP: "$clientServerIP"');
       debugPrint('Client User Name: "$clientUserName"');
@@ -1076,7 +1220,6 @@ class ReportAPIService {
       debugPrint(jsonEncoder.convert(fieldConfigs));
       debugPrint('----------------------------------------');
 
-      // Prepare payload and log it
       debugPrint('\n--- Step 3: Preparing Payload for HTTP POST ---');
       final payload = {
         'report_metadata': jsonEncode(reportMetadata),
@@ -1092,7 +1235,6 @@ class ReportAPIService {
       debugPrint(jsonEncoder.convert(payload));
       debugPrint('------------------------------------------------');
 
-      // Make the HTTP request
       final uri = Uri.parse(url);
       debugPrint('\n--- Step 4: Making the HTTP POST Request ---');
       _logRequest(httpMethod: 'POST', url: uri.toString(), functionName: 'deployReportToClient (INTERNAL)');
@@ -1103,7 +1245,6 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 180));
 
-      // Log the full response
       debugPrint('\n--- Step 5: Received HTTP Response ---');
       debugPrint('Status Code: ${response.statusCode}');
       debugPrint('Response Headers:');
@@ -1157,7 +1298,6 @@ class ReportAPIService {
     }
   }
 
-// Add this new function to your ReportAPIService class
 
   Future<Map<String, dynamic>> transferReportToDatabase({
     required Map<String, dynamic> reportMetadata,
@@ -1166,7 +1306,7 @@ class ReportAPIService {
     required String targetUserName,
     required String targetPassword,
     required String targetDatabaseName,
-    required String targetConnectionString, // The new parameter
+    required String targetConnectionString,
   }) async {
     const jsonEncoder = JsonEncoder.withIndent('  ');
 
@@ -1174,7 +1314,6 @@ class ReportAPIService {
     debugPrint('====== START transferReportToDatabase INVOCATION ======');
     debugPrint('======================================================');
 
-    // Use a different endpoint key for the transfer operation
     final url = _postEndpoints['transfer_report'];
     if (url == null) {
       debugPrint('[FATAL ERROR] Transfer URL ("transfer_report") is not defined in _postEndpoints map.');
@@ -1185,13 +1324,12 @@ class ReportAPIService {
     debugPrint('Step 1: Transfer URL confirmed: $url');
 
     try {
-      // Log the raw data received from the BLoC
       debugPrint('\n--- Step 2: Logging Raw Input Data ---');
       debugPrint('Target Server IP: "$targetServerIP"');
       debugPrint('Target User Name: "$targetUserName"');
       debugPrint('Target Password: "${targetPassword.isNotEmpty ? "********" : "EMPTY"}"');
       debugPrint('Target Database Name: "$targetDatabaseName"');
-      debugPrint('Target Connection String: "$targetConnectionString"'); // Log the new string
+      debugPrint('Target Connection String: "$targetConnectionString"');
       debugPrint('--- Raw Report Metadata (from BLoC) ---');
       debugPrint(jsonEncoder.convert(reportMetadata));
       debugPrint('--- Raw Field Configs (from BLoC) ---');
@@ -1199,7 +1337,6 @@ class ReportAPIService {
       debugPrint(jsonEncoder.convert(fieldConfigs));
       debugPrint('----------------------------------------');
 
-      // Prepare payload with "target_" prefixed keys and the new connection string
       debugPrint('\n--- Step 3: Preparing Payload for HTTP POST ---');
       final payload = {
         'report_metadata': jsonEncode(reportMetadata),
@@ -1208,7 +1345,7 @@ class ReportAPIService {
         'client_user': targetUserName.trim(),
         'client_password': targetPassword.trim(),
         'client_database': targetDatabaseName.trim(),
-        'targetconnectionstring': targetConnectionString.trim(), // Add new field to payload
+        'targetconnectionstring': targetConnectionString.trim(),
       };
 
       debugPrint('--- Final Payload being sent to the server ---');
@@ -1216,7 +1353,6 @@ class ReportAPIService {
       debugPrint(jsonEncoder.convert(payload));
       debugPrint('------------------------------------------------');
 
-      // Make the HTTP request
       final uri = Uri.parse(url);
       debugPrint('\n--- Step 4: Making the HTTP POST Request ---');
       _logRequest(httpMethod: 'POST', url: uri.toString(), functionName: 'transferReportToDatabase (INTERNAL)');
@@ -1227,7 +1363,6 @@ class ReportAPIService {
         body: jsonEncode(payload),
       ).timeout(const Duration(seconds: 180));
 
-      // Log the full response
       debugPrint('\n--- Step 5: Received HTTP Response ---');
       debugPrint('Status Code: ${response.statusCode}');
       debugPrint('Response Headers:');
@@ -1566,7 +1701,6 @@ class ReportAPIService {
     required String serverIP,
     required String userName,
     required String password,
-    // UPDATED: Added new required parameters
     required String databaseName,
     required String connectionString,
   }) async {
@@ -1622,7 +1756,6 @@ class ReportAPIService {
         throw Exception(errorMessage);
       }
     } catch (e) {
-      // Rethrows the exception to be handled by the BLoC
       rethrow;
     }
   }
@@ -1636,21 +1769,14 @@ class ReportAPIService {
 
       if (response.statusCode == 200) {
         if (response.body.isEmpty) {
-          // If body is empty but status is 200, return a success map with empty data
           return {'status': 'success', 'data': []};
         }
         try {
           final dynamic jsonData = jsonDecode(response.body);
-          // Directly return the parsed JSON data, as the Bloc expects a Map
-          // and will handle extracting the 'data' key.
           if (jsonData is Map<String, dynamic>) {
-            // Log the full received map for debugging, as per your original problem
             debugPrint('Received full response map for getSetupConfigurations: ${response.body}');
             return jsonData;
           } else {
-            // If it's not a map (e.g., a direct list, or other unexpected format)
-            // convert it to a map with a 'data' key for consistency with the bloc's expectation
-            // (This fallback might be less common if backend is consistent)
             if (jsonData is List) {
               return {'status': 'success', 'data': jsonData};
             }
@@ -1687,7 +1813,6 @@ class ReportAPIService {
     required String clientPassword,
     required String clientDatabaseName,
   }) async {
-    // For pretty printing JSON in logs
     const jsonEncoder = JsonEncoder.withIndent('  ');
 
     debugPrint('\n\n======================================================');
@@ -1702,7 +1827,6 @@ class ReportAPIService {
     debugPrint('--- Step 1: Endpoint URL confirmed: $url');
 
 
-    // Step 2: Extract all unique report RecNo's from the dashboard layout
     final Set<String> reportRecNos = {};
     try {
       dynamic layoutConfig = dashboardData['LayoutConfig'];
@@ -1728,7 +1852,6 @@ class ReportAPIService {
 
     debugPrint('--- Step 2: Extracted ${reportRecNos.length} unique report dependencies: ${reportRecNos.toList()}');
 
-    // Step 3: Fetch the full data for each dependent report
     final List<Map<String, dynamic>> fullReportsData = [];
     debugPrint('--- Step 3a: Fetching all report metadata from the source (fetchDemoTable)...');
     final List<Map<String, dynamic>> allSourceReports = await fetchDemoTable();
@@ -1759,7 +1882,6 @@ class ReportAPIService {
     debugPrint('--- Step 3c: Successfully bundled all ${fullReportsData.length} reports with their field configs.');
 
 
-    // Step 4: Assemble the final payload for the API
     final payload = {
       'dashboard_data':dashboardData,
       'reports':  fullReportsData,
@@ -1770,9 +1892,7 @@ class ReportAPIService {
     };
 
     debugPrint('--- Step 4: Final payload assembled. Preparing to send...');
-    // The _logRequest function will pretty-print the full payload.
 
-    // Step 5: Make the API call
     try {
       final uri = Uri.parse(url);
       _logRequest(httpMethod: 'POST', url: uri.toString(), payload: payload, functionName: 'transferFullDashboard (INTERNAL)');
@@ -1826,42 +1946,30 @@ class ReportAPIService {
       debugPrint('Error Type: ${e.runtimeType}');
       debugPrint('Error: $e');
       debugPrint('====================== TRANSFER END (CRITICAL ERROR) ======================');
-      // This is where the CORS ClientException is caught. We rethrow it so the UI can display the message.
       rethrow;
     }
   }
 
-  /// Fetches all reports that are associated with a specific database.
-  ///
-  /// It works by:
-  /// 1. Fetching all reports from `demo_table`.
-  /// 2. For each report, it looks up the details of its associated API.
-  /// 3. It then checks if the database name for that API matches the provided [databaseName].
-  /// 4. Returns a list of all matching reports.
+
   Future<List<Map<String, dynamic>>> fetchReportsForApi(String databaseName) async {
     _logRequest(httpMethod: 'INTERNAL', url: 'N/A', functionName: 'fetchReportsForApi(databaseName: $databaseName)');
     try {
-      // Step 1: Fetch all reports from demo_table.
       final List<Map<String, dynamic>> allReports = await fetchDemoTable();
       final List<Map<String, dynamic>> matchedReports = [];
 
-      // Step 2: Iterate through each report to check its database connection.
       for (final report in allReports) {
         final String? apiName = report['API_name']?.toString();
 
         if (apiName != null && apiName.isNotEmpty) {
           try {
-            // Step 3: Get the details for the API linked to the report.
             final apiDetails = await getApiDetails(apiName);
             final String? apiDatabaseName = apiDetails['databaseName']?.toString();
 
-            // Step 4: Compare the database name and add to collection if it matches.
             if (apiDatabaseName == databaseName) {
               matchedReports.add(report);
             }
           } catch (e) {
-            // This catch block handles cases where a report in demo_table
-            // references an API_name that no longer exists in demotable1.
+
             debugPrint('Could not retrieve details for API \'$apiName\'. It might be misconfigured or deleted. Skipping report \'${report['Report_name']}\'. Error: $e');
           }
         }
@@ -1869,7 +1977,7 @@ class ReportAPIService {
       return matchedReports;
     } catch (e) {
       debugPrint('An error occurred in fetchReportsForApi: $e');
-      rethrow; // Rethrow the error to be handled by the caller.
+      rethrow;
     }
   }
 }

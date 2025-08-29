@@ -269,7 +269,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
     ));
   }
 
-  // =========== MODIFICATION STARTS HERE: Corrected logic with extensive logging ===========
+  // =========== MODIFICATION STARTS HERE: Corrected logic to prevent race condition ===========
   Future<void> _onLoadReports(LoadReports event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
     try {
@@ -281,7 +281,7 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         return;
       }
 
-      // 2. Get a unique list of API names from the reports to avoid duplicate calls.
+      // 2. Get a unique list of API names from the reports.
       final Set<String> apiNames = reports
           .map((report) => report['API_name']?.toString())
           .whereType<String>()
@@ -290,44 +290,45 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
       debugPrint('Bloc: Found ${apiNames.length} unique API names to fetch details for: $apiNames');
 
-      // 3. Fetch all API details concurrently.
-      // We map each name to a future that will return a map containing BOTH the original name and its details.
+      // 3. PRIME THE CACHE: Make one awaited call to ensure the service loads all API details.
+      if (apiNames.isNotEmpty) {
+        try {
+          debugPrint("Bloc: Priming the API details cache with call for '${apiNames.first}'...");
+          await apiService.getApiDetails(apiNames.first);
+          debugPrint("Bloc: API details cache should now be populated.");
+        } catch (e) {
+          // Log the error but continue, as other calls might still work if the cache partially loaded.
+          debugPrint("Bloc: Priming call for API details cache failed. Subsequent calls might also fail. Error: $e");
+        }
+      }
+
+      // 4. Now, fetch all API details concurrently. They should read from the now-populated cache.
       final apiDetailsFutures = apiNames.map((name) async {
         try {
           final details = await apiService.getApiDetails(name);
-          // IMPORTANT: Combine the original name with the fetched details to avoid losing the link.
           return {'originalApiName': name, ...details};
         } catch (e) {
-          debugPrint("Bloc: Could not fetch details for '$name', it will be skipped. Error: $e");
-          // Return at least the name on error so we know which one failed.
-          return {'originalApiName': name};
+          debugPrint("Bloc: Could not fetch details for '$name' from cache. Error: $e");
+          return {'originalApiName': name}; // Return name on error.
         }
       });
       final allApiDetailsList = await Future.wait(apiDetailsFutures);
 
-      // 4. Create a lookup map from API name to Database name.
-      debugPrint('Bloc: Building API-to-Database map...');
+      // 5. Create a lookup map from API name to Database name.
       final Map<String, String> apiToDbNameMap = {};
       for (var details in allApiDetailsList) {
-        // Use the original name we explicitly saved.
         final apiName = details['originalApiName']?.toString();
         final dbName = details['databaseName']?.toString();
-
         if (apiName != null && dbName != null) {
           apiToDbNameMap[apiName] = dbName;
-          debugPrint("Bloc: Mapped '$apiName' -> '$dbName'");
-        } else {
-          debugPrint("Bloc: Could not create mapping for '$apiName' (DB name was null).");
         }
       }
       debugPrint('Bloc: Finished building map. Mapped ${apiToDbNameMap.length} items.');
 
-      // 5. Enrich the original reports list with the database name.
+      // 6. Enrich the original reports list with the database name.
       final List<Map<String, dynamic>> enrichedReports = reports.map((report) {
         final apiName = report['API_name']?.toString();
-        // Look up using the report's API name.
         final dbName = apiToDbNameMap[apiName];
-        // Return a new map with the added DatabaseName key. It will be null if not found.
         return {...report, 'DatabaseName': dbName};
       }).toList();
 
@@ -479,42 +480,38 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
 
   Future<void> _onFetchFieldConfigs(FetchFieldConfigs event, Emitter<ReportState> emit) async {
     emit(state.copyWith(isLoading: true, error: null, successMessage: null));
-
     debugPrint('Bloc: [_onFetchFieldConfigs] - START for RecNo=${event.recNo}, apiName=${event.apiName}');
-    debugPrint('Bloc: [_onFetchFieldConfigs] - Dynamic parameters for API call: ${event.dynamicApiParams}');
 
     try {
-      final results = await Future.wait([
-        apiService.fetchDemoTable2(event.recNo),
-        apiService.fetchApiDataWithParams(
-          event.apiName,
-          event.dynamicApiParams ?? state.userParameterValues,
-          actionApiUrlTemplate: event.actionApiUrlTemplate,
-        ),
-      ]);
+      // More robust logging for parallel calls
+      debugPrint('Bloc: [_onFetchFieldConfigs] -> Kicking off Future 1: fetchDemoTable2 for RecNo ${event.recNo}');
+      final futureFieldConfigs = apiService.fetchDemoTable2(event.recNo);
+
+      debugPrint('Bloc: [_onFetchFieldConfigs] -> Kicking off Future 2: fetchApiDataWithParams for API ${event.apiName}');
+      final futureReportData = apiService.fetchApiDataWithParams(
+        event.apiName,
+        event.dynamicApiParams ?? state.userParameterValues,
+        actionApiUrlTemplate: event.actionApiUrlTemplate,
+      );
+
+      // Wait for both to complete and log the outcome
+      final results = await Future.wait([futureFieldConfigs, futureReportData]);
+      debugPrint('Bloc: [_onFetchFieldConfigs] -> Both futures completed successfully.');
 
       final fieldConfigs = results[0] as List<Map<String, dynamic>>;
       final apiResponse = results[1] as Map<String, dynamic>;
 
-      debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched ${fieldConfigs.length} field configs.');
-      debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched grid data API response status: ${apiResponse['status']}');
+      debugPrint('Bloc: [_onFetchFieldConfigs] -> Result 1 (fieldConfigs): ${fieldConfigs.length} items.');
+      debugPrint('Bloc: [_onFetchFieldConfigs] -> Result 2 (apiResponse): status ${apiResponse['status']}.');
 
       List<Map<String, dynamic>> reportData = [];
       String? errorMessage;
 
       if (apiResponse['status'] == 200) {
         reportData = List<Map<String, dynamic>>.from(apiResponse['data'] ?? []);
-        debugPrint('Bloc: [_onFetchFieldConfigs] - Fetched ${reportData.length} rows for grid report.');
       } else {
-        errorMessage = apiResponse['error'] ?? 'Unexpected error occurred.';
-        debugPrint('Bloc: [_onFetchFieldConfigs] - API response status not 200 for grid report: $errorMessage');
+        errorMessage = apiResponse['error'] ?? 'API returned non-200 status for report data.';
       }
-
-      debugPrint('Bloc: [_onFetchFieldConfigs] - Preparing to emit final state with:');
-      debugPrint('  - isLoading: false');
-      debugPrint('  - fieldConfigs count: ${fieldConfigs.length}');
-      debugPrint('  - reportData count: ${reportData.length}');
-      debugPrint('  - error: $errorMessage');
 
       emit(state.copyWith(
         isLoading: false,
@@ -524,12 +521,19 @@ class ReportBlocGenerate extends Bloc<ReportEvent, ReportState> {
         selectedApiName: event.apiName,
         selectedReportLabel: event.reportLabel,
         error: errorMessage,
-        apiDrivenFieldOptions: {},
+        apiDrivenFieldOptions: {}, // Clear previous options
       ));
-      debugPrint('Bloc: [_onFetchFieldConfigs] - SUCCESS. State emitted with field configs.');
-    } catch (e) {
-      debugPrint('Bloc: [_onFetchFieldConfigs] - ERROR: $e');
-      emit(state.copyWith(isLoading: false, error: 'Failed to fetch field configs: $e'));
+      debugPrint('Bloc: [_onFetchFieldConfigs] - SUCCESS. State emitted.');
+
+    } catch (e, stackTrace) {
+      // This detailed catch block is crucial for debugging
+      debugPrint('================================================================');
+      debugPrint(' Bloc: [_onFetchFieldConfigs] - CRITICAL ERROR CAUGHT ');
+      debugPrint(' Error Type: ${e.runtimeType}');
+      debugPrint(' Error: $e');
+      debugPrint(' Stack Trace: $stackTrace');
+      debugPrint('================================================================');
+      emit(state.copyWith(isLoading: false, error: 'Failed to fetch report configuration or data: $e'));
     }
   }
 
